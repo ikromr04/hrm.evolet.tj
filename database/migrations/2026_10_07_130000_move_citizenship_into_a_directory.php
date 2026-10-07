@@ -16,13 +16,25 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // A run that failed half way leaves its tables behind — MySQL cannot take
+        // a CREATE TABLE back — and is not recorded as done, so the next run
+        // would stop at "already exists". Nothing else ever made these tables.
+        Schema::dropIfExists('citizenship_user');
+        Schema::dropIfExists('citizenships');
+
         Schema::create('citizenships', function (Blueprint $table) {
+            // Spelled out: a host whose default is MyISAM caps a key at 1000
+            // bytes, which a 255-character utf8mb4 name overruns, and drops the
+            // foreign keys below without a word. A hundred characters is also
+            // what the directory and the card accept.
+            $table->engine('InnoDB');
             $table->id();
-            $table->string('name')->unique();
+            $table->string('name', 100)->unique();
             $table->timestamps();
         });
 
         Schema::create('citizenship_user', function (Blueprint $table) {
+            $table->engine('InnoDB');
             $table->id();
             $table->foreignId('citizenship_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
