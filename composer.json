@@ -22,6 +22,7 @@
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "^4.4",
+        "brianium/paratest": "^7.8",
         "fakerphp/faker": "^1.23",
         "laravel-lang/common": "^6.8",
         "laravel/pail": "^1.2.2",
