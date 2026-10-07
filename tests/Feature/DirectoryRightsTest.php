@@ -45,6 +45,7 @@ class DirectoryRightsTest extends TestCase
         'positions' => '/directories/positions',
         'departments' => '/directories/departments',
         'languages' => '/directories/languages',
+        'citizenships' => '/directories/citizenships',
         'equipment' => '/directories/equipment',
         'access' => '/directories/access',
     ];

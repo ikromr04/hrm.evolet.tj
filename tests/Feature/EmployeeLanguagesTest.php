@@ -82,6 +82,32 @@ class EmployeeLanguagesTest extends TestCase
             ->assertSessionHasErrors(['languages.0.level', 'languages.0.id']);
     }
 
+    public function test_a_language_missing_from_the_list_is_added_by_name()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        Language::create(['name' => 'Английский']);
+        $employee = $this->colleague();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/languages", [
+                'languages' => [
+                    ['name' => ' Китайский ', 'level' => 'beginner'],
+                    // Already on the list under another case: the same language, not a second one.
+                    ['name' => 'английский', 'level' => 'advanced'],
+                ],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(['Английский', 'Китайский'], Language::orderBy('name')->pluck('name')->all());
+        $this->assertSame(
+            ['Английский' => 'advanced', 'Китайский' => 'beginner'],
+            $employee->languages()->orderBy('name')->get()->mapWithKeys(fn (Language $l) => [$l->name => $l->pivot->level])->all(),
+        );
+
+        $this->put("/employees/{$employee->id}/languages", ['languages' => [['level' => 'beginner']]])
+            ->assertSessionHasErrors(['languages.0.id', 'languages.0.name']);
+    }
+
     public function test_the_language_list_reaches_editors_only()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');

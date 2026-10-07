@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateContactsRequest;
 use App\Http\Requests\UpdateFamilyRequest;
 use App\Http\Requests\UpdatePersonalDataRequest;
+use App\Models\Citizenship;
 use App\Models\Language;
 use App\Models\User;
 use App\Notifications\PlacementChanged;
@@ -72,7 +73,13 @@ class EmployeeDetailsController extends Controller
         DB::transaction(function () use ($employee, $data) {
             $employee->update(Arr::only($data, self::ON_USER));
 
-            $details = Arr::except($data, [...self::ON_USER, ...self::RELATIONS]);
+            $details = Arr::except($data, [...self::ON_USER, ...self::RELATIONS, 'citizenship']);
+
+            // Countries by name: one missing from the directory is added to it,
+            // so it can be typed in right here rather than in «Справочники».
+            if (array_key_exists('citizenship', $data)) {
+                $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
+            }
 
             if ($details !== []) {
                 $employee->details()->updateOrCreate([], $details);
@@ -188,14 +195,35 @@ class EmployeeDetailsController extends Controller
         $data = $request->validate([
             'languages' => ['present', 'array'],
             // Each language once, so the list cannot hold two levels for one.
-            'languages.*.id' => ['required', 'integer', 'distinct', Rule::exists('languages', 'id')],
+            'languages.*.id' => ['nullable', 'required_without:languages.*.name', 'integer', 'distinct', Rule::exists('languages', 'id')],
+            // A language missing from the list is named instead, and added to it
+            // here: whoever may fill this card in may also add the language.
+            'languages.*.name' => ['nullable', 'required_without:languages.*.id', 'string', 'max:100'],
             'languages.*.level' => ['required', Rule::in(Language::LEVELS)],
         ], attributes: [
             'languages.*.id' => 'язык',
+            'languages.*.name' => 'язык',
             'languages.*.level' => 'уровень',
         ]);
 
-        $employee->languages()->sync(collect($data['languages'])->mapWithKeys(fn (array $l) => [$l['id'] => ['level' => $l['level']]]));
+        DB::transaction(function () use ($employee, $data) {
+            // Matched without regard to case, so "китайский" finds "Китайский"
+            // rather than putting a second one on the list.
+            $known = Language::query()->get(['id', 'name'])->keyBy(fn (Language $l) => mb_strtolower($l->name));
+
+            $levels = collect($data['languages'])->mapWithKeys(function (array $l) use ($known) {
+                $id = $l['id'] ?? null;
+
+                if ($id === null) {
+                    $name = trim($l['name']);
+                    $id = ($known[mb_strtolower($name)] ?? Language::create(['name' => $name]))->id;
+                }
+
+                return [$id => ['level' => $l['level']]];
+            });
+
+            $employee->languages()->sync($levels);
+        });
 
         return back();
     }

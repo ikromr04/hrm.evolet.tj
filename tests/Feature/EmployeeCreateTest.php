@@ -52,7 +52,7 @@ class EmployeeCreateTest extends TestCase
             'email' => 'nilufar@evolet.tj',
             'birth_date' => '1990-04-17',
             'birth_place' => 'г. Худжанд',
-            'citizenship' => 'Таджикистан',
+            'citizenship' => ['Таджикистан'],
             'hired_at' => '2026-03-02',
             'roles' => [],
             'positions' => [],
@@ -106,7 +106,7 @@ class EmployeeCreateTest extends TestCase
         // The first step also carries the personal facts of the profile's card.
         $this->assertSame('1990-04-17', $employee->details->birth_date->toDateString());
         $this->assertSame('г. Худжанд', $employee->details->birth_place);
-        $this->assertSame('Таджикистан', $employee->details->citizenship);
+        $this->assertSame(['Таджикистан'], $employee->citizenships->pluck('name')->all());
         $this->assertTrue($employee->hasRole('specialist'));
         $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());

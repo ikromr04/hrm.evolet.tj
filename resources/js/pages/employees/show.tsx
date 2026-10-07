@@ -1,3 +1,4 @@
+import { CitizenshipBadges } from '@/components/citizenship-badges';
 import { EmployeeActions } from '@/components/employee-actions';
 import { ChangeLines } from '@/components/equipment-changes';
 import InputError from '@/components/input-error';
@@ -6,6 +7,7 @@ import { MultiSelect } from '@/components/multi-select';
 import { PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
+import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -368,7 +370,7 @@ function PersonalDialog({
         sex: employee.sex,
         birth_date: details?.birth_date ?? '',
         birth_place: details?.birth_place ?? '',
-        citizenship: details?.citizenship ?? '',
+        citizenship: details?.citizenship ?? [],
         nationality: details?.nationality ?? '',
         home_address: details?.home_address ?? '',
         roles: assigned.roles,
@@ -404,13 +406,8 @@ function PersonalDialog({
                             <option key={value} value={value} />
                         ))}
                     </datalist>
-                    <datalist id="personal-citizenships">
-                        {options.citizenships.map((value) => (
-                            <option key={value} value={value} />
-                        ))}
-                    </datalist>
 
-                    <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+                    <div className="grid gap-4">
                         {/* Everybody reads these two; retyping them is a right like any
                         other, and the server drops them from a save without it. */}
                         {canEdit('surname') && (
@@ -486,7 +483,7 @@ function PersonalDialog({
                         )}
 
                         {canEdit('birth_place') && (
-                            <div className="grid content-start gap-2 sm:col-span-2">
+                            <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-birth-place">Место рождения</Label>
                                 <Input
                                     id="personal-birth-place"
@@ -515,19 +512,26 @@ function PersonalDialog({
                         {canEdit('citizenship') && (
                             <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-citizenship">Гражданство</Label>
-                                <Input
+                                <MultiSelect
                                     id="personal-citizenship"
-                                    list="personal-citizenships"
+                                    creatable
+                                    options={options.citizenships.map((value) => ({ value, label: value }))}
                                     value={form.data.citizenship}
-                                    onChange={(e) => form.setData('citizenship', e.target.value)}
-                                    aria-invalid={!!form.errors.citizenship}
+                                    onChange={(value) => form.setData('citizenship', value)}
+                                    placeholder="Выберите или впишите страну"
+                                    searchPlaceholder="Страна"
                                 />
-                                <InputError message={form.errors.citizenship} />
+                                {/* A wrong country is reported on its own line ("citizenship.1"). */}
+                                <InputError
+                                    message={
+                                        form.errors.citizenship ?? Object.entries(form.errors).find(([key]) => key.startsWith('citizenship.'))?.[1]
+                                    }
+                                />
                             </div>
                         )}
 
                         {canEdit('home_address') && (
-                            <div className="grid content-start gap-2 sm:col-span-2">
+                            <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-home-address">Домашний адрес</Label>
                                 <Input
                                     id="personal-home-address"
@@ -540,7 +544,7 @@ function PersonalDialog({
                         )}
 
                         {canEdit('roles') && (
-                            <div className="grid content-start gap-2 sm:col-span-2">
+                            <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-roles">Позиция</Label>
                                 <MultiSelect
                                     id="personal-roles"
@@ -560,7 +564,7 @@ function PersonalDialog({
                         )}
 
                         {canEdit('positions') && (
-                            <div className="grid content-start gap-2 sm:col-span-2">
+                            <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-positions">Должность</Label>
                                 <MultiSelect
                                     id="personal-positions"
@@ -573,7 +577,7 @@ function PersonalDialog({
                         )}
 
                         {canEdit('departments') && (
-                            <div className="grid content-start gap-2 sm:col-span-2">
+                            <div className="grid content-start gap-2">
                                 <Label htmlFor="personal-departments">Отдел</Label>
                                 <MultiSelect
                                     id="personal-departments"
@@ -606,10 +610,10 @@ function PersonalDialog({
 }
 
 /** The area left under the tabs, split into a main column and a sidebar. */
-const paneGrid = 'grid gap-4 max-md:gap-4 md:min-h-0 md:flex-1 lg:grid-cols-[1fr_24rem]';
+const paneGrid = 'grid gap-4 max-md:gap-4 lg:grid-cols-[1fr_24rem]';
 
-/** One scrolling column of that area; scroll-soft keeps its bar out of sight until needed. */
-const pane = 'scroll-soft flex min-w-0 flex-col gap-4 max-md:gap-4 lg:min-h-0 lg:overflow-y-auto';
+/** One column of that area. */
+const pane = 'flex min-w-0 flex-col gap-4 max-md:gap-4';
 
 /**
  * Contacts are dialled and written to, so they carry the brand colour and an
@@ -868,23 +872,35 @@ function EmploymentDialog({ employee, details, onClose }: { employee: Employee; 
 
 /** The "Знание языков" card in a form: a level per language, each language once. */
 function LanguagesDialog({ employee, options, onClose }: { employee: Employee; options: EditOptions; onClose: () => void }) {
+    // A row holds the language's id, or "new:<name>" for one typed in that is not on the list yet.
     const form = useForm({
-        languages: (employee.languages ?? []).map((language) => ({ id: language.id, level: language.level })),
+        languages: (employee.languages ?? []).map((language) => ({ id: String(language.id), level: language.level })),
     });
+    const [created, setCreated] = useState<string[]>([]);
+    const choices = [
+        ...options.languages.map((option) => ({ value: String(option.id), label: option.name })),
+        ...created.map((name) => ({ value: `new:${name}`, label: name })),
+    ];
 
     const errors = form.errors as Record<string, string | undefined>;
 
-    const setLanguage = (index: number, patch: Partial<{ id: number; level: LanguageLevel }>) =>
+    const setLanguage = (index: number, patch: Partial<{ id: string; level: LanguageLevel }>) =>
         form.setData(
             'languages',
             form.data.languages.map((language, i) => (i === index ? { ...language, ...patch } : language)),
         );
 
     // Each language once: a new row takes the first one not picked yet.
-    const unused = options.languages.find((option) => !form.data.languages.some((l) => l.id === option.id));
+    const unused = choices.find((choice) => !form.data.languages.some((l) => l.id === choice.value));
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
+        // A language typed in goes by its name; the server puts it on the list.
+        form.transform((data) => ({
+            languages: data.languages.map(({ id, level }) =>
+                id.startsWith('new:') ? { name: id.slice(4), level } : { id: id === '' ? null : Number(id), level },
+            ),
+        }));
         form.put(route('employees.languages', employee.id), { preserveScroll: true, onSuccess: onClose });
     };
 
@@ -905,23 +921,20 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
                             <div key={index} className="flex items-start gap-2">
                                 <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[1fr_9.5rem]">
                                     <div className="flex flex-col gap-1">
-                                        <Select value={String(language.id)} onValueChange={(value) => setLanguage(index, { id: Number(value) })}>
-                                            <SelectTrigger aria-label="Язык">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent className="max-h-72">
-                                                {options.languages
-                                                    .filter(
-                                                        (option) => option.id === language.id || !form.data.languages.some((l) => l.id === option.id),
-                                                    )
-                                                    .map((option) => (
-                                                        <SelectItem key={option.id} value={String(option.id)}>
-                                                            {option.name}
-                                                        </SelectItem>
-                                                    ))}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError message={errors[`languages.${index}.id`]} />
+                                        <SearchableSelect
+                                            value={language.id}
+                                            onChange={(value) => setLanguage(index, { id: value })}
+                                            options={choices.filter(
+                                                (choice) => choice.value === language.id || !form.data.languages.some((l) => l.id === choice.value),
+                                            )}
+                                            onCreate={(name) => {
+                                                setCreated((current) => (current.includes(name) ? current : [...current, name]));
+                                                setLanguage(index, { id: `new:${name}` });
+                                            }}
+                                            searchPlaceholder="Язык"
+                                            invalid={Boolean(errors[`languages.${index}.id`] ?? errors[`languages.${index}.name`])}
+                                        />
+                                        <InputError message={errors[`languages.${index}.id`] ?? errors[`languages.${index}.name`]} />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <Select
@@ -965,8 +978,8 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
                             type="button"
                             variant="outline"
                             className="self-start"
-                            disabled={!unused}
-                            onClick={() => unused && form.setData('languages', [...form.data.languages, { id: unused.id, level: 'intermediate' }])}
+                            // With every language on the list taken, the new row starts empty for one to be typed in.
+                            onClick={() => form.setData('languages', [...form.data.languages, { id: unused?.value ?? '', level: 'intermediate' }])}
                         >
                             <Plus />
                             Добавить язык
@@ -1796,11 +1809,25 @@ function Departments({ items }: { items: NonNullable<Employee['departments']> })
 
 /** One language per row: the name on the left, the level as a badge on the right. */
 function Languages({ items }: { items: SpokenLanguage[] }) {
+    const can = useCan();
+    // The name leads to everyone who speaks it, for a viewer the staff list would let filter by it.
+    const links = can('employees.view') && can('employees.field.languages');
+
     return (
         <ul className="flex flex-col">
             {items.map((language) => (
                 <li key={language.id} className={cn(recordRow, 'flex items-center justify-between gap-3 md:py-2.5')}>
-                    <span className="truncate text-sm font-medium max-md:text-[15px] max-md:font-normal">{language.name}</span>
+                    {links ? (
+                        <Link
+                            href={route('employees.index', { language: [language.id] })}
+                            title={`Владеют языком: ${language.name}`}
+                            className="hover:text-brand-strong truncate text-sm font-medium underline-offset-4 hover:underline max-md:text-[15px] max-md:font-normal"
+                        >
+                            {language.name}
+                        </Link>
+                    ) : (
+                        <span className="truncate text-sm font-medium max-md:text-[15px] max-md:font-normal">{language.name}</span>
+                    )}
                     <LevelBadge level={language.level} />
                 </li>
             ))}
@@ -2257,11 +2284,11 @@ export default function EmployeeProfile({
 
     return (
         <ProfileFields visible={visibleFields} editable={editableFields}>
-            <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+            <AppLayout breadcrumbs={breadcrumbs}>
                 <Head title={shortName} />
 
-                {/* The header and tabs stay put; each column below scrolls on its own. */}
-                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
+                {/* The page scrolls as a whole, header and tabs included. */}
+                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
                     {/* On a phone the hero is centred, like a contact card: the face,
                     the name under it, then the ways to reach the person. */}
                     <div className="flex flex-col gap-5 px-1 pt-1 max-md:relative max-md:items-center max-md:gap-3 max-md:pb-1 max-md:text-center md:flex-row md:flex-wrap md:items-end">
@@ -2363,9 +2390,9 @@ export default function EmployeeProfile({
 
                     <Tabs tabs={tabs} active={tab} onChange={setTab} />
 
-                    {/* One card per tab, in a pane of its own that takes the height left over. */}
+                    {/* One card per tab. */}
                     {tab !== 'profile' && (
-                        <div className="scroll-soft flex flex-col gap-4 md:min-h-0 md:flex-1 md:overflow-y-auto">
+                        <div className="flex flex-col gap-4">
                             {tab === 'education' && details && (
                                 <>
                                     <Section>
@@ -2418,7 +2445,7 @@ export default function EmployeeProfile({
                             {tab === 'equipment' && details && (
                                 // What they hold now on the left, what has been
                                 // through their hands on the right.
-                                <div className={cn(paneGrid, 'scroll-soft md:overflow-y-auto lg:overflow-hidden')}>
+                                <div className={paneGrid}>
                                     <div className={pane}>
                                         <Section
                                             title="Текущие оборудования"
@@ -2456,9 +2483,8 @@ export default function EmployeeProfile({
 
                     {tab === 'profile' &&
                         (details ? (
-                            // Narrow: one column, the grid scrolls. Wide: two columns,
-                            // each scrolling on its own so neither drags the other along.
-                            <div className={cn(paneGrid, 'scroll-soft md:overflow-y-auto lg:overflow-hidden')}>
+                            // Narrow: one column. Wide: the main column and a sidebar.
+                            <div className={paneGrid}>
                                 <div className={pane}>
                                     <Section
                                         title="Основные данные"
@@ -2493,7 +2519,16 @@ export default function EmployeeProfile({
                                                 {details.birth_place}
                                             </Field>
                                             <Field label="Гражданство" field="citizenship">
-                                                {details.citizenship}
+                                                {details.citizenship?.length ? (
+                                                    <CitizenshipBadges
+                                                        countries={details.citizenship}
+                                                        href={
+                                                            can('employees.view') && can('employees.field.citizenship')
+                                                                ? (country) => route('employees.index', { citizenship: [country] })
+                                                                : undefined
+                                                        }
+                                                    />
+                                                ) : null}
                                             </Field>
                                             <Field label="Национальность" field="nationality">
                                                 {details.nationality && capitalize(details.nationality)}
@@ -2728,7 +2763,7 @@ export default function EmployeeProfile({
                                 </aside>
                             </div>
                         ) : (
-                            <div className={cn(paneGrid, 'scroll-soft md:overflow-y-auto lg:overflow-hidden')}>
+                            <div className={paneGrid}>
                                 <div className={pane}>
                                     <Section
                                         // The same block under the same name: what is in it depends

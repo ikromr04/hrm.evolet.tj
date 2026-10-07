@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
+use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
@@ -48,7 +49,7 @@ class EmployeeController extends Controller
 
     public const STATUSES = ['active', 'transferred', 'fired'];
 
-    private const PUBLIC_SORTS = ['name', 'role', 'department', 'position', 'sex'];
+    private const PUBLIC_SORTS = ['created', 'name', 'role', 'department', 'position', 'sex'];
 
     /** @var Collection<int, Department>|null All departments keyed by id; the tree is small. */
     private ?Collection $departments = null;
@@ -86,7 +87,7 @@ class EmployeeController extends Controller
         $canStatus = $viewer->can('employees.fire');
         $sortable = array_values(array_filter(
             [...self::PUBLIC_SORTS, ...self::PRIVATE_SORTS],
-            fn (string $sort) => $shows(self::SORT_FIELDS[$sort] ?? $sort) || ($sort === 'name'),
+            fn (string $sort) => $shows(self::SORT_FIELDS[$sort] ?? $sort) || in_array($sort, ['created', 'name'], true),
         ));
         // A filter on a field that is not shown is not merely ignored: sending it
         // is refused, so nobody narrows a list by what they cannot read.
@@ -145,8 +146,10 @@ class EmployeeController extends Controller
             'hired_to' => $input['hired_to'] ?? null,
         ];
 
-        $sort = $input['sort'] ?? 'name';
-        $direction = $input['direction'] ?? 'asc';
+        // Newest first: the people just added are the ones being looked for. A
+        // column asked for by name reads from the top, as any column does.
+        $sort = $input['sort'] ?? 'created';
+        $direction = $input['direction'] ?? (isset($input['sort']) ? 'asc' : 'desc');
         $perPage = (int) ($input['per_page'] ?? self::PER_PAGE_OPTIONS[0]);
         $status = $input['status'] ?? 'active';
 
@@ -163,7 +166,7 @@ class EmployeeController extends Controller
         // Whose details are worth loading at all: the viewer's own row always,
         // and everyone else's when at least one such field is open to them.
         $loaded = $employees->getCollection()->filter(fn (User $user) => $viewer->can('viewPrivateDetails', $user));
-        $loaded->load(['details', 'children']);
+        $loaded->load(['details', 'children', 'citizenships:id,name']);
 
         $employees->through(fn (User $user) => [
             'id' => $user->id,
@@ -209,7 +212,7 @@ class EmployeeController extends Controller
                 'departments' => $this->departmentOptions(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
-                'citizenships' => $shows('citizenship') ? $this->distinctDetail('citizenship') : [],
+                'citizenships' => $shows('citizenship') ? $this->citizenships() : [],
             ],
             'status' => $status,
             'statusCounts' => $canStatus ? $this->statusCounts() : null,
@@ -250,7 +253,7 @@ class EmployeeController extends Controller
                 'departments' => $this->departmentOptions(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $this->distinctDetail('nationality'),
-                'citizenships' => $this->distinctDetail('citizenship'),
+                'citizenships' => $this->citizenships(),
                 // The last step hands out hardware, so what is free travels too.
                 'stock' => $canIssue
                     ? Equipment::query()
@@ -285,8 +288,9 @@ class EmployeeController extends Controller
 
             // Everything the first step asks that is not on the user itself.
             $employee->details()->create(Arr::only($data, [
-                'hired_at', 'birth_date', 'birth_place', 'citizenship', 'nationality', 'home_address',
+                'hired_at', 'birth_date', 'birth_place', 'nationality', 'home_address',
             ]));
+            $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
 
             $employee->syncRoles($data['roles']);
             $employee->positions()->sync($data['positions']);
@@ -369,7 +373,7 @@ class EmployeeController extends Controller
         $canEdit = $editable !== [];
 
         if ($canSeePrivate) {
-            $employee->load(['details', 'children', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues']);
+            $employee->load(['details', 'children', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues']);
         }
 
         return Inertia::render('employees/show', [
@@ -435,7 +439,7 @@ class EmployeeController extends Controller
             'rolesLocked' => Access::rolesLockedReason($request->user(), $employee),
             'options' => $canEdit ? [
                 'nationalities' => $this->distinctDetail('nationality'),
-                'citizenships' => $this->distinctDetail('citizenship'),
+                'citizenships' => $this->citizenships(),
                 // What a card may be given, plus whatever it already carries: the
                 // single system administrator is offered to nobody, and their own
                 // card must still show the role it holds rather than lose it on
@@ -551,7 +555,7 @@ class EmployeeController extends Controller
                     }
                 }
 
-                foreach (['roles' => ['roles', 'title'], 'positions' => ['positions', 'name'], 'languages' => ['languages', 'name'], 'departments' => ['departments', 'name']] as $field => [$relation, $column]) {
+                foreach (['roles' => ['roles', 'title'], 'positions' => ['positions', 'name'], 'languages' => ['languages', 'name'], 'departments' => ['departments', 'name'], 'citizenship' => ['citizenships', 'name']] as $field => [$relation, $column]) {
                     if ($shows($field)) {
                         $q->orWhereHas($relation, fn (Builder $q) => $q->where($column, 'like', $like));
                     }
@@ -570,7 +574,7 @@ class EmployeeController extends Controller
                     // Nothing matches by default here: every line is a field.
                     $q->whereRaw('1 = 0');
 
-                    foreach (['home_address' => 'home_address', 'nationality' => 'nationality', 'citizenship' => 'citizenship', 'birth_place' => 'birth_place', 'sos_phone' => 'sos_contact'] as $field => $column) {
+                    foreach (['home_address' => 'home_address', 'nationality' => 'nationality', 'birth_place' => 'birth_place', 'sos_phone' => 'sos_contact'] as $field => $column) {
                         if ($shows($field)) {
                             $q->orWhere($column, 'like', $like);
                         }
@@ -629,14 +633,25 @@ class EmployeeController extends Controller
             }))
             ->when($filters['role'], fn (Builder $q, array $roles) => $q->role($roles))
             ->when($filters['position'], fn (Builder $q, array $ids) => $q->whereHas('positions', fn (Builder $q) => $q->whereIn('positions.id', $ids)))
-            // Anyone who speaks one of the picked languages, at any level.
-            ->when($filters['language'], fn (Builder $q, array $ids) => $q->whereHas('languages', fn (Builder $q) => $q->whereIn('languages.id', $ids)))
+            // Whoever speaks every one of the picked languages, at any level:
+            // picking Russian and Tajik asks for people who know both.
+            ->when($filters['language'], function (Builder $q, array $ids) {
+                foreach ($ids as $id) {
+                    $q->whereHas('languages', fn (Builder $q) => $q->where('languages.id', $id));
+                }
+            })
             // Picking a department also matches everyone in its sub-departments.
             ->when($filters['department'], fn (Builder $q, array $ids) => $q->whereHas(
                 'departments',
                 fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)),
             ))
             ->when($filters['sex'], fn (Builder $q, string $sex) => $q->where('sex', $sex))
+            // Whoever holds every one of the chosen citizenships, picked by name, as with languages.
+            ->when($filters['citizenship'], function (Builder $q, array $names) {
+                foreach ($names as $name) {
+                    $q->whereHas('citizenships', fn (Builder $q) => $q->where('citizenships.name', $name));
+                }
+            })
             ->when($filters['children'], fn (Builder $q, array $counts) => $q->where(function (Builder $q) use ($counts) {
                 $count = UserChild::selectRaw('count(*)')->whereColumn('user_children.user_id', 'users.id');
                 foreach ($counts as $n) {
@@ -648,7 +663,6 @@ class EmployeeController extends Controller
             'birth_from' => $filters['birth_from'],
             'birth_to' => $filters['birth_to'],
             'nationality' => $filters['nationality'],
-            'citizenship' => $filters['citizenship'],
             'address' => $filters['address'],
             'phone' => $filters['phone'],
             'marital_status' => $filters['marital_status'],
@@ -666,7 +680,6 @@ class EmployeeController extends Controller
                 ->when($details['hired_from'] ?? null, fn (Builder $q, string $d) => $q->whereDate('hired_at', '>=', $d))
                 ->when($details['hired_to'] ?? null, fn (Builder $q, string $d) => $q->whereDate('hired_at', '<=', $d))
                 ->when($details['nationality'] ?? null, fn (Builder $q, array $v) => $q->whereIn('nationality', $v))
-                ->when($details['citizenship'] ?? null, fn (Builder $q, array $v) => $q->whereIn('citizenship', $v))
                 ->when($details['address'] ?? null, fn (Builder $q, string $v) => $q->where('home_address', 'like', "%{$v}%"))
                 ->when($details['marital_status'] ?? null, fn (Builder $q, string $v) => $q->where('marital_status', $v))
                 ->when($details['phone'] ?? null, function (Builder $q, string $v) {
@@ -681,6 +694,8 @@ class EmployeeController extends Controller
         $detail = fn (string $column) => UserDetail::select($column)->whereColumn('user_details.user_id', 'users.id');
 
         match ($sort) {
+            // When the record was added, not when the person was hired: that date is private.
+            'created' => $query->orderBy('users.created_at', $direction)->orderBy('users.id', $direction),
             'name' => $query->orderBy('surname', $direction)->orderBy('name', $direction),
             'sex' => $query->orderBy('sex', $direction),
             'department' => $query->orderBy(
@@ -971,6 +986,16 @@ class EmployeeController extends Controller
     }
 
     /**
+     * The countries of the directory, by name: the filter and the form pick by name.
+     *
+     * @return list<string>
+     */
+    private function citizenships(): array
+    {
+        return Citizenship::query()->orderBy('name')->pluck('name')->all();
+    }
+
+    /**
      * The values whose fields are visible, computed only for those: a closure per
      * field so a hidden one costs neither a query nor a lookup.
      *
@@ -1004,7 +1029,7 @@ class EmployeeController extends Controller
             ...$this->only($visible, [
                 'birth_date' => fn () => $details?->birth_date?->toDateString(),
                 'nationality' => fn () => $details?->nationality,
-                'citizenship' => fn () => $details?->citizenship,
+                'citizenship' => fn () => $user->citizenships->pluck('name')->all() ?: null,
                 'home_address' => fn () => $details?->home_address,
                 'phone' => fn () => $details?->phone,
                 'marital_status' => fn () => $details?->marital_status,

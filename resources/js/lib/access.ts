@@ -13,7 +13,7 @@ export type Permission =
     | 'employees.view'
     // The lines of a card are read from the list a page is sent, not asked for one
     // by one — except these, which are asked far from any card: the photograph
-    // turns up beside a name everywhere, and the other four decide whether a link
+    // turns up beside a name everywhere, and the other five decide whether a link
     // into the staff list filtered by them would lead anywhere but a refusal.
     | 'employees.field.avatar'
     | 'profile.field.avatar'
@@ -21,6 +21,7 @@ export type Permission =
     | 'employees.field.positions'
     | 'employees.field.roles'
     | 'employees.field.languages'
+    | 'employees.field.citizenship'
     | 'employees.create'
     | 'employees.transfer'
     | 'employees.fire'
@@ -44,11 +45,13 @@ export type Permission =
     | 'directories.view.positions'
     | 'directories.view.departments'
     | 'directories.view.languages'
+    | 'directories.view.citizenships'
     | 'directories.view.equipment'
     | 'directories.edit.roles'
     | 'directories.edit.positions'
     | 'directories.edit.departments'
     | 'directories.edit.languages'
+    | 'directories.edit.citizenships'
     | 'directories.edit.equipment'
     | 'directories.view.access'
     | 'directories.edit.access';
@@ -137,6 +140,7 @@ export const directoryLists: DirectoryList[] = [
     { key: 'positions', title: 'Должности', view: 'directories.view.positions' },
     { key: 'departments', title: 'Отделы', view: 'directories.view.departments' },
     { key: 'languages', title: 'Языки', view: 'directories.view.languages' },
+    { key: 'citizenships', title: 'Гражданства', view: 'directories.view.citizenships' },
     { key: 'equipment', title: 'Категории техники', view: 'directories.view.equipment' },
     // Who may do what: a list of the section like the others, last because it is
     // read after one knows what there is to hand out.

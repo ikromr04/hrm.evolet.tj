@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
@@ -35,7 +36,7 @@ class EmployeePersonalDataTest extends TestCase
             'sex' => 'female',
             'birth_date' => '1990-04-17',
             'birth_place' => 'г. Худжанд',
-            'citizenship' => 'Таджикистан',
+            'citizenship' => ['Таджикистан'],
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
             'roles' => [],
@@ -43,6 +44,30 @@ class EmployeePersonalDataTest extends TestCase
             'departments' => [],
             ...$overrides,
         ];
+    }
+
+    public function test_citizenship_is_a_list_of_countries()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $this->actingAs($admin);
+
+        // Trimmed, blanks and repeats dropped; a country new to the directory is added to it.
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => [' Таджикистан ', '', 'Россия', 'Таджикистан']]))
+            ->assertSessionHasNoErrors();
+        $this->assertSame(['Россия', 'Таджикистан'], $employee->citizenships()->pluck('name')->all());
+        $this->assertSame(['Россия', 'Таджикистан'], Citizenship::orderBy('name')->pluck('name')->all());
+
+        // Matched without regard to case: the same country, not a second entry.
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => ['россия']]))->assertSessionHasNoErrors();
+        $this->assertSame(['Россия'], $employee->citizenships()->pluck('name')->all());
+        $this->assertSame(2, Citizenship::count());
+
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => ['']]))->assertSessionHasNoErrors();
+        $this->assertSame([], $employee->citizenships()->pluck('name')->all());
+
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => [str_repeat('а', 101)]]))
+            ->assertSessionHasErrors('citizenship.0');
     }
 
     public function test_an_admin_edits_the_personal_data_of_an_employee()

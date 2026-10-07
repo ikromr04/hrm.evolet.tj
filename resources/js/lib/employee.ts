@@ -8,7 +8,8 @@ export type Marital = 'single' | 'married';
 export interface PrivateDetails {
     birth_date: string | null;
     nationality: string | null;
-    citizenship: string | null;
+    /** Every country the person is a citizen of; there may be several. */
+    citizenship: string[] | null;
     home_address: string | null;
     phone: string | null;
     sos_phone: string | null;

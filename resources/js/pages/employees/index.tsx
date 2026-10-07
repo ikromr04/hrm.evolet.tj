@@ -1,10 +1,14 @@
+import { CitizenshipBadges } from '@/components/citizenship-badges';
 import {
     clearedFilter,
     countActiveFilters,
+    cycleSort,
     DataTable,
+    isSorted,
     MobileListTools,
     MobileRow,
     resetView,
+    useRememberedQuery,
     useTableView,
     type ColumnDef as TableColumn,
     type FilterDef as TableFilter,
@@ -107,7 +111,8 @@ type ColumnKey =
     | 'hired_at';
 
 interface Sort {
-    key: ColumnKey;
+    // `created` is the order the list opens in, newest first; it has no column of its own.
+    key: ColumnKey | 'created';
     direction: 'asc' | 'desc';
 }
 
@@ -309,7 +314,16 @@ const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
     department: 'departments',
 };
 
-function buildColumns(options: EmployeesProps['options'], visible: string[]): ColumnDef[] {
+/**
+ * A chip of a language or a country in a cell adds it to the filter, or takes
+ * it off again; several ask for people who have all of them.
+ */
+interface ChipFilter {
+    toggle: (param: 'language' | 'citizenship', value: number | string) => void;
+    has: (param: 'language' | 'citizenship', value: number | string) => boolean;
+}
+
+function buildColumns(options: EmployeesProps['options'], visible: string[], chips: ChipFilter): ColumnDef[] {
     // The name stays whatever happens: a list of rows with no names on them
     // would be no list at all.
     const shows = (key: ColumnKey) => key === 'name' || visible.includes(COLUMN_FIELDS[key] ?? key);
@@ -378,7 +392,16 @@ function buildColumns(options: EmployeesProps['options'], visible: string[]): Co
                 width: 260,
                 private: false,
                 filter: { type: 'multi', param: 'language', options: options.languages.map((l) => ({ value: l.id, label: l.name })) },
-                cell: (row) => (row.languages?.length ? <LanguageBadges languages={row.languages} /> : <Empty />),
+                cell: (row) =>
+                    row.languages?.length ? (
+                        <LanguageBadges
+                            languages={row.languages}
+                            onPick={(language) => chips.toggle('language', language.id)}
+                            isPicked={(language) => chips.has('language', language.id)}
+                        />
+                    ) : (
+                        <Empty />
+                    ),
             },
             {
                 key: 'birth_date',
@@ -417,7 +440,16 @@ function buildColumns(options: EmployeesProps['options'], visible: string[]): Co
                 width: 190,
                 private: true,
                 filter: { type: 'multi', param: 'citizenship', options: options.citizenships.map((c) => ({ value: c, label: c })) },
-                cell: (_, d) => d.citizenship ?? <Empty />,
+                cell: (_, d) =>
+                    d.citizenship?.length ? (
+                        <CitizenshipBadges
+                            countries={d.citizenship}
+                            onPick={(country) => chips.toggle('citizenship', country)}
+                            isPicked={(country) => chips.has('citizenship', country)}
+                        />
+                    ) : (
+                        <Empty />
+                    ),
             },
             {
                 key: 'home_address',
@@ -495,7 +527,7 @@ function defaultView() {
 
 /* ------------------------------------------------------------ URL params */
 
-const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
+const DEFAULT_SORT: Sort = { key: 'created', direction: 'desc' };
 
 type QueryValue = string | number | (string | number)[] | null;
 
@@ -509,8 +541,10 @@ function toParams(
     const params: Record<string, QueryValue> = {
         ...filters,
         status: status === 'active' ? null : status,
-        sort: sort.key === DEFAULT_SORT.key ? null : sort.key,
-        direction: sort.direction === DEFAULT_SORT.direction ? null : sort.direction,
+        // The opening order is left out; any other goes whole, since the server reads
+        // a column named without a direction as ascending.
+        sort: isSorted(sort, DEFAULT_SORT) ? sort.key : null,
+        direction: isSorted(sort, DEFAULT_SORT) ? sort.direction : null,
         per_page: perPage === defaultPerPage ? null : perPage,
     };
 
@@ -539,13 +573,23 @@ export default function Employees({
     // The menu decides for itself which of its actions the viewer may take,
     // and renders nothing when that is none of them.
     const canManage = can('employees.transfer') || can('employees.fire') || can('employees.delete');
-    const columns = useMemo(() => buildColumns(options, visibleFields), [options, visibleFields]);
+    // Through a ref, so the columns are built once yet a chip filters on top of whatever is in force.
+    const chipsRef = useRef<ChipFilter>({ toggle: () => undefined, has: () => false });
+    const columns = useMemo(
+        () =>
+            buildColumns(options, visibleFields, {
+                toggle: (param, value) => chipsRef.current.toggle(param, value),
+                has: (param, value) => chipsRef.current.has(param, value),
+            }),
+        [options, visibleFields],
+    );
     const defaults = useMemo(() => defaultView(), []);
     const { view, setView, pin, toggleHidden } = useTableView(
         STORAGE_KEY,
         columns.map((c) => c.key),
         defaults,
     );
+    useRememberedQuery('employees.table.query');
     const [search, setSearch] = useState(filters.q);
     const firstRender = useRef(true);
 
@@ -557,6 +601,13 @@ export default function Employees({
         );
     };
     const applyFilters = (changes: Partial<Filters>) => visit({ filters: changes });
+    chipsRef.current = {
+        has: (param, value) => (filters[param] as (number | string)[]).includes(value),
+        toggle: (param, value) => {
+            const current = filters[param] as (number | string)[];
+            applyFilters({ [param]: current.includes(value) ? current.filter((v) => v !== value) : [...current, value] });
+        },
+    };
 
     useEffect(() => setSearch(filters.q), [filters.q]);
     useEffect(() => {
@@ -580,8 +631,16 @@ export default function Employees({
         canFilter(column as unknown as ColumnDef),
     );
 
+    // A sorting of the viewer's own counts as one more change to reset.
+    const changed = activeFilters + (isSorted(sort, DEFAULT_SORT) ? 1 : 0);
+    const resetAll = () =>
+        visit({
+            filters: columns.filter(canFilter).reduce<Partial<Filters>>((acc, c) => ({ ...acc, ...clearedFilter(c.filter!) }), {}),
+            sort: DEFAULT_SORT,
+        });
+
     const sortBy = (key: string, direction?: 'asc' | 'desc') =>
-        visit({ sort: { key: key as ColumnKey, direction: direction ?? (sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc') } });
+        visit({ sort: direction ? { key: key as Sort['key'], direction } : (cycleSort(sort, key, DEFAULT_SORT) as Sort) });
 
     return (
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
@@ -614,6 +673,9 @@ export default function Employees({
                         sort={sort}
                         sortable={sortable}
                         onSort={sortBy}
+                        defaultSort={DEFAULT_SORT}
+                        defaultSortLabel="Дата добавления"
+                        onReset={resetAll}
                         className="bg-card rounded-xl border-transparent shadow-none"
                     />
 
@@ -640,18 +702,10 @@ export default function Employees({
                     )}
 
                     {/* The phone's filter sheet has its own "reset all". */}
-                    {activeFilters > 0 && (
-                        <Button
-                            variant="ghost"
-                            className="h-10 max-md:hidden lg:h-8"
-                            onClick={() =>
-                                applyFilters(
-                                    columns.filter(canFilter).reduce<Partial<Filters>>((acc, c) => ({ ...acc, ...clearedFilter(c.filter!) }), {}),
-                                )
-                            }
-                        >
+                    {changed > 0 && (
+                        <Button variant="ghost" className="h-10 max-md:hidden lg:h-8" onClick={resetAll}>
                             <X />
-                            Сбросить фильтры ({activeFilters})
+                            Сбросить фильтры ({changed})
                         </Button>
                     )}
 

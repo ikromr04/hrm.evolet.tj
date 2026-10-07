@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\GuardsPrivilegedRoles;
+use App\Http\Requests\Concerns\ListsCitizenships;
 use App\Models\User;
 use App\Support\EmployeeFields;
 use Closure;
@@ -16,6 +17,7 @@ use Illuminate\Validation\Rule;
 class UpdatePersonalDataRequest extends FormRequest
 {
     use GuardsPrivilegedRoles;
+    use ListsCitizenships;
 
     /**
      * The route already requires the right to change employees.
@@ -52,7 +54,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'sex' => $line('sex', ['required', Rule::in(['male', 'female'])]),
             'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
             'birth_place' => ['nullable', 'string', 'max:255'],
-            'citizenship' => ['nullable', 'string', 'max:255'],
+            ...$this->citizenshipRules(),
             'nationality' => ['nullable', 'string', 'max:255'],
             'home_address' => ['nullable', 'string', 'max:255'],
 
@@ -89,6 +91,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'birth_date' => 'дата рождения',
             'birth_place' => 'место рождения',
             'citizenship' => 'гражданство',
+            'citizenship.*' => 'гражданство',
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
             'roles' => 'позиция',

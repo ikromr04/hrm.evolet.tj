@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
@@ -69,7 +70,7 @@ class EmployeeDirectoryTest extends TestCase
         $viewer = $this->colleague(['surname' => 'Шарипов']);
 
         $this->actingAs($viewer)
-            ->get('/employees')
+            ->get('/employees?sort=name')
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.surname', 'Азимова')
                 ->where('employees.data.0.positions', ['Переводчик'])
@@ -109,7 +110,7 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.surname', 'Азимов')
                 ->where('employees.data.0.private.nationality', $employee->details->nationality)
-                ->where('employees.data.0.private.citizenship', 'Таджикистан')
+                ->where('employees.data.0.private.citizenship', ['Таджикистан'])
             );
     }
 
@@ -175,6 +176,33 @@ class EmployeeDirectoryTest extends TestCase
             $this->get('/employees?q='.urlencode($q))
                 ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $target->id));
         }
+    }
+
+    public function test_a_person_is_found_by_any_of_their_citizenships()
+    {
+        $admin = $this->colleague();
+        $admin->assignRole('sysadmin');
+        $dual = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $dual->citizenships()->sync(Citizenship::idsFor(['Таджикистан', 'Россия']));
+        $other = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $other->citizenships()->sync(Citizenship::idsFor(['Узбекистан']));
+        $this->actingAs($admin);
+
+        // The directory, by name.
+        $this->get('/employees')->assertInertia(fn (Assert $page) => $page
+            ->where('options.citizenships', ['Россия', 'Таджикистан', 'Узбекистан'])
+        );
+
+        $this->get('/employees?citizenship[]=Россия')
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $dual->id));
+        // Several countries ask for all of them at once.
+        $this->get('/employees?citizenship[]=Россия&citizenship[]=Таджикистан')
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $dual->id));
+        $this->get('/employees?citizenship[]=Россия&citizenship[]=Узбекистан')
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 0));
+
+        $this->get('/employees?q='.urlencode('Росс'))
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $dual->id));
     }
 
     public function test_position_filter_accepts_several_titles()
@@ -308,11 +336,11 @@ class EmployeeDirectoryTest extends TestCase
         $this->giveTitles(User::factory()->create(['surname' => 'Юсупов']), 'Аналитик');
         $this->actingAs($viewer);
 
-        $this->get('/employees')
+        $this->get('/employees?sort=name')
             ->assertInertia(fn (Assert $page) => $page
                 ->where('sort.key', 'name')
                 ->where('employees.data.0.surname', 'Азимов')
-                ->where('sortable', ['name', 'role', 'department', 'position', 'sex'])
+                ->where('sortable', ['created', 'name', 'role', 'department', 'position', 'sex'])
             );
 
         $this->get('/employees?sort=name&direction=desc')
@@ -324,6 +352,26 @@ class EmployeeDirectoryTest extends TestCase
                 ->where('employees.data.1.positions', ['Аналитик'])
                 ->where('employees.data.2.positions', ['Переводчик'])
             );
+    }
+
+    public function test_directory_opens_with_the_newest_first()
+    {
+        $viewer = $this->colleague(['surname' => 'Бобоев']);
+        $this->travel(-2)->days();
+        User::factory()->create(['surname' => 'Азимов']);
+        $this->travelBack();
+        User::factory()->create(['surname' => 'Юсупов']);
+        $this->actingAs($viewer);
+
+        $this->get('/employees')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('sort', ['key' => 'created', 'direction' => 'desc'])
+                ->where('employees.data.0.surname', 'Юсупов')
+                ->where('employees.data.2.surname', 'Азимов')
+            );
+
+        $this->get('/employees?direction=asc')
+            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.surname', 'Азимов'));
     }
 
     public function test_employees_cannot_sort_by_private_columns()
@@ -348,7 +396,7 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.id', $oldest->id)
                 ->where('employees.data.2.id', $youngest->id)
-                ->has('sortable', 13)
+                ->has('sortable', 14)
             );
 
         $this->get('/employees?sort=children&direction=desc')

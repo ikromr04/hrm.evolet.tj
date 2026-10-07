@@ -179,6 +179,15 @@ class User extends Authenticatable
     }
 
     /**
+     * The countries the employee is a citizen of; private, like the rest of
+     * the card's personal lines.
+     */
+    public function citizenships(): BelongsToMany
+    {
+        return $this->belongsToMany(Citizenship::class)->withTimestamps()->orderBy('name');
+    }
+
+    /**
      * Private, like details.
      */
     public function children(): HasMany

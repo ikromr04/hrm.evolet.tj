@@ -88,7 +88,7 @@ class FieldVisibilityTest extends TestCase
         $this->colleagueWithEverything();
 
         $this->actingAs($this->reader('positions'))
-            ->get('/employees')
+            ->get('/employees?sort=name')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('employees.data.0.surname', 'Азимов')

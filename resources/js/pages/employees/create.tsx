@@ -185,7 +185,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         sex: 'male' as Sex,
         birth_date: '',
         birth_place: '',
-        citizenship: '',
+        citizenship: [] as string[],
         nationality: '',
         home_address: '',
         email: '',
@@ -198,6 +198,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
 
     const contacts = useForm({ email: '', phone: '', sos_phone: '', sos_contact: '' });
     const languages = useForm({ languages: [] as SpokenLanguage[] });
+    const [createdLanguages, setCreatedLanguages] = useState<string[]>([]);
     const passport = useForm({ passport_series: '', passport_number: '', passport_issued_at: '', passport_issued_by: '' });
     const family = useForm({
         marital_status: '',
@@ -334,7 +335,11 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     languages.transform((data) => ({
                         languages: data.languages
                             .filter((spoken) => spoken.id !== '')
-                            .map((spoken) => ({ id: Number(spoken.id), level: spoken.level })),
+                            .map((spoken) =>
+                                String(spoken.id).startsWith('new:')
+                                    ? { name: String(spoken.id).slice(4), level: spoken.level }
+                                    : { id: Number(spoken.id), level: spoken.level },
+                            ),
                     }));
 
                     languages.put(route('employees.languages', employee.id), go(after, 2));
@@ -604,18 +609,22 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 aria-invalid={!!main.errors.birth_place}
                                             />
                                         </Field>
-                                        <Field label="Гражданство" error={main.errors.citizenship}>
-                                            <Input
-                                                list="citizenships"
+                                        <Field
+                                            label="Гражданство"
+                                            // A wrong country is reported on its own line ("citizenship.1").
+                                            error={
+                                                main.errors.citizenship ??
+                                                Object.entries(main.errors).find(([key]) => key.startsWith('citizenship.'))?.[1]
+                                            }
+                                        >
+                                            <MultiSelect
+                                                creatable
+                                                options={options.citizenships.map((value) => ({ value, label: value }))}
                                                 value={main.data.citizenship}
-                                                onChange={(event) => main.setData('citizenship', event.target.value)}
-                                                aria-invalid={!!main.errors.citizenship}
+                                                onChange={(value) => main.setData('citizenship', value)}
+                                                placeholder="Выберите или впишите страну"
+                                                searchPlaceholder="Страна"
                                             />
-                                            <datalist id="citizenships">
-                                                {options.citizenships.map((value) => (
-                                                    <option key={value} value={value} />
-                                                ))}
-                                            </datalist>
                                         </Field>
                                         <Field label="Национальность" error={main.errors.nationality}>
                                             <Input
@@ -726,7 +735,10 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                             <div key={index} className="flex flex-wrap items-center gap-2 @min-[30rem]:flex-nowrap">
                                                 <SearchableSelect
                                                     className="min-w-0 grow basis-full @min-[30rem]:basis-0"
-                                                    invalid={!!at(languages.errors, `languages.${index}.id`)}
+                                                    invalid={
+                                                        !!at(languages.errors, `languages.${index}.id`) ||
+                                                        !!at(languages.errors, `languages.${index}.name`)
+                                                    }
                                                     value={spoken.id}
                                                     onChange={(value) =>
                                                         languages.setData(
@@ -736,10 +748,23 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                             ),
                                                         )
                                                     }
-                                                    options={options.languages.map((language) => ({
-                                                        value: String(language.id),
-                                                        label: language.name,
-                                                    }))}
+                                                    options={[
+                                                        ...options.languages.map((language) => ({
+                                                            value: String(language.id),
+                                                            label: language.name,
+                                                        })),
+                                                        // Typed in and not on the list yet: saved by name, added to it then.
+                                                        ...createdLanguages.map((name) => ({ value: `new:${name}`, label: name })),
+                                                    ]}
+                                                    onCreate={(name) => {
+                                                        setCreatedLanguages((current) => (current.includes(name) ? current : [...current, name]));
+                                                        languages.setData(
+                                                            'languages',
+                                                            languages.data.languages.map((item, position) =>
+                                                                position === index ? { ...item, id: `new:${name}` } : item,
+                                                            ),
+                                                        );
+                                                    }}
                                                     placeholder="Язык"
                                                     searchPlaceholder="Поиск языка"
                                                     empty="Язык не найден"

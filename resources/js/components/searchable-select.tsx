@@ -1,6 +1,6 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface SearchableOption {
@@ -22,6 +22,11 @@ interface SearchableSelectProps {
     invalid?: boolean;
     disabled?: boolean;
     className?: string;
+    /**
+     * When given, what is typed and matches no option can be added as it is: the
+     * page decides what a new value becomes (a language missing from the list).
+     */
+    onCreate?: (label: string) => void;
 }
 
 /**
@@ -39,6 +44,7 @@ export function SearchableSelect({
     invalid,
     disabled,
     className,
+    onCreate,
 }: SearchableSelectProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -53,6 +59,15 @@ export function SearchableSelect({
 
         return options.filter((option) => `${option.label} ${option.hint ?? ''}`.toLocaleLowerCase().includes(term));
     }, [options, query]);
+
+    const typed = query.trim();
+    // Offered only for something new: an option already on the list is picked instead.
+    const canCreate =
+        onCreate !== undefined && typed !== '' && !options.some((option) => option.label.toLocaleLowerCase() === typed.toLocaleLowerCase());
+    const create = () => {
+        onCreate?.(typed);
+        setOpen(false);
+    };
 
     // A fresh search starts at the top; the highlight never points past the list.
     useEffect(() => setHighlighted(0), [query]);
@@ -85,6 +100,9 @@ export function SearchableSelect({
         if (event.key === 'Enter' && matches[highlighted]) {
             event.preventDefault();
             pick(matches[highlighted]);
+        } else if (event.key === 'Enter' && canCreate) {
+            event.preventDefault();
+            create();
         }
     };
 
@@ -124,7 +142,7 @@ export function SearchableSelect({
                 </div>
 
                 <div ref={listRef} className="scroll-soft max-h-64 overflow-y-auto p-1" role="listbox">
-                    {matches.length === 0 && <p className="text-muted-foreground px-2 py-6 text-center text-sm">{empty}</p>}
+                    {matches.length === 0 && !canCreate && <p className="text-muted-foreground px-2 py-6 text-center text-sm">{empty}</p>}
 
                     {matches.map((option, index) => (
                         <button
@@ -147,6 +165,17 @@ export function SearchableSelect({
                             </span>
                         </button>
                     ))}
+
+                    {canCreate && (
+                        <button
+                            type="button"
+                            onClick={create}
+                            className="hover:bg-accent flex w-full items-center gap-2 rounded-md px-2 py-2.5 text-left text-sm lg:py-1.5"
+                        >
+                            <Plus className="size-4 shrink-0" />
+                            <span className="truncate">Добавить «{typed}»</span>
+                        </button>
+                    )}
                 </div>
             </PopoverContent>
         </Popover>

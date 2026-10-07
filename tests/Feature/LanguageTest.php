@@ -73,6 +73,13 @@ class LanguageTest extends TestCase
             ->where('filters.language', [$english->id])
             ->has('options.languages', 2)
         );
+
+        // Two languages ask for people who know both, not either.
+        $this->get("/employees?language[]={$tajik->id}")->assertInertia(fn (Assert $page) => $page->where('employees.total', 2));
+        $this->get("/employees?language[]={$tajik->id}&language[]={$english->id}")->assertInertia(fn (Assert $page) => $page
+            ->where('employees.total', 1)
+            ->where('employees.data.0.id', $speaker->id)
+        );
     }
 
     public function test_seeded_employees_speak_tajik_and_russian()

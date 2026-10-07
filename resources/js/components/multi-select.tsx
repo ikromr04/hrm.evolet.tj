@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Check, ChevronsUpDown, Search, X } from 'lucide-react';
+import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react';
 import { useState } from 'react';
 
 export interface MultiSelectOption<T extends string | number> {
@@ -21,6 +21,7 @@ export function MultiSelect<T extends string | number>({
     searchPlaceholder = 'Поиск',
     chipClassName,
     disabled = false,
+    creatable = false,
 }: {
     id?: string;
     options: MultiSelectOption<T>[];
@@ -31,16 +32,31 @@ export function MultiSelect<T extends string | number>({
     chipClassName?: string;
     /** Read-only: what is chosen still shows, but nothing can be added or taken off. */
     disabled?: boolean;
+    /**
+     * The options are suggestions, not the whole list: what is typed can be added
+     * as it is (a country nobody has been entered with yet). Text values only.
+     */
+    creatable?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const selected = options.filter((option) => value.includes(option.value));
+    // A value typed in has no option of its own, so it is shown as itself.
+    const selected = creatable
+        ? value.map((v) => options.find((option) => option.value === v) ?? { value: v, label: String(v) })
+        : options.filter((option) => value.includes(option.value));
 
-    const term = query.trim().toLowerCase();
+    const typed = query.trim();
+    const term = typed.toLowerCase();
     // While searching, the tree is flattened: indentation would mislead.
     const matches = term ? options.filter((option) => option.label.toLowerCase().includes(term)) : options;
+    // Offered only when it is something new: an existing option is picked instead.
+    const canCreate = creatable && typed !== '' && ![...options, ...selected].some((option) => option.label.toLowerCase() === term);
 
     const toggle = (next: T) => onChange(value.includes(next) ? value.filter((v) => v !== next) : [...value, next]);
+    const create = () => {
+        onChange([...value, typed as T]);
+        setQuery('');
+    };
 
     return (
         <div className="flex flex-col gap-2">
@@ -100,6 +116,13 @@ export function MultiSelect<T extends string | number>({
                             autoFocus
                             value={query}
                             onChange={(event) => setQuery(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key !== 'Enter' || !creatable) return;
+                                // Enter adds what was typed rather than submitting the form around it.
+                                event.preventDefault();
+                                if (canCreate) create();
+                                else if (matches.length > 0 && !value.includes(matches[0].value)) toggle(matches[0].value);
+                            }}
                             placeholder={searchPlaceholder}
                             className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-hidden lg:h-9"
                         />
@@ -121,7 +144,21 @@ export function MultiSelect<T extends string | number>({
                                 </button>
                             </li>
                         ))}
-                        {matches.length === 0 && <li className="text-muted-foreground px-2 py-3 text-center text-sm">Ничего не нашлось</li>}
+                        {canCreate && (
+                            <li>
+                                <button
+                                    type="button"
+                                    onClick={create}
+                                    className="hover:bg-accent flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm lg:py-1.5"
+                                >
+                                    <Plus className="size-4 shrink-0" />
+                                    <span className="truncate">Добавить «{typed}»</span>
+                                </button>
+                            </li>
+                        )}
+                        {matches.length === 0 && !canCreate && (
+                            <li className="text-muted-foreground px-2 py-3 text-center text-sm">Ничего не нашлось</li>
+                        )}
                     </ul>
                 </PopoverContent>
             </Popover>

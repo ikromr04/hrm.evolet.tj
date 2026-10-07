@@ -175,7 +175,7 @@ Route::middleware('auth')->prefix('equipment/{equipment}')->name('equipment.')->
     });
 });
 
-// Directories: roles ("Позиция"), positions ("Должность"), departments, languages and equipment categories.
+// Directories: roles ("Позиция"), positions ("Должность"), departments, languages, citizenships and equipment categories.
 Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(function () {
     // The section opens on the first list this person may read rather than always
     // on the positions, which not everybody who keeps a directory may see.
@@ -195,6 +195,7 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
         'positions' => Directories\PositionController::class,
         'departments' => Directories\DepartmentController::class,
         'languages' => Directories\LanguageController::class,
+        'citizenships' => Directories\CitizenshipController::class,
         'equipment' => Directories\EquipmentTypeController::class,
     ];
 

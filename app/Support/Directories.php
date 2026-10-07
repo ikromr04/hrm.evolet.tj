@@ -7,9 +7,10 @@ use App\Models\User;
 /**
  * Which of the reference lists a position may open, and which it may change.
  *
- * "Справочники" is not one section but five lists that happen to share a page:
- * the positions a company has, the job titles people hold, the tree of
- * departments, the languages they speak and the categories of hardware. They are
+ * "Справочники" is not one section but several lists that happen to share a
+ * page: the positions a company has, the job titles people hold, the tree of
+ * departments, the languages they speak, the countries they are citizens of and
+ * the categories of hardware. They are
  * kept by different people — an HR officer renames job titles, whoever looks
  * after the fleet adds a category of monitors — so each list is a right of its
  * own, and changing one takes being able to read it first.
@@ -40,6 +41,10 @@ final class Directories
         'languages' => [
             'Языки',
             'Языки, владение которыми указывают в карточке.',
+        ],
+        'citizenships' => [
+            'Гражданства',
+            'Страны, гражданство которых указывают в карточке.',
         ],
         'equipment' => [
             'Категории техники',

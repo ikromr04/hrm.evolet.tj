@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Citizenship;
 use App\Models\User;
 use App\Models\UserDetail;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -37,7 +38,6 @@ class UserDetailFactory extends Factory
             'hired_at' => fake()->dateTimeBetween('-10 years', '-1 month'),
             'birth_date' => fake()->dateTimeBetween('-60 years', '-21 years'),
             'birth_place' => fake()->randomElement(self::CITIES),
-            'citizenship' => 'Таджикистан',
             'nationality' => null, // picked in configure() to match the employee's sex
             'passport_series' => 'А',
             'passport_number' => fake()->numerify('0#######'),
@@ -81,6 +81,12 @@ class UserDetailFactory extends Factory
                     : ['Мама', 'Папа', 'Сестра', 'Брат']);
                 $female = in_array($relation, ['Жена', 'Мама', 'Сестра'], true);
                 $details->sos_contact = "{$relation} — ".fake()->randomElement($female ? self::FEMALE_NAMES : self::MALE_NAMES);
+            }
+        })->afterCreating(function (UserDetail $details) {
+            // Citizenship lives in its own directory, linked to the person; a
+            // card filled in from scratch says Tajikistan unless told otherwise.
+            if ($details->user && $details->user->citizenships()->doesntExist()) {
+                $details->user->citizenships()->attach(Citizenship::idsFor(['Таджикистан']));
             }
         });
     }

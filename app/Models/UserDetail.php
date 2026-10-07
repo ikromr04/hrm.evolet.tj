@@ -21,7 +21,6 @@ class UserDetail extends Model
         'hired_at',
         'birth_date',
         'birth_place',
-        'citizenship',
         'nationality',
         'passport_series',
         'passport_number',

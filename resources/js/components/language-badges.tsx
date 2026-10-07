@@ -1,3 +1,4 @@
+import { Pickable } from '@/components/pickable';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
 import { languageLevelLabels, languageLevels, type LanguageLevel, type SpokenLanguage } from '@/lib/employee';
 import { cn } from '@/lib/utils';
@@ -39,21 +40,43 @@ export function LevelMeter({ level, className }: { level: LanguageLevel; classNa
     );
 }
 
-/** "Английский ▂▄▆": the name with a level meter; the level is spelled out for screen readers and on hover. */
-export function LanguageBadges({ languages }: { languages: SpokenLanguage[] }) {
+/**
+ * "Английский ▂▄▆": the name with a level meter; the level is spelled out for
+ * screen readers and on hover. A chip narrows the staff list to whoever speaks
+ * the language — on the spot with `onPick`, or as a link with `href`.
+ */
+export function LanguageBadges({
+    languages,
+    onPick,
+    isPicked,
+    href,
+}: {
+    languages: SpokenLanguage[];
+    onPick?: (language: SpokenLanguage) => void;
+    /** Lights up the languages the list is already filtered by. */
+    isPicked?: (language: SpokenLanguage) => boolean;
+    href?: (language: SpokenLanguage) => string;
+}) {
     return (
         <div className="flex flex-wrap gap-1 whitespace-normal">
             {languages.map((language) => (
-                <StatusBadge
+                <Pickable
                     key={language.id}
-                    tone="neutral"
-                    title={`${language.name} — ${languageLevelLabels[language.level].toLowerCase()}`}
-                    className="gap-1.5"
+                    label={`Владеют языком: ${language.name}`}
+                    onPick={onPick && (() => onPick(language))}
+                    picked={isPicked?.(language)}
+                    href={href?.(language)}
                 >
-                    {language.name}
-                    <LevelMeter level={language.level} className="opacity-80" />
-                    <span className="sr-only">, {languageLevelLabels[language.level].toLowerCase()}</span>
-                </StatusBadge>
+                    <StatusBadge
+                        tone={isPicked?.(language) ? 'success' : 'neutral'}
+                        title={`${language.name} — ${languageLevelLabels[language.level].toLowerCase()}`}
+                        className="gap-1.5"
+                    >
+                        {language.name}
+                        <LevelMeter level={language.level} className="opacity-80" />
+                        <span className="sr-only">, {languageLevelLabels[language.level].toLowerCase()}</span>
+                    </StatusBadge>
+                </Pickable>
             ))}
         </div>
     );
