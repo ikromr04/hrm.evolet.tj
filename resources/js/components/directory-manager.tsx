@@ -23,6 +23,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
@@ -57,6 +58,16 @@ export interface DirectoryItem {
     fields?: CategoryField[];
     /** Equipment categories only: whether its units come with anything at all. */
     has_accessories?: boolean;
+    /** A few lines about the record, such as a position's duties. */
+    description?: string | null;
+}
+
+/** A field of free text the record carries besides its name (a position's duties). */
+interface DescriptionField {
+    /** Server field that holds it. */
+    field: string;
+    label: string;
+    placeholder?: string;
 }
 
 interface Labels {
@@ -156,6 +167,8 @@ interface DirectoryManagerProps {
     defaultFields?: CategoryField[];
     /** What a new record starts with, right by right (positions); from the server. */
     defaultRights?: string[];
+    /** When given, each record also carries a few lines of text (a position's duties). */
+    description?: DescriptionField;
 }
 
 type Row = DirectoryItem & { depth: number };
@@ -220,6 +233,7 @@ export function DirectoryManager({
     directoryLists,
     directoryEdits,
     defaultRights,
+    description,
 }: DirectoryManagerProps) {
     const can = useCan();
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
@@ -389,6 +403,11 @@ export function DirectoryManager({
                                                 <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />
                                             )}
                                         </span>
+                                        {row.description && (
+                                            <p className="text-muted-foreground mt-0.5 line-clamp-2 max-w-2xl text-xs whitespace-pre-line">
+                                                {row.description}
+                                            </p>
+                                        )}
                                     </td>
                                     {people && (
                                         <td className="px-3 py-2.5 md:px-4">
@@ -495,6 +514,7 @@ export function DirectoryManager({
                     directoryLists={directoryLists}
                     directoryEdits={directoryEdits}
                     defaultRights={defaultRights}
+                    description={description}
                     onClose={() => setEditing(null)}
                 />
             )}
@@ -599,6 +619,7 @@ function EditorDialog({
     directoryLists,
     directoryEdits,
     defaultRights,
+    description,
     onClose,
 }: {
     item: DirectoryItem | null;
@@ -620,6 +641,7 @@ function EditorDialog({
     directoryLists?: PlainRight[];
     directoryEdits?: PlainRight[];
     defaultRights?: string[];
+    description?: DescriptionField;
     onClose: () => void;
 }) {
     // A position that is new to the system may look around, like every other
@@ -631,6 +653,7 @@ function EditorDialog({
         member_ids: number[];
         icon: string | null;
         permissions: string[];
+        description: string;
     }>({
         label: item?.label ?? '',
         parent_id: item?.parent_id ?? null,
@@ -638,6 +661,7 @@ function EditorDialog({
         member_ids: item?.member_ids ?? [],
         icon: item?.icon ?? null,
         permissions: item?.permissions ?? [...(defaultRights ?? [])],
+        description: item?.description ?? '',
     });
 
     const [fields, setFields] = useState<CategoryField[]>(item?.fields ?? defaultFields ?? []);
@@ -710,6 +734,8 @@ function EditorDialog({
             ...(tree ? { parent_id: data.parent_id } : {}),
             ...(people ? { head_ids: data.head_ids, member_ids: data.member_ids } : {}),
             ...(icons ? { icon: data.icon } : {}),
+            // Emptied, the text goes rather than staying behind as blank lines.
+            ...(description ? { [description.field]: data.description.trim() || null } : {}),
             ...(rights && !item?.everything ? { permissions: withViewRight(data.permissions) } : {}),
             ...(fieldTypes
                 ? {
@@ -766,6 +792,21 @@ function EditorDialog({
                         />
                         <InputError message={errors[field]} />
                     </div>
+
+                    {description && (
+                        <div className="grid content-start gap-2">
+                            <Label htmlFor="directory-description">{description.label}</Label>
+                            <Textarea
+                                id="directory-description"
+                                rows={6}
+                                placeholder={description.placeholder}
+                                value={form.data.description}
+                                onChange={(event) => form.setData('description', event.target.value)}
+                                aria-invalid={Boolean(errors[description.field]) || undefined}
+                            />
+                            <InputError message={errors[description.field]} />
+                        </div>
+                    )}
 
                     {rights && (
                         <div className="grid content-start gap-2">

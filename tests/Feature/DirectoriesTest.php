@@ -117,6 +117,25 @@ class DirectoriesTest extends TestCase
         $this->assertCount(0, $employee->fresh()->positions);
     }
 
+    public function test_positions_carry_their_duties()
+    {
+        $this->actingAs($this->admin);
+
+        $this->post('/directories/positions', ['name' => 'Юрист', 'duties' => "Договоры\nСуды"])->assertSessionHasNoErrors();
+        $position = Position::firstWhere('name', 'Юрист');
+        $this->assertSame("Договоры\nСуды", $position->duties);
+
+        $this->get('/directories/positions')->assertInertia(fn (Assert $page) => $page->where('items.0.duties', "Договоры\nСуды"));
+
+        // A rename that does not mention them leaves them be; emptied, they go.
+        $this->put("/directories/positions/{$position->id}", ['name' => 'Юрисконсульт'])->assertSessionHasNoErrors();
+        $this->assertSame("Договоры\nСуды", $position->fresh()->duties);
+        $this->put("/directories/positions/{$position->id}", ['name' => 'Юрисконсульт', 'duties' => ''])->assertSessionHasNoErrors();
+        $this->assertNull($position->fresh()->duties);
+
+        $this->post('/directories/positions', ['name' => 'Бухгалтер', 'duties' => str_repeat('а', 5001)])->assertSessionHasErrors('duties');
+    }
+
     public function test_departments_can_be_nested_but_not_in_a_cycle()
     {
         $this->actingAs($this->admin);

@@ -23,7 +23,7 @@ class PositionController extends Controller
             // Reading a list and keeping it are two rights, so the page says
             // which one it is looking at.
             'canEdit' => Directories::canEdit($request->user(), 'positions'),
-            'items' => Position::query()->withCount(['users' => fn ($q) => $q->where('status', 'active')])->orderBy('name')->get(['id', 'name']),
+            'items' => Position::query()->withCount(['users' => fn ($q) => $q->where('status', 'active')])->orderBy('name')->get(['id', 'name', 'duties']),
         ]);
     }
 
@@ -50,12 +50,13 @@ class PositionController extends Controller
     }
 
     /**
-     * @return array{name: string}
+     * @return array{name: string, duties: string|null}
      */
     private function validated(Request $request, ?Position $position = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:150', Rule::unique('positions', 'name')->ignore($position)],
-        ], attributes: ['name' => 'название']);
+            'duties' => ['nullable', 'string', 'max:5000'],
+        ], attributes: ['name' => 'название', 'duties' => 'обязанности']);
     }
 }

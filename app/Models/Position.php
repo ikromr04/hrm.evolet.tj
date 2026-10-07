@@ -14,6 +14,7 @@ class Position extends Model
      */
     protected $fillable = [
         'name',
+        'duties',
     ];
 
     public function users(): BelongsToMany
