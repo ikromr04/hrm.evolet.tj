@@ -4,6 +4,7 @@ import {
     DataTable,
     MobileListTools,
     resetView,
+    useRememberedQuery,
     useTableView,
     type ColumnDef,
     type Sort,
@@ -136,6 +137,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
     );
     const isHidden = (key: string) => view.hidden.includes(key);
 
+    useRememberedQuery('equipment.journal.query');
     const [from, setFrom] = useState(filters.from ?? '');
     const [to, setTo] = useState(filters.to ?? '');
 

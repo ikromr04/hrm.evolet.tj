@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { type ViewState } from './types';
+import { router, usePage } from '@inertiajs/react';
+import { useEffect, useRef, useState } from 'react';
+import { type Sort, type ViewState } from './types';
 
 function load(key: string, fallback: ViewState, known: string[]): ViewState {
     try {
@@ -57,4 +58,66 @@ export function resetView(storageKey: string) {
     } catch {
         // As above: nothing to clear if storage is unavailable.
     }
+}
+
+/**
+ * Keeps a list's filters, sorting and search between visits. The list lives in
+ * its query string, so that string is what is remembered — all of it but the
+ * page, which may not exist once the list has changed. A visit with a query of
+ * its own (a link to a narrowed list) wins over what was remembered; a bare one,
+ * from the menu, is sent on to the remembered list.
+ */
+export function useRememberedQuery(storageKey: string) {
+    const { url } = usePage();
+    const restored = useRef(false);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        params.delete('page');
+        const query = params.toString();
+
+        if (!restored.current && query === '') {
+            let saved: string | null = null;
+            try {
+                saved = localStorage.getItem(storageKey);
+            } catch {
+                // No storage: the list opens as it is.
+            }
+            if (saved) {
+                // On a first load the router is set up only after the page's own
+                // effects have run, so the visit waits a tick for it.
+                const timer = setTimeout(() => {
+                    restored.current = true;
+                    // A fresh page, so boxes that keep their own copy of a filter start from the restored one.
+                    router.get(`${window.location.pathname}?${saved}`, {}, { preserveScroll: true, replace: true });
+                });
+
+                return () => clearTimeout(timer);
+            }
+        }
+        restored.current = true;
+
+        try {
+            if (query) localStorage.setItem(storageKey, query);
+            else localStorage.removeItem(storageKey);
+        } catch {
+            // As above: the list just won't be remembered.
+        }
+    }, [storageKey, url]);
+}
+
+/** Whether a list is sorted other than the way it opens. */
+export function isSorted(sort: Sort, defaultSort: Sort): boolean {
+    return sort.key !== defaultSort.key || sort.direction !== defaultSort.direction;
+}
+
+/**
+ * Where a click on a column header takes the sorting: up, then down, then back
+ * to the order the list opens in.
+ */
+export function cycleSort(current: Sort, key: string, defaultSort: Sort): Sort {
+    if (current.key !== key) return { key, direction: 'asc' };
+    if (current.direction === 'asc') return { key, direction: 'desc' };
+
+    return defaultSort;
 }

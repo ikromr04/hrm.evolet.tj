@@ -1,10 +1,13 @@
 import {
     clearedFilter,
     countActiveFilters,
+    cycleSort,
     DataTable,
+    isSorted,
     MobileListTools,
     MobileRow,
     resetView,
+    useRememberedQuery,
     useTableView,
     type ColumnDef,
     type Sort,
@@ -350,6 +353,7 @@ export default function EquipmentIndex({
     );
     const isHidden = (key: string) => view.hidden.includes(key);
 
+    useRememberedQuery('equipment.table.query');
     const [query, setQuery] = useState(filters.q);
     const [asking, setAsking] = useState<{ unit: Unit; kind: AskedMove } | null>(null);
     const [deleting, setDeleting] = useState<Unit | null>(null);
@@ -397,6 +401,13 @@ export default function EquipmentIndex({
     ];
 
     const activeFilters = countActiveFilters(columns, filters as unknown as Record<string, unknown>, () => true);
+    // A sorting of the viewer's own counts as one more change to reset.
+    const changed = activeFilters + (isSorted(sort, DEFAULT_SORT) ? 1 : 0);
+    const resetAll = () =>
+        visit({
+            filters: columns.reduce<Partial<Filters>>((acc, column) => ({ ...acc, ...clearedFilter(column.filter!) }), {}),
+            sort: DEFAULT_SORT,
+        });
 
     const cell = (column: ColumnDef, unit: Unit) => {
         switch (column.key) {
@@ -464,9 +475,9 @@ export default function EquipmentIndex({
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                         sort={sort}
                         sortable={sortable}
-                        onSort={(key, direction) =>
-                            visit({ sort: { key, direction: direction ?? (sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc') } })
-                        }
+                        onSort={(key, direction) => visit({ sort: direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT) })}
+                        defaultSort={DEFAULT_SORT}
+                        onReset={resetAll}
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
@@ -507,19 +518,15 @@ export default function EquipmentIndex({
                         })}
                     </nav>
 
-                    {activeFilters > 0 && (
+                    {changed > 0 && (
                         <Button
                             variant="ghost"
                             // On a phone the filters are cleared in their own sheet.
                             className="h-10 max-md:hidden lg:h-8"
-                            onClick={() =>
-                                visit({
-                                    filters: columns.reduce<Partial<Filters>>((acc, column) => ({ ...acc, ...clearedFilter(column.filter!) }), {}),
-                                })
-                            }
+                            onClick={resetAll}
                         >
                             <X />
-                            Сбросить фильтры ({activeFilters})
+                            Сбросить фильтры ({changed})
                         </Button>
                     )}
 
@@ -590,9 +597,7 @@ export default function EquipmentIndex({
                     renderCell={cell}
                     sort={sort}
                     sortable={sortable}
-                    onSort={(key, direction) =>
-                        visit({ sort: { key, direction: direction ?? (sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc') } })
-                    }
+                    onSort={(key, direction) => visit({ sort: direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT) })}
                     filters={filters as unknown as Record<string, unknown>}
                     onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                     view={view}

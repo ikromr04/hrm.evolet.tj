@@ -7,6 +7,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, SlidersHorizontal } from
 import { useState, type ReactNode } from 'react';
 import { clearedFilter, FilterBody, isFilterActive } from './filters';
 import { type ColumnDef, type FilterValues, type Sort } from './types';
+import { isSorted } from './view';
 
 /**
  * One row of a list on a phone, where a table of columns would only scroll
@@ -70,6 +71,9 @@ export function MobileListTools({
     sort,
     sortable,
     onSort,
+    defaultSort,
+    defaultSortLabel,
+    onReset,
     className,
 }: {
     columns: ColumnDef[];
@@ -79,6 +83,12 @@ export function MobileListTools({
     sort: Sort;
     sortable: string[];
     onSort: (key: string, direction?: 'asc' | 'desc') => void;
+    /** The order the list opens in; sorted otherwise, the list counts as changed and "reset all" brings it back. */
+    defaultSort?: Sort;
+    /** Names the opening order when it reads no column of the table, such as the date a row was added. */
+    defaultSortLabel?: string;
+    /** Clears the filters and the sorting in one visit, so neither undoes the other. */
+    onReset?: () => void;
     className?: string;
 }) {
     const [open, setOpen] = useState(false);
@@ -87,6 +97,7 @@ export function MobileListTools({
     const filterable = columns.filter((column) => column.filter && canFilter(column));
     const sortColumns = columns.filter((column) => sortable.includes(column.key));
     const active = filterable.filter((column) => isFilterActive(column.filter!, filters));
+    const changed = active.length + (defaultSort && isSorted(sort, defaultSort) ? 1 : 0);
 
     return (
         <>
@@ -95,13 +106,13 @@ export function MobileListTools({
                 variant="outline"
                 size="icon"
                 onClick={() => setOpen(true)}
-                aria-label={active.length > 0 ? `Сортировка и фильтры: ${active.length}` : 'Сортировка и фильтры'}
+                aria-label={changed > 0 ? `Сортировка и фильтры: ${changed}` : 'Сортировка и фильтры'}
                 className={cn('relative size-10 shrink-0 md:hidden', className)}
             >
                 <SlidersHorizontal className="size-[18px]" />
-                {active.length > 0 && (
+                {changed > 0 && (
                     <span className="bg-primary text-primary-foreground absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full text-[11px] font-semibold">
-                        {active.length}
+                        {changed}
                     </span>
                 )}
             </Button>
@@ -132,6 +143,7 @@ export function MobileListTools({
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
+                                            {defaultSort && defaultSortLabel && <SelectItem value={defaultSort.key}>{defaultSortLabel}</SelectItem>}
                                             {sortColumns.map((column) => (
                                                 <SelectItem key={column.key} value={column.key}>
                                                     {column.label}
@@ -207,11 +219,13 @@ export function MobileListTools({
                     </div>
 
                     <div className="flex gap-2 border-t px-4 py-3">
-                        {active.length > 0 && (
+                        {changed > 0 && (
                             <Button
                                 variant="outline"
                                 className="h-11 flex-1"
-                                onClick={() => onFilter(Object.assign({}, ...active.map((column) => clearedFilter(column.filter!))))}
+                                onClick={() =>
+                                    onReset ? onReset() : onFilter(Object.assign({}, ...active.map((column) => clearedFilter(column.filter!))))
+                                }
                             >
                                 Сбросить всё
                             </Button>

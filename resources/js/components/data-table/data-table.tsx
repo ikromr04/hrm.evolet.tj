@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { ArrowDown, ArrowUp, ArrowUpDown, EllipsisVertical, EyeOff, Pin, PinOff } from 'lucide-react';
 import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { ColumnFilter, isFilterActive } from './filters';
+import { HeaderHint } from './hint';
 import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type ViewState } from './types';
 
 /** Room for the sticky column of row actions at the right edge. */
@@ -184,15 +185,17 @@ export function DataTable<Row>({
                                                 )}
 
                                                 <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <button
-                                                            type="button"
-                                                            aria-label={`Действия с колонкой: ${column.label}`}
-                                                            className="hover:bg-accent hover:text-foreground rounded p-1 opacity-50 hover:opacity-100"
-                                                        >
-                                                            <EllipsisVertical className="size-3.5" />
-                                                        </button>
-                                                    </DropdownMenuTrigger>
+                                                    <HeaderHint label={canSort ? 'Сортировка и вид колонки' : 'Вид колонки'}>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <button
+                                                                type="button"
+                                                                aria-label={`Действия с колонкой: ${column.label}`}
+                                                                className="hover:bg-accent hover:text-foreground rounded p-1 opacity-50 hover:opacity-100"
+                                                            >
+                                                                <EllipsisVertical className="size-3.5" />
+                                                            </button>
+                                                        </DropdownMenuTrigger>
+                                                    </HeaderHint>
                                                     <DropdownMenuContent align="end" className="w-52">
                                                         {canSort && (
                                                             <>

@@ -6,6 +6,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { ListFilter } from 'lucide-react';
 import { useState } from 'react';
+import { HeaderHint } from './hint';
 import { type ColumnDef, type FilterDef, type FilterValues } from './types';
 
 /** Whether a filter narrows anything, which is what lights its icon up. */
@@ -149,19 +150,21 @@ export function ColumnFilter({
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <button
-                    type="button"
-                    aria-label={`Фильтр: ${column.label}`}
-                    className={cn(
-                        'hover:bg-accent hover:text-foreground relative rounded p-1',
-                        active ? 'text-brand-strong dark:text-[#C5E27A]' : 'opacity-50 hover:opacity-100',
-                    )}
-                >
-                    <ListFilter className="size-3.5" />
-                    {active && <span className="bg-brand absolute top-0.5 right-0.5 size-1.5 rounded-full" />}
-                </button>
-            </PopoverTrigger>
+            <HeaderHint label={active ? 'Фильтр включён' : 'Фильтр'}>
+                <PopoverTrigger asChild>
+                    <button
+                        type="button"
+                        aria-label={`Фильтр: ${column.label}`}
+                        className={cn(
+                            'hover:bg-accent hover:text-foreground relative rounded p-1',
+                            active ? 'text-brand-strong dark:text-[#C5E27A]' : 'opacity-50 hover:opacity-100',
+                        )}
+                    >
+                        <ListFilter className="size-3.5" />
+                        {active && <span className="bg-brand absolute top-0.5 right-0.5 size-1.5 rounded-full" />}
+                    </button>
+                </PopoverTrigger>
+            </HeaderHint>
             <PopoverContent align="start" className={cn('max-w-[calc(100vw-2rem)] p-3', wide ? 'w-96' : 'w-64')}>
                 <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-semibold">{column.label}</span>
