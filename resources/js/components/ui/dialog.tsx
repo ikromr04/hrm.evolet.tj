@@ -30,11 +30,17 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
     React.ElementRef<typeof DialogPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, onOpenAutoFocus, ...props }, ref) => (
+>(({ className, children, onOpenAutoFocus, onInteractOutside, ...props }, ref) => (
     <DialogPortal>
         <DialogOverlay />
         <DialogPrimitive.Content
             ref={ref}
+            // A window closes only by its buttons or Esc: a stray click on the dark
+            // backdrop, often meant to close an open select's list, would lose the form.
+            onInteractOutside={(event) => {
+                onInteractOutside?.(event);
+                event.preventDefault();
+            }}
             // On a phone the first field would grab focus and the keyboard would
             // cover half the sheet before the person has read it; there the sheet
             // opens still, and a field that should take the cursor asks with autoFocus.
