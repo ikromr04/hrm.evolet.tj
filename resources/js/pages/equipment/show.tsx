@@ -269,9 +269,13 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
-            if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+            if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.defaultPrevented) return;
             const target = event.target as HTMLElement;
-            if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+            if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName)) return;
+            // An open window — a form, a menu, a list — owns the arrows: leaving
+            // for the next unit from inside one would throw away what was typed,
+            // and a visit on the way cancels the save that is still in the air.
+            if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
             const to = event.key === 'ArrowLeft' ? prev : event.key === 'ArrowRight' ? next : null;
             if (to) router.visit(href(to));
         };

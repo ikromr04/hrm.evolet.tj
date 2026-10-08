@@ -274,6 +274,9 @@ export default function AccessPage({
             { permissions },
             {
                 preserveScroll: true,
+                // Saved on its own, so ticking a second right does not cancel the
+                // first one and the row that was already sent still lands.
+                async: true,
                 // The row is settled once the page comes back with it.
                 onFinish: () => setPending((current) => Object.fromEntries(Object.entries(current).filter(([id]) => Number(id) !== role.id))),
             },

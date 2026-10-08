@@ -142,10 +142,23 @@ export function useDebouncedSearch(serverValue: string, apply: (value: string) =
     useEffect(() => {
         if (value === asked.current.at(-1) || (asked.current.length === 0 && value === serverValue)) return;
 
-        const timer = setTimeout(() => {
+        let timer: ReturnType<typeof setTimeout>;
+
+        const ask = () => {
+            // Anything standing over the list waits — a window, a menu, a list of
+            // its own: a visit now would redraw the rows under it, taking it away
+            // mid-click, and would cancel the save a window is busy with.
+            if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) {
+                timer = setTimeout(ask, delay);
+
+                return;
+            }
+
             asked.current = [...asked.current, value];
             applyRef.current(value);
-        }, delay);
+        };
+
+        timer = setTimeout(ask, delay);
 
         return () => clearTimeout(timer);
         // The query on the server only matters while the box has asked nothing.

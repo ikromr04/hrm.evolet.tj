@@ -223,8 +223,10 @@ function AccessSection({ employee, access }: { employee: Employee; access: Acces
     const revoked = titled.filter((right) => right.override === false);
     const effective = titled.filter((right) => right.override ?? right.position);
 
+    // Each tick is saved on its own, so a quick second one neither cancels the
+    // first nor the save of a form standing open elsewhere on the page.
     const set = (key: string, allowed: boolean | null) =>
-        router.put(route('employees.access', employee.id), { permission: key, allowed }, { preserveScroll: true, preserveState: true });
+        router.put(route('employees.access', employee.id), { permission: key, allowed }, { preserveScroll: true, preserveState: true, async: true });
 
     return (
         <>
