@@ -236,7 +236,11 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
      * once. The colleague just finished is saved and left behind.
      */
     const startOver = () => {
-        forms.forEach((form) => {
+        // Each step carries a form of its own shape; emptying one needs none of
+        // its field names, so the list is read through the two calls it shares.
+        const blank: { clearErrors: () => void; reset: () => void }[] = forms;
+
+        blank.forEach((form) => {
             form.clearErrors();
             form.reset();
         });
