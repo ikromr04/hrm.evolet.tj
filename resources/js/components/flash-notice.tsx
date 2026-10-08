@@ -20,7 +20,14 @@ export function FlashNotice() {
     }
 
     return (
-        <div role="status" className="bg-muted text-foreground mx-3 mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm md:mx-5">
+        // Above an open window: a sentence about an expired session arrives while
+        // the form that met it still stands, and the overlay would bury it. Only
+        // the stacking is lifted — a page scrolled down keeps the notice at its
+        // top, where it has always been, because a dialog freezes the scrolling.
+        <div
+            role="status"
+            className="bg-muted text-foreground relative z-[60] mx-3 mt-3 flex items-start gap-3 rounded-lg border px-4 py-3 text-sm md:mx-5"
+        >
             <Info className="text-muted-foreground mt-0.5 size-4 shrink-0" />
             <p className="min-w-0 flex-1 break-words">{shown}</p>
             <button
