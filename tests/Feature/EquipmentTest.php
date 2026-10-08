@@ -368,8 +368,13 @@ class EquipmentTest extends TestCase
         $written = Equipment::factory()->ofType($this->type())->writtenOff()->create();
 
         // Part of the fleet is somebody's to account for: a mistake is written
-        // off first, and only then removed.
-        $this->actingAs($this->sysadmin())->delete("/equipment/{$inService->id}")->assertStatus(422);
+        // off first, and only then removed. What asks is a dialog, so it is sent
+        // back with a sentence rather than a refusal it cannot show.
+        $this->actingAs($this->sysadmin())
+            ->from('/equipment')
+            ->delete("/equipment/{$inService->id}")
+            ->assertRedirect('/equipment')
+            ->assertSessionHas('notice', 'Удалить можно только списанное оборудование.');
         $this->assertNotNull(Equipment::find($inService->id));
 
         $this->actingAs($employee)->delete("/equipment/{$written->id}")->assertForbidden();
@@ -663,11 +668,35 @@ class EquipmentTest extends TestCase
             ->assertSessionHasNoErrors();
         $this->assertSame('written_off', $unit->refresh()->status);
 
-        // Out of the fleet for good: no issuing, returning or repairing it.
-        $this->actingAs($admin)
-            ->post("/equipment/{$unit->id}/issue", ['holder_user_id' => $employee->id, 'issued_at' => '2026-03-14'])
-            ->assertStatus(422);
-        $this->assertSame('written_off', $unit->refresh()->status);
+        $card = "/equipment/{$unit->id}";
+        $events = $unit->events()->count();
+
+        // Out of the fleet for good: no issuing, returning or repairing it. Each
+        // of those is asked by a dialog, so each is sent back with a sentence
+        // rather than a refusal the dialog has no way of showing.
+        foreach ([
+            "{$card}/issue" => ['holder_user_id' => $employee->id, 'issued_at' => '2026-03-14'],
+            "{$card}/take" => ['returned_at' => '2026-03-14'],
+            "{$card}/write-off" => ['written_off_at' => '2026-03-14'],
+        ] as $move => $fields) {
+            $this->actingAs($admin)->from($card)->post($move, $fields)
+                ->assertRedirect($card)
+                ->assertSessionHas('notice', 'Списанное оборудование нельзя перемещать.');
+        }
+
+        $this->actingAs($admin)->from($card)
+            ->post("{$card}/repairs", ['kind' => 'Диагностика', 'started_at' => '2026-03-14'])
+            ->assertRedirect($card)
+            ->assertSessionHas('notice', 'Списанное оборудование нельзя обслуживать.');
+
+        // A stale page changes nothing: the unit stands as it was struck off,
+        // and no entry or record was filed on the way.
+        $unit->refresh();
+        $this->assertSame('written_off', $unit->status);
+        $this->assertNull($unit->holder_user_id);
+        $this->assertSame('2026-02-02', $unit->written_off_at->toDateString());
+        $this->assertSame(0, $unit->repairs()->count());
+        $this->assertSame($events, $unit->events()->count());
     }
 
     public function test_only_managers_move_equipment()

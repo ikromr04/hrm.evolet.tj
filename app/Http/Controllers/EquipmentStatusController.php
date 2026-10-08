@@ -38,7 +38,9 @@ class EquipmentStatusController extends Controller
             'photos' => 'фотографии',
         ]);
 
-        $this->stillInService($equipment);
+        if ($notice = $this->stillInService($equipment)) {
+            return $notice;
+        }
 
         $before = (int) $equipment->events()->max('id');
 
@@ -71,9 +73,11 @@ class EquipmentStatusController extends Controller
             'photos' => 'фотографии',
         ]);
 
-        $before = (int) $equipment->events()->max('id');
+        if ($notice = $this->stillInService($equipment)) {
+            return $notice;
+        }
 
-        $this->stillInService($equipment);
+        $before = (int) $equipment->events()->max('id');
 
         // One save, so the journal reads the return as one act rather than as a
         // move followed by a correction. Somebody looked the thing over as it
@@ -106,7 +110,9 @@ class EquipmentStatusController extends Controller
             'photos' => 'фотографии',
         ]);
 
-        $this->stillInService($equipment);
+        if ($notice = $this->stillInService($equipment)) {
+            return $notice;
+        }
 
         $before = (int) $equipment->events()->max('id');
 
@@ -124,10 +130,15 @@ class EquipmentStatusController extends Controller
     }
 
     /**
-     * A written-off unit is gone: it is not handed out and not taken back.
+     * A written-off unit is gone: it is not handed out and not taken back. The
+     * answer is the way back with a sentence rather than a refusal, because what
+     * asks is a dialog: it closes on a page of ours and stays open, silent, on
+     * anything else. Nothing has been written by the time this is asked.
      */
-    private function stillInService(Equipment $equipment): void
+    private function stillInService(Equipment $equipment): ?RedirectResponse
     {
-        abort_if($equipment->status === 'written_off', 422, 'Списанное оборудование нельзя перемещать.');
+        return $equipment->status === 'written_off'
+            ? back()->with('notice', 'Списанное оборудование нельзя перемещать.')
+            : null;
     }
 }

@@ -76,8 +76,16 @@ class EmployeeStatusTest extends TestCase
         $this->assertSame('fired', $employee->fresh()->status);
         $this->assertNull($employee->fresh()->status_note);
 
-        // Already gone: cannot be fired again.
-        $this->post("/employees/{$employee->id}/fire", ['date' => '2026-08-16'])->assertStatus(422);
+        // Already gone: cannot be fired again. What asks is a dialog, so the
+        // answer is the way back with a sentence rather than a refusal the
+        // dialog has no way of showing.
+        $this->from("/employees/{$employee->id}")
+            ->post("/employees/{$employee->id}/fire", ['date' => '2026-08-16'])
+            ->assertRedirect("/employees/{$employee->id}")
+            ->assertSessionHas('notice', 'Сотрудник уже не работает.');
+
+        // The second date was not written: the first firing stands untouched.
+        $this->assertSame('2026-08-15', $employee->fresh()->status_changed_at->toDateString());
 
         $this->post("/employees/{$employee->id}/restore")->assertSessionHasNoErrors();
         $employee->refresh();

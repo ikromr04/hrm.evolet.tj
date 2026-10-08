@@ -19,16 +19,12 @@ class EmployeeStatusController extends Controller
 {
     public function transfer(Request $request, User $employee): RedirectResponse
     {
-        $this->leave($request, $employee, 'transferred', noteRequired: true);
-
-        return back();
+        return $this->leave($request, $employee, 'transferred', noteRequired: true) ?? back();
     }
 
     public function fire(Request $request, User $employee): RedirectResponse
     {
-        $this->leave($request, $employee, 'fired', noteRequired: false);
-
-        return back();
+        return $this->leave($request, $employee, 'fired', noteRequired: false) ?? back();
     }
 
     public function restore(User $employee): RedirectResponse
@@ -75,10 +71,19 @@ class EmployeeStatusController extends Controller
         return $fromProfile ? to_route('employees.index') : back();
     }
 
-    private function leave(Request $request, User $employee, string $status, bool $noteRequired): void
+    /**
+     * Hands back the way to go rather than a status when there is nothing left
+     * to change: what asks is a dialog, and it closes on a page of ours and
+     * stays open, silent, on anything else. Nothing is written in that case.
+     */
+    private function leave(Request $request, User $employee, string $status, bool $noteRequired): ?RedirectResponse
     {
         abort_if($request->user()->is($employee), 403, 'Нельзя изменить статус самому себе.');
-        abort_unless($employee->isActive(), 422, 'Сотрудник уже не работает.');
+
+        // The list was open while they had already left.
+        if (! $employee->isActive()) {
+            return back()->with('notice', 'Сотрудник уже не работает.');
+        }
 
         $data = $request->validate([
             'date' => ['required', 'date'],
@@ -93,5 +98,7 @@ class EmployeeStatusController extends Controller
             'status_changed_at' => $data['date'],
             'status_note' => $data['note'] ?? null,
         ]);
+
+        return null;
     }
 }

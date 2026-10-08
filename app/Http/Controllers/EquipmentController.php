@@ -379,7 +379,12 @@ class EquipmentController extends Controller
      */
     public function destroy(Equipment $equipment): RedirectResponse
     {
-        abort_unless($equipment->status === 'written_off', 422, 'Удалить можно только списанное оборудование.');
+        // The list was open while the unit went back into service. Back with a
+        // sentence rather than a refusal: what asks is a dialog, and it closes on
+        // a page of ours and stays open, silent, on anything else.
+        if ($equipment->status !== 'written_off') {
+            return back()->with('notice', 'Удалить можно только списанное оборудование.');
+        }
 
         // The photographs are on disk; the rows go by themselves, files do not.
         Storage::disk('public')->delete($equipment->photos->flatMap(fn ($photo) => [$photo->path, $photo->preview])->all());

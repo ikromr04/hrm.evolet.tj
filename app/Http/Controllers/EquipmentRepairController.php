@@ -23,7 +23,12 @@ class EquipmentRepairController extends Controller
 
     public function store(Request $request, Equipment $equipment): RedirectResponse
     {
-        abort_if($equipment->status === 'written_off', 422, 'Списанное оборудование нельзя обслуживать.');
+        // The card was open while the unit was struck off. Back with a sentence
+        // rather than a refusal: what asks is a dialog, and it closes on a page
+        // of ours and stays open, silent, on anything else.
+        if ($equipment->status === 'written_off') {
+            return back()->with('notice', 'Списанное оборудование нельзя обслуживать.');
+        }
 
         $data = $this->validated($request);
 

@@ -59,8 +59,33 @@ return Application::configure(basePath: dirname(__DIR__))
             // The session ran out while a form sat open. Nothing is wrong with the
             // page, only with the token it carried — so send them back to it with
             // a fresh one and a sentence, rather than the framework's bare screen.
+            //
+            // A sentence alone is not enough for a form sent through Inertia. The
+            // page it lands on is an ordinary page with no errors, so Inertia calls
+            // onSuccess — and every dialog here closes on onSuccess, taking what
+            // was typed with it. So the answer carries an error as well, under a
+            // key no field can be called: Inertia's share() hands the errors bag
+            // to the page as it stands (see Middleware::resolveValidationErrors),
+            // which is enough for onError instead, and the dialog stays open with
+            // the data in it, ready for a second Save against the fresh token.
+            //
+            // 303 rather than the 302 of back(): the answer to an exception never
+            // reaches Inertia's middleware, which is what otherwise turns a 302 on
+            // a PUT into one, and a browser repeats a PUT to the address a 302
+            // names instead of asking for the page.
             if ($status === 419 && ! $request->expectsJson()) {
-                return back()->with('notice', 'Сессия истекла, пока страница была открыта. Повторите действие ещё раз.');
+                $notice = 'Сессия истекла, пока страница была открыта. Повторите действие ещё раз.';
+
+                // Nothing was typed into a GET, and no dialog is waiting on its
+                // answer; a reading request goes back the way it always has.
+                if ($request->isMethodSafe()) {
+                    return back()->with('notice', $notice);
+                }
+
+                return back()
+                    ->with('notice', $notice)
+                    ->withErrors(['__session' => $notice])
+                    ->setStatusCode(303);
             }
 
             if (! in_array($status, $pages, true) || $request->expectsJson()) {
