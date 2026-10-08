@@ -8,6 +8,7 @@ import {
     MobileListTools,
     MobileRow,
     resetView,
+    useDebouncedSearch,
     useRememberedQuery,
     useTableView,
     type ColumnDef as TableColumn,
@@ -39,7 +40,7 @@ import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ChevronDown, Columns3, Crown, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 
 /* ------------------------------------------------------------------ types */
 
@@ -590,8 +591,6 @@ export default function Employees({
         defaults,
     );
     useRememberedQuery('employees.table.query');
-    const [search, setSearch] = useState(filters.q);
-    const firstRender = useRef(true);
 
     const visit = (next: { filters?: Partial<Filters>; sort?: Sort; perPage?: number; status?: EmploymentStatus }) => {
         router.get(
@@ -609,18 +608,8 @@ export default function Employees({
         },
     };
 
-    useEffect(() => setSearch(filters.q), [filters.q]);
-    useEffect(() => {
-        if (firstRender.current) {
-            firstRender.current = false;
-            return;
-        }
-        if (search === filters.q) return;
-
-        const timer = setTimeout(() => applyFilters({ q: search }), 300);
-        return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [search]);
+    // Typing searches on its own, once the typing stops.
+    const [search, setSearch] = useDebouncedSearch(filters.q, (q) => applyFilters({ q }));
 
     const isHidden = (key: string) => view.hidden.includes(key);
 

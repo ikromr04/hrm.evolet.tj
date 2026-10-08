@@ -7,6 +7,7 @@ import {
     MobileListTools,
     MobileRow,
     resetView,
+    useDebouncedSearch,
     useRememberedQuery,
     useTableView,
     type ColumnDef,
@@ -57,7 +58,7 @@ import {
     X,
     type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 interface Unit {
     id: number;
@@ -354,7 +355,6 @@ export default function EquipmentIndex({
     const isHidden = (key: string) => view.hidden.includes(key);
 
     useRememberedQuery('equipment.table.query');
-    const [query, setQuery] = useState(filters.q);
     const [asking, setAsking] = useState<{ unit: Unit; kind: AskedMove } | null>(null);
     const [deleting, setDeleting] = useState<Unit | null>(null);
 
@@ -383,14 +383,7 @@ export default function EquipmentIndex({
     };
 
     // Typing searches on its own, once the typing stops.
-    useEffect(() => setQuery(filters.q), [filters.q]);
-    useEffect(() => {
-        if (query === filters.q) return;
-        const timer = setTimeout(() => visit({ filters: { q: query } }), 300);
-
-        return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [query]);
+    const [query, setQuery] = useDebouncedSearch(filters.q, (q) => visit({ filters: { q } }));
 
     const tabs: { key: Tab; label: string; count: number }[] = [
         { key: 'all', label: 'Все', count: counts.all },

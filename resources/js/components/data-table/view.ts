@@ -106,6 +106,55 @@ export function useRememberedQuery(storageKey: string) {
     }, [storageKey, url]);
 }
 
+/**
+ * The toolbar search box: what is typed now, sent to the server a moment later.
+ *
+ * The box keeps its own text while typing. An answer carries the query it was
+ * asked with, so letters typed while it was on its way would be swallowed if
+ * the answer were adopted — the box therefore ignores answers to its own
+ * questions and takes only a query it did not ask for: a reset, a link, or the
+ * back button.
+ */
+export function useDebouncedSearch(serverValue: string, apply: (value: string) => void, delay = 300): [string, (value: string) => void] {
+    const [value, setValue] = useState(serverValue);
+    // Queries the box itself asked for and has not seen answered yet, oldest first.
+    const asked = useRef<string[]>([]);
+    const applyRef = useRef(apply);
+
+    useEffect(() => {
+        applyRef.current = apply;
+    });
+
+    useEffect(() => {
+        const index = asked.current.indexOf(serverValue);
+
+        if (index >= 0) {
+            // Our own answer, possibly to an older keystroke: drop it and everything before it.
+            asked.current = asked.current.slice(index + 1);
+
+            return;
+        }
+
+        asked.current = [];
+        setValue(serverValue);
+    }, [serverValue]);
+
+    useEffect(() => {
+        if (value === asked.current.at(-1) || (asked.current.length === 0 && value === serverValue)) return;
+
+        const timer = setTimeout(() => {
+            asked.current = [...asked.current, value];
+            applyRef.current(value);
+        }, delay);
+
+        return () => clearTimeout(timer);
+        // The query on the server only matters while the box has asked nothing.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value, delay]);
+
+    return [value, setValue];
+}
+
 /** Whether a list is sorted other than the way it opens. */
 export function isSorted(sort: Sort, defaultSort: Sort): boolean {
     return sort.key !== defaultSort.key || sort.direction !== defaultSort.direction;
