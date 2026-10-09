@@ -1,6 +1,8 @@
 import { CitizenshipBadges } from '@/components/citizenship-badges';
 import { EmployeeActions } from '@/components/employee-actions';
 import { ChangeLines } from '@/components/equipment-changes';
+import { EquipmentForm, type EquipmentFormProps } from '@/components/equipment-form';
+import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
 import InputError from '@/components/input-error';
 import { LevelBadge } from '@/components/language-badges';
 import { MultiSelect } from '@/components/multi-select';
@@ -18,8 +20,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/app-layout';
-import { seesEquipment, useCan } from '@/lib/access';
+import { useCan } from '@/lib/access';
 import {
     age,
     capitalize,
@@ -44,7 +47,21 @@ import { eventLabel, eventTone, type EventChanges, type EventKind, type NameLook
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { Camera, ChevronLeft, ChevronRight, Laptop, LoaderCircle, Lock, Mail, Pencil, Phone, Plus, Trash2, Upload } from 'lucide-react';
+import {
+    ArrowDownToLine,
+    Camera,
+    ChevronLeft,
+    ChevronRight,
+    LoaderCircle,
+    Lock,
+    Mail,
+    Pencil,
+    Phone,
+    Plus,
+    Trash2,
+    Upload,
+    type LucideIcon,
+} from 'lucide-react';
 import { createContext, useContext, useEffect, useRef, useState, type FormEventHandler, type ReactNode } from 'react';
 
 /** Every right, what the positions give and what was decided for this person. */
@@ -67,12 +84,25 @@ interface HistoryEvent {
     photos: Photo[];
 }
 
+/**
+ * A unit the person holds, as this card lists it: what it is, and which of the
+ * moves on it are this viewer's to make. The two are asked of the unit itself,
+ * so a right over the fleet is not a right over a unit one cannot see.
+ */
+interface HeldUnit extends Equipment {
+    id: number;
+    /** What the card says about it now, which the write-off form opens on. */
+    condition: string | null;
+    can_take: boolean;
+    can_write_off: boolean;
+}
+
 interface ProfilePrivate extends PrivateDetails {
     educations: (Education & { id: number })[];
     /** The latest first. */
     work_experiences: (WorkExperience & { id: number })[];
     /** Grouped by kind, which is resolved to its directory name here. */
-    equipment: (Equipment & { id: number })[];
+    equipment: HeldUnit[];
     /** What has passed through their hands and what happened to it meanwhile. */
     equipment_history: { events: HistoryEvent[]; names: NameLookup };
     birth_place: string | null;
@@ -1643,6 +1673,13 @@ function EditButton({ label, onClick }: { label: string; onClick: () => void }) 
 const emptyNote = 'text-muted-foreground text-sm max-md:py-3.5 max-md:text-[15px]';
 
 /**
+ * An action in a block's header strip, for blocks whose action is not a pencil:
+ * text in the brand colour rather than a button, so the strip keeps the height
+ * it has without one.
+ */
+const stripAction = 'text-brand-strong flex shrink-0 items-center gap-1.5 text-[13px] font-medium hover:underline dark:text-[#C5E27A]';
+
+/**
  * "Add a record" under a list. On a phone it is a row of its own in the brand
  * colour across the whole width, as a native list ends with "Add…"; from `md`
  * up it stays an ordinary outlined button.
@@ -1932,10 +1969,6 @@ function WorkExperiences({
 }
 
 /**
- * What the person holds right now, for reading only: a unit is handed out and
- * taken back in the equipment section, so its status has a single home.
- */
-/**
  * Everything that happened to those units while they were here: handed over,
  * looked after, checked, handed on. One story, so the entries are read together
  * and each says which unit it is about.
@@ -1976,29 +2009,219 @@ function EquipmentJournal({ events, names }: { events: HistoryEvent[]; names: Na
     );
 }
 
-function EquipmentList({ items }: { items: ProfilePrivate['equipment'] }) {
+/** A unit on the balance sheet that nobody holds, as the issuing dialog lists it. */
+interface StockUnit {
+    id: number;
+    name: string;
+    inventory_number: string;
+}
+
+/**
+ * Handing equipment over from the card, both ways in one window: take what is
+ * already on the balance sheet, or enter a unit that is not on the books yet,
+ * which is handed over the moment it is entered. The second way asks everything
+ * the add form asks — a unit has a category and a category asks its own
+ * questions — so it is that very form, in the same window rather than a page
+ * away: whoever came to hand something over does not lose the card for it.
+ */
+function IssueEquipmentDialog({
+    employee,
+    stock,
+    types,
+    onClose,
+}: {
+    employee: Employee;
+    stock: StockUnit[];
+    types: EquipmentFormProps['options']['types'];
+    onClose: () => void;
+}) {
+    const can = useCan();
+    const today = new Date().toISOString().slice(0, 10);
+    // Handed over today unless somebody says otherwise, as the intake wizard has it.
+    const form = useForm({ equipment: [] as number[], issued_at: today });
+    const canCreate = can('equipment.create');
+    /** Which of the two ways is open; the window starts on the balance sheet. */
+    const [entering, setEntering] = useState(false);
+
+    const submit: FormEventHandler = (event) => {
+        event.preventDefault();
+        form.post(route('employees.equipment.store', employee.id), { preserveScroll: true, onSuccess: onClose });
+    };
+
+    // The new unit goes to this colleague by itself, so the form is the add
+    // form with the tick box gone and the card as the place a save returns to.
+    if (entering) {
+        return (
+            <Dialog open onOpenChange={(open) => !open && onClose()}>
+                <DialogContent className="overflow-y-auto sm:max-h-[90vh] sm:max-w-2xl">
+                    <EquipmentForm
+                        layout="dialog"
+                        options={{ types }}
+                        forEmployee={{ id: employee.id, name: `${employee.surname} ${employee.name}` }}
+                        header={
+                            <DialogHeader>
+                                <DialogTitle>Поставить на учёт и выдать</DialogTitle>
+                                <DialogDescription>Единица встаёт на баланс и сразу уходит этому сотруднику.</DialogDescription>
+                            </DialogHeader>
+                        }
+                        onSaved={onClose}
+                        // Back to what is already on the balance sheet, which is
+                        // where this window started.
+                        onCancel={() => setEntering(false)}
+                    />
+                </DialogContent>
+            </Dialog>
+        );
+    }
+
     return (
-        <ul className="flex flex-col">
-            {items.map((unit) => (
-                <li key={unit.id} className={cn(recordRow, 'flex items-start gap-3')}>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-words">
-                        {/* The unit's own card is a matter of the fleet, not of this card. */}
-                        {unit.open ? (
-                            <Link href={route('equipment.show', unit.id)} className="text-sm font-medium hover:underline">
-                                {unit.name}
-                            </Link>
-                        ) : (
-                            <span className="text-sm font-medium">{unit.name}</span>
+        <Dialog open onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="overflow-y-auto sm:max-h-[90vh] sm:max-w-lg">
+                {/* noValidate: see PersonalDialog — the server's rules are the real ones. */}
+                <form onSubmit={submit} noValidate className="flex flex-col gap-5">
+                    <DialogHeader>
+                        <DialogTitle>Выдать оборудование</DialogTitle>
+                        <DialogDescription>
+                            {canCreate
+                                ? 'Выберите то, что стоит на балансе, или поставьте на учёт новое.'
+                                : 'Выберите то, что стоит на балансе и никому не выдано.'}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {stock.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">Свободного оборудования на балансе нет: всё выдано или списано.</p>
+                    ) : (
+                        <div className="grid gap-x-4 gap-y-4 sm:grid-cols-3">
+                            <div className="grid content-start gap-2 sm:col-span-2">
+                                <Label htmlFor="issue-equipment">Что выдаём</Label>
+                                <MultiSelect
+                                    id="issue-equipment"
+                                    options={stock.map((unit) => ({ value: unit.id, label: `${unit.name} · ${unit.inventory_number}` }))}
+                                    value={form.data.equipment}
+                                    onChange={(value) => form.setData('equipment', value)}
+                                    placeholder="Ничего не выбрано"
+                                    searchPlaceholder="Поиск по названию или номеру"
+                                />
+                                <InputError message={form.errors.equipment} />
+                            </div>
+
+                            <div className="grid content-start gap-2">
+                                <Label htmlFor="issue-date">Дата выдачи</Label>
+                                <Input
+                                    id="issue-date"
+                                    type="date"
+                                    max={today}
+                                    value={form.data.issued_at}
+                                    onChange={(e) => form.setData('issued_at', e.target.value)}
+                                    aria-invalid={!!form.errors.issued_at}
+                                />
+                                <InputError message={form.errors.issued_at} />
+                            </div>
+                        </div>
+                    )}
+
+                    {canCreate && (
+                        <div className="flex flex-col items-start gap-1.5 border-t pt-4">
+                            <p className="text-muted-foreground text-sm">Оборудования ещё нет на балансе?</p>
+                            {/* The same window asks what the add form asks, so the card is not lost on the way. */}
+                            <button type="button" onClick={() => setEntering(true)} className={stripAction}>
+                                <Plus className="size-4" />
+                                Поставить на учёт и выдать
+                            </button>
+                        </div>
+                    )}
+
+                    <DialogFooter className="gap-2">
+                        <Button type="button" variant="outline" onClick={onClose}>
+                            {stock.length === 0 ? 'Закрыть' : 'Отмена'}
+                        </Button>
+                        {stock.length > 0 && (
+                            <Button type="submit" disabled={form.processing || form.data.equipment.length === 0}>
+                                {form.processing && <LoaderCircle className="animate-spin" />}
+                                Выдать
+                            </Button>
                         )}
-                        <span className="text-muted-foreground text-[13px]">{[unit.type, unit.details].filter(Boolean).join(' · ')}</span>
-                        <span className="text-muted-foreground text-[13px] tabular-nums">
-                            Инв. № {unit.inventory_number}
-                            {unit.issued_at && ` · выдано ${formatDate(unit.issued_at)}`}
-                        </span>
-                    </div>
-                </li>
-            ))}
-        </ul>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/**
+ * One move on a unit, as an icon at the end of its row. Nothing but the icon
+ * fits there, so the word for it arrives on hover and reaches a screen reader as
+ * the button's name — and it is the word the form itself is titled with.
+ */
+function MoveButton({ kind, icon: Icon, danger, onClick }: { kind: AskedMove; icon: LucideIcon; danger?: boolean; onClick: () => void }) {
+    return (
+        <Tooltip>
+            <TooltipTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn('size-9 lg:size-7', danger ? 'text-[#B42318] hover:text-[#B42318] dark:text-[#F7A19A]' : 'text-muted-foreground')}
+                    aria-label={moveLabel[kind]}
+                    onClick={onClick}
+                >
+                    <Icon className="size-4" />
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>{moveLabel[kind]}</TooltipContent>
+        </Tooltip>
+    );
+}
+
+/**
+ * What the person holds right now, and what can be done about it from here:
+ * this card is where somebody notices that the thing is back on the desk or past
+ * saving, so a unit is taken back and struck off from the row itself, through
+ * the same forms its own card opens. Each move shows only where it is this
+ * viewer's to make on that very unit.
+ */
+function EquipmentList({ items }: { items: ProfilePrivate['equipment'] }) {
+    /** Which unit a move was picked on, and which move, until the form closes. */
+    const [asking, setAsking] = useState<{ unit: HeldUnit; kind: AskedMove } | null>(null);
+
+    return (
+        <>
+            <ul className="flex flex-col">
+                {items.map((unit) => (
+                    <li key={unit.id} className={cn(recordRow, 'flex items-start gap-3')}>
+                        <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-words">
+                            {/* The unit's own card is a matter of the fleet, not of this card. */}
+                            {unit.open ? (
+                                <Link href={route('equipment.show', unit.id)} className="text-sm font-medium hover:underline">
+                                    {unit.name}
+                                </Link>
+                            ) : (
+                                <span className="text-sm font-medium">{unit.name}</span>
+                            )}
+                            <span className="text-muted-foreground text-[13px]">{[unit.type, unit.details].filter(Boolean).join(' · ')}</span>
+                            <span className="text-muted-foreground text-[13px] tabular-nums">
+                                Инв. № {unit.inventory_number}
+                                {unit.issued_at && ` · выдано ${formatDate(unit.issued_at)}`}
+                            </span>
+                        </div>
+
+                        {/* Never squeezed: a long name wraps in the column beside
+                            this one rather than pushing the icons off a phone. */}
+                        {(unit.can_take || unit.can_write_off) && (
+                            <div className="flex shrink-0 gap-1">
+                                {unit.can_take && <MoveButton kind="take" icon={ArrowDownToLine} onClick={() => setAsking({ unit, kind: 'take' })} />}
+                                {unit.can_write_off && (
+                                    <MoveButton kind="write-off" icon={Trash2} danger onClick={() => setAsking({ unit, kind: 'write-off' })} />
+                                )}
+                            </div>
+                        )}
+                    </li>
+                ))}
+            </ul>
+
+            {/* The list rebuilds itself: the move comes back to this card, and the
+                props with it. Holders are the issuing form's business, not these two. */}
+            {asking && <EquipmentMoveDialog unit={asking.unit} kind={asking.kind} holders={[]} onClose={() => setAsking(null)} />}
+        </>
     );
 }
 
@@ -2229,6 +2452,9 @@ export default function EmployeeProfile({
     neighbours,
     canEdit,
     isSelf,
+    canIssue,
+    stock,
+    equipmentTypes,
     rolesLocked,
     options,
     assigned,
@@ -2242,6 +2468,15 @@ export default function EmployeeProfile({
     /** Whether anything at all is theirs to change; the photograph hangs on this. */
     canEdit: boolean;
     isSelf: boolean;
+    /** Whether a unit may be handed over from the equipment section of this card. */
+    canIssue: boolean;
+    /** What there is to hand over; empty for a viewer who may not hand anything over. */
+    stock: StockUnit[];
+    /**
+     * The categories a unit may be entered under, for the window that puts one
+     * on the books from here. Empty for anybody who may not enter a unit.
+     */
+    equipmentTypes: EquipmentFormProps['options']['types'];
     /** Why the positions of this card are locked, or null when they are not. */
     rolesLocked: string | null;
     /** Choices for the edit dialogs; null for viewers who may not edit. */
@@ -2262,6 +2497,7 @@ export default function EmployeeProfile({
     const [job, setJob] = useState<JobRecord | 'new' | null>(null);
     const [deletingJob, setDeletingJob] = useState<JobRecord | null>(null);
     const [deletingAvatar, setDeletingAvatar] = useState(false);
+    const [issuing, setIssuing] = useState(false);
     const shortName = `${employee.surname} ${employee.name}`;
     const fullName = [employee.surname, employee.name, employee.patronymic].filter(Boolean).join(' ');
     const details = employee.private;
@@ -2452,18 +2688,11 @@ export default function EmployeeProfile({
                                         <Section
                                             title="Текущие оборудования"
                                             action={
-                                                // The list it opens is the fleet's, so it takes seeing the fleet.
-                                                seesEquipment(can) && (
-                                                    // A text link rather than a button: the strip keeps the
-                                                    // height it has without one.
-                                                    <Link
-                                                        // "У кого" is a name search now, so the link passes the name.
-                                                        href={route('equipment.index', { holder: `${employee.surname} ${employee.name}` })}
-                                                        className="text-brand-strong flex shrink-0 items-center gap-1.5 text-[13px] font-medium hover:underline dark:text-[#C5E27A]"
-                                                    >
-                                                        <Laptop className="size-4" />
-                                                        Открыть в разделе оборудования
-                                                    </Link>
+                                                canIssue && (
+                                                    <button type="button" className={stripAction} onClick={() => setIssuing(true)}>
+                                                        <Plus className="size-4" />
+                                                        Выдать
+                                                    </button>
                                                 )
                                             }
                                         >
@@ -2876,6 +3105,8 @@ export default function EmployeeProfile({
                         onClose={() => setDeletingAvatar(false)}
                     />
                 )}
+
+                {issuing && <IssueEquipmentDialog employee={employee} stock={stock} types={equipmentTypes} onClose={() => setIssuing(false)} />}
 
                 {education && <EducationDialog employee={employee} education={education} onClose={() => setEducation(null)} />}
 
