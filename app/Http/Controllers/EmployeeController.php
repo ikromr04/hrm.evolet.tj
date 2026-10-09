@@ -8,6 +8,7 @@ use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
+use App\Models\EquipmentType;
 use App\Models\Language;
 use App\Models\Position;
 use App\Models\User;
@@ -255,12 +256,7 @@ class EmployeeController extends Controller
                 'nationalities' => $this->distinctDetail('nationality'),
                 'citizenships' => $this->citizenships(),
                 // The last step hands out hardware, so what is free travels too.
-                'stock' => $canIssue
-                    ? Equipment::query()
-                        ->where('status', 'stock')
-                        ->orderBy('name')
-                        ->get(['id', 'name', 'inventory_number'])
-                    : [],
+                'stock' => $canIssue ? $this->freeUnits() : [],
             ],
         ]);
     }
@@ -371,9 +367,19 @@ class EmployeeController extends Controller
         // shows when anything inside it is theirs to change.
         $editable = EmployeeFields::editableBy($request->user(), $employee);
         $canEdit = $editable !== [];
+        // Handing a unit over from this card takes the pair of rights the route
+        // behind the form takes: the equipment block of the card, because that is
+        // the line being written, and the right to hand units over at all. And
+        // nobody issues to themselves, as nobody transfers or fires themselves.
+        $canIssue = ! $request->user()->is($employee)
+            && $request->user()->can(EmployeeFields::blockGate('equipment'), $employee)
+            && $request->user()->can('equipment.issue');
 
         if ($canSeePrivate) {
-            $employee->load(['details', 'children', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues']);
+            // The values come with the field behind each of them: a unit's name
+            // and its number are two of those fields, read by the role they
+            // carry, so the block cannot print either without them.
+            $employee->load(['details', 'children', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
         }
 
         return Inertia::render('employees/show', [
@@ -409,7 +415,7 @@ class EmployeeController extends Controller
                     // What they hold and what happened to it while they held it:
                     // one field, two things to read.
                     ...($shows('equipment') && $this->openUnitsFor($request->user(), $employee) ? [
-                        'equipment' => $employee->equipment->map(fn (Equipment $e) => $this->equipment($e))->all(),
+                        'equipment' => $employee->equipment->map(fn (Equipment $e) => $this->equipment($e, $request->user()))->all(),
                         'equipment_history' => $this->equipmentHistory($employee),
                     ] : []),
                     // The passport reads as three lines, each its own field, so a
@@ -433,6 +439,17 @@ class EmployeeController extends Controller
             'canEdit' => $canEdit,
             // Nobody transfers, fires or deletes themselves.
             'isSelf' => $request->user()->is($employee),
+            // Whether the equipment section of this card may hand a unit over.
+            'canIssue' => $canIssue,
+            // What there is to hand over, as the intake wizard's last step is
+            // given it: only a viewer who may issue is told, since to anybody
+            // else it is a list of the fleet they never asked for.
+            'stock' => $canIssue ? $this->freeUnits() : [],
+            // A unit that is not on the books yet is entered from the card as
+            // well, in the same window, so the categories and what each of them
+            // asks about travel with it — and only for somebody who may both
+            // enter a unit and hand it over.
+            'equipmentTypes' => $canIssue && $request->user()->can('equipment.create') ? EquipmentType::formOptions() : [],
             // Why the positions of this card are not this viewer's to change, if
             // they are not: the form shows the sentence beside the locked field
             // instead of letting somebody find out by saving.
@@ -835,12 +852,37 @@ class EmployeeController extends Controller
     }
 
     /**
-     * What the person holds right now. Read-only here: a unit is handed out and
-     * taken back in the equipment section, so its status has one home.
+     * Everything on the balance sheet that nobody holds, for the forms that hand
+     * a unit over. What a unit is called and the number on its sticker are fields
+     * of its category now, so the list loads them and reads them off the unit
+     * rather than off the row.
+     *
+     * @return list<array{id: int, name: string, inventory_number: string}>
+     */
+    private function freeUnits(): array
+    {
+        return Equipment::query()
+            ->where('status', 'stock')
+            ->withIdentity()
+            ->orderBy(Equipment::roleValueQuery('title'))
+            ->get(['id'])
+            ->map(fn (Equipment $unit) => [
+                'id' => $unit->id,
+                'name' => $unit->name,
+                'inventory_number' => $unit->inventory_number,
+            ])
+            ->all();
+    }
+
+    /**
+     * What the person holds right now, and what may be done about it from here:
+     * a unit can be taken back onto the balance sheet or struck off it without
+     * the detour through the fleet, since this card is where somebody notices
+     * that the thing is back on the desk.
      *
      * @return array<string, mixed>
      */
-    private function equipment(Equipment $unit): array
+    private function equipment(Equipment $unit, User $viewer): array
     {
         return [
             'id' => $unit->id,
@@ -851,21 +893,32 @@ class EmployeeController extends Controller
             'inventory_number' => $unit->inventory_number,
             'type' => $unit->type?->name,
             'issued_at' => $unit->issued_at?->toDateString(),
+            // What the card says about it now, which the write-off form opens on.
+            'condition' => $unit->condition,
             // Whether the unit's own card is this viewer's to open: holding the
             // line of a person's card is not the same as seeing the fleet.
             'open' => in_array($unit->id, $this->openUnits, true),
+            // And whether these two moves are theirs to make on this very unit.
+            // Asked of the unit, as the routes behind the forms ask it: the right
+            // alone is not enough on a unit one cannot see.
+            'can_take' => $viewer->can('take', $unit),
+            'can_write_off' => $viewer->can('writeOff', $unit),
         ];
     }
 
     /**
      * The first couple of things a unit's category asks about, as this unit
      * answered them: "Dell · Latitude 5440" under the name of a laptop.
+     *
+     * The two fields a unit is named by are left out: they are what the line
+     * sits under, and the line is here to say something the name does not.
      */
     private function unitDetails(Equipment $unit): ?string
     {
         $held = $unit->fieldValues->keyBy('equipment_field_id');
 
         $lines = collect($unit->type?->fields ?? [])
+            ->reject(fn (EquipmentField $field) => $field->isRole())
             ->map(fn (EquipmentField $field) => $field->read($held->get($field->id)?->value))
             ->filter()
             ->take(2);

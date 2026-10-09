@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\EquipmentType;
 use App\Models\User;
@@ -57,7 +58,15 @@ class EquipmentJournalController extends Controller
             // Only what happened to units this person may see: a journal is a list
             // of units by another name.
             ->tap(fn (Builder $q) => EquipmentAccess::narrowJournal($q, $request->user()))
-            ->with(['user:id,name,surname,avatar', 'equipment:id,name,inventory_number,equipment_type_id', 'equipment.type:id,name,icon', 'photos'])
+            // A unit is named by two of its category's fields now, so the page
+            // of entries loads what names them in one go rather than asking
+            // after every line.
+            ->with([
+                'user:id,name,surname,avatar',
+                'equipment' => fn ($unit) => $unit->select(['id', 'equipment_type_id'])->withIdentity(),
+                'equipment.type:id,name,icon',
+                'photos',
+            ])
             ->when($from, fn (Builder $q, Carbon $at) => $q->where('created_at', '>=', $at))
             ->when($to, fn (Builder $q, Carbon $at) => $q->where('created_at', '<=', $at))
             ->when($filters['kind'], fn (Builder $q, array $kinds) => $q->whereIn('kind', $kinds))
@@ -66,9 +75,12 @@ class EquipmentJournalController extends Controller
                 'equipment',
                 fn (Builder $q) => $q->whereIn('equipment_type_id', $ids),
             ))
+            // By what the unit is called or the number it carries, both of them
+            // values of its category's fields now.
             ->when($filters['unit'], fn (Builder $q, string $term) => $q->whereHas(
                 'equipment',
-                fn (Builder $q) => $q->where('name', 'like', "%{$term}%")->orWhere('inventory_number', 'like', "%{$term}%"),
+                fn (Builder $q) => $q->where(Equipment::roleValueQuery('title'), 'like', "%{$term}%")
+                    ->orWhere(Equipment::roleValueQuery('inventory'), 'like', "%{$term}%"),
             ))
             ->orderByDesc('created_at')
             ->orderByDesc('id');

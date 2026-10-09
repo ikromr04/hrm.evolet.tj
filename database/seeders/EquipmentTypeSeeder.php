@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\EquipmentField;
 use App\Models\EquipmentType;
 use Illuminate\Database\Seeder;
 
@@ -79,6 +80,17 @@ class EquipmentTypeSeeder extends Seeder
         foreach (self::TYPES as $name => $icon) {
             $type = EquipmentType::firstOrCreate(['name' => $name], ['icon' => $icon]);
 
+            // What a unit is called and the number on its sticker are fields of
+            // the category like the rest, and the two it cannot be without, so
+            // they head the list. Matched by role rather than by name: a
+            // category is free to call them by its own words.
+            foreach (array_keys(EquipmentField::ROLES) as $position => $role) {
+                $type->fields()->firstOrCreate(
+                    ['role' => $role],
+                    ['name' => EquipmentField::ROLES[$role], 'type' => 'text', 'required' => true, 'position' => $position],
+                );
+            }
+
             foreach (array_values(self::FIELDS[$name] ?? []) as $position => $field) {
                 [$kind, $options] = is_array($field) ? $field : [$field, null];
                 $label = array_keys(self::FIELDS[$name])[$position];
@@ -87,7 +99,7 @@ class EquipmentTypeSeeder extends Seeder
                 // decided, and a re-seed should not undo somebody's work.
                 $type->fields()->firstOrCreate(
                     ['name' => $label],
-                    ['type' => $kind, 'options' => $options, 'required' => false, 'position' => $position],
+                    ['type' => $kind, 'options' => $options, 'required' => false, 'position' => $position + count(EquipmentField::ROLES)],
                 );
             }
         }

@@ -10,7 +10,13 @@ use App\Models\Equipment;
  */
 class InventoryDue extends InAppNotification
 {
-    public function __construct(private readonly Equipment $unit) {}
+    public function __construct(private readonly Equipment $unit)
+    {
+        // The reminder names the unit, and what a unit is called and the number
+        // on its sticker are fields of its category: the command that walks the
+        // due dates has no other reason to load them, so the letter does.
+        $this->unit->loadMissing('fieldValues.field:id,role');
+    }
 
     /**
      * What makes one reminder the same as another: the unit and the date it

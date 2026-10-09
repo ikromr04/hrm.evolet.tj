@@ -76,7 +76,14 @@ class EquipmentHistory
         $units = array_values(array_unique(array_column($this->spells, 'unit_id')));
 
         $all = EquipmentEvent::query()
-            ->with(['user:id,name,surname,avatar', 'equipment:id,name,inventory_number,equipment_type_id', 'equipment.type:id,name', 'photos'])
+            // What names a unit lives in two of its category's fields, loaded
+            // here for the whole story rather than asked line by line.
+            ->with([
+                'user:id,name,surname,avatar',
+                'equipment' => fn ($unit) => $unit->select(['id', 'equipment_type_id'])->withIdentity(),
+                'equipment.type:id,name',
+                'photos',
+            ])
             ->whereIn('equipment_id', $units)
             ->orderBy('id')
             ->get();

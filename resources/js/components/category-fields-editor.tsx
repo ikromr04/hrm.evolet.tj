@@ -5,12 +5,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { type CategoryField, type FieldType, type FieldTypeOption } from '@/lib/equipment-fields';
-import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
+
+/**
+ * What the two a unit is named by are read as elsewhere. A category may call
+ * them whatever suits it — a printer's «Наименование» may read «Модель» — so
+ * the line under the box says what the field is for instead of leaving the
+ * word in it to explain itself.
+ */
+const ROLE_HINT: Record<'title' | 'inventory', string> = {
+    title: 'Так называется единица в списках и письмах.',
+    inventory: 'Номер на наклейке, по нему единицу ищут.',
+};
 
 /**
  * What units of a category are described by, edited in the category's own
  * dialog: a line per field with its name, what it holds and whether it must be
  * filled in.
+ *
+ * Two of those lines are the ones every unit carries, marked by a role. They
+ * are renamed, reordered and made optional like any other, but neither can be
+ * dropped and neither holds anything but text.
  *
  * Dropping a field takes with it whatever the units had written in it, so the
  * line says so plainly instead of asking a second time in a dialog of its own.
@@ -29,22 +44,14 @@ export function CategoryFieldsEditor({
     const replace = (index: number, field: Partial<CategoryField>) =>
         onChange(fields.map((held, at) => (at === index ? { ...held, ...field } : held)));
 
-    const add = () => onChange([...fields, { name: '', type: 'text', options: [], required: false }]);
+    const add = () => onChange([...fields, { name: '', type: 'text', options: [], required: false, role: null }]);
     const remove = (index: number) => onChange(fields.filter((_, at) => at !== index));
-
-    const move = (index: number, to: number) => {
-        if (to < 0 || to >= fields.length) return;
-
-        const next = [...fields];
-        [next[index], next[to]] = [next[to], next[index]];
-        onChange(next);
-    };
 
     return (
         <div className="grid content-start gap-2">
             <Label>Поля единиц</Label>
             <p className="text-muted-foreground text-[13px]">
-                Их увидят на карточке и в форме добавления техники этой категории. Порядок здесь — порядок на карточке.
+                Их увидят на карточке и в форме добавления техники этой категории. Новое поле встаёт в конец списка.
             </p>
 
             <ul className="grid gap-3">
@@ -80,38 +87,21 @@ export function CategoryFieldsEditor({
                             </div>
 
                             <div className="flex shrink-0 gap-0.5">
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-muted-foreground size-9 max-md:size-10"
-                                    aria-label={`Выше: ${field.name || 'новое поле'}`}
-                                    disabled={index === 0}
-                                    onClick={() => move(index, index - 1)}
-                                >
-                                    <ChevronUp className="size-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-muted-foreground size-9 max-md:size-10"
-                                    aria-label={`Ниже: ${field.name || 'новое поле'}`}
-                                    disabled={index === fields.length - 1}
-                                    onClick={() => move(index, index + 1)}
-                                >
-                                    <ChevronDown className="size-4" />
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-9 text-[#B42318] hover:text-[#B42318] max-md:size-10 dark:text-[#F7A19A]"
-                                    aria-label={`Убрать поле: ${field.name || 'новое поле'}`}
-                                    onClick={() => remove(index)}
-                                >
-                                    <Trash2 className="size-4" />
-                                </Button>
+                                {/* A category whose units have no name and no inventory
+                                    number is one nothing could call them by, so these two
+                                    stay whatever else the dialog does. */}
+                                {!field.role && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-9 text-[#B42318] hover:text-[#B42318] max-md:size-10 dark:text-[#F7A19A]"
+                                        aria-label={`Убрать поле: ${field.name || 'новое поле'}`}
+                                        onClick={() => remove(index)}
+                                    >
+                                        <Trash2 className="size-4" />
+                                    </Button>
+                                )}
                             </div>
                         </div>
 
@@ -136,8 +126,14 @@ export function CategoryFieldsEditor({
                             Обязательное
                         </label>
 
-                        {field.id !== undefined && (
-                            <p className="text-muted-foreground text-[13px]">Если убрать это поле, значения, записанные в него у единиц, исчезнут.</p>
+                        {field.role ? (
+                            <p className="text-muted-foreground text-[13px]">{ROLE_HINT[field.role]}</p>
+                        ) : (
+                            field.id !== undefined && (
+                                <p className="text-muted-foreground text-[13px]">
+                                    Если убрать это поле, значения, записанные в него у единиц, исчезнут.
+                                </p>
+                            )
                         )}
                     </li>
                 ))}

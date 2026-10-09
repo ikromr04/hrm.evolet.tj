@@ -134,7 +134,7 @@ class SearchController extends Controller
      */
     private function equipment(array $words, User $user): array
     {
-        $query = Equipment::query()->with(['type:id,name,icon', 'holder:id,name,surname']);
+        $query = Equipment::query()->withIdentity()->with(['type:id,name,icon', 'holder:id,name,surname']);
         // Search is a way into the list, so it reaches no further than the list
         // does: a unit one may not open must not surface as a result either.
         EquipmentAccess::narrow($query, $user);
@@ -142,18 +142,17 @@ class SearchController extends Controller
         foreach ($words as $word) {
             $like = "%{$word}%";
             $query->where(fn (Builder $q) => $q
-                ->where('name', 'like', $like)
-                ->orWhere('inventory_number', 'like', $like)
-                // The serial number, the model, the maker and everything else a
-                // category asks about live in its fields now.
-                ->orWhereHas('fieldValues', fn (Builder $q) => $q->where('value', 'like', $like))
+                // What it is called, the number on its sticker, the serial, the
+                // model, the maker and everything else a category asks about
+                // all live in its fields now, so one question covers the lot.
+                ->whereHas('fieldValues', fn (Builder $q) => $q->where('value', 'like', $like))
                 ->orWhereHas('type', fn (Builder $q) => $q->where('name', 'like', $like))
                 ->orWhereHas('holder', fn (Builder $q) => $q
                     ->where('surname', 'like', $like)
                     ->orWhere('name', 'like', $like)));
         }
 
-        return $query->orderBy('name')->limit(self::LIMIT)->get()
+        return $query->orderBy(Equipment::roleValueQuery('title'))->limit(self::LIMIT)->get()
             ->map(fn (Equipment $unit) => [
                 'id' => $unit->id,
                 'name' => $unit->name,

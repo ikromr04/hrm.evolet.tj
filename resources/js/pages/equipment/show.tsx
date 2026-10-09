@@ -1,4 +1,4 @@
-import { CategoryFieldInputs } from '@/components/category-field-inputs';
+import { CategoryFieldInputs, FieldInput } from '@/components/category-field-inputs';
 import { countActiveFilters, DataTable, MobileListTools, useTableView, type ColumnDef, type ViewState } from '@/components/data-table';
 import { ChangeLines, EventRow } from '@/components/equipment-changes';
 import { CategoryChip } from '@/components/equipment-icon';
@@ -30,7 +30,16 @@ import {
     type EventKind,
     type NameLookup,
 } from '@/lib/equipment';
-import { blankValues, readFieldValue, type CategoryField, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
+import {
+    blankValues,
+    ownFields,
+    readFieldValue,
+    roleField,
+    roleName,
+    type CategoryField,
+    type CategoryOption,
+    type FieldValues,
+} from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
@@ -430,22 +439,23 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
     });
 
     // Kept beside the form, because they are keyed by field id rather than by a
-    // name the form knows about.
-    const [values, setValues] = useState<FieldValues>(
-        Object.fromEntries(unit.fields.map((field) => [field.id!, field.type === 'boolean' ? field.value === '1' : (field.value ?? '')])),
-    );
+    // name the form knows about. The two the unit is named by are asked for in
+    // boxes of their own above, so they are left out of this.
+    const written = (): FieldValues =>
+        Object.fromEntries(ownFields(unit.fields).map((field) => [field.id!, field.type === 'boolean' ? field.value === '1' : (field.value ?? '')]));
 
-    const fields = types.find((type) => String(type.id) === form.data.equipment_type_id)?.fields ?? [];
+    const [values, setValues] = useState<FieldValues>(written());
+
+    // Everything the chosen category asks about, and the same without the two
+    // asked above: the first names them, the second is drawn as inputs.
+    const asked = types.find((type) => String(type.id) === form.data.equipment_type_id)?.fields ?? [];
+    const fields = ownFields(asked);
 
     // Another category asks other things, so the answers start blank rather than
     // being written into fields nobody chose.
     const pickType = (id: string) => {
         form.setData('equipment_type_id', id);
-        setValues(
-            id === String(unit.equipment_type_id)
-                ? Object.fromEntries(unit.fields.map((field) => [field.id!, field.type === 'boolean' ? field.value === '1' : (field.value ?? '')]))
-                : blankValues(types.find((type) => String(type.id) === id)?.fields ?? []),
-        );
+        setValues(id === String(unit.equipment_type_id) ? written() : blankValues(types.find((type) => String(type.id) === id)?.fields ?? []));
     };
 
     const submit: FormEventHandler = (event) => {
@@ -455,15 +465,17 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
     };
 
     /** Every field here is a label over an input; only the value differs. */
+    // The two a unit is named by, each drawn by the type its category gave it.
     const text = (key: 'name' | 'inventory_number', label: string, hint: string) => (
         <div className="grid content-start gap-2">
             <Label htmlFor={`specs-${key}`}>{label}</Label>
-            <Input
+            <FieldInput
+                field={roleField(asked, key === 'name' ? 'title' : 'inventory')}
                 id={`specs-${key}`}
                 value={form.data[key]}
-                onChange={(event) => form.setData(key, event.target.value)}
+                onChange={(value) => form.setData(key, String(value))}
                 placeholder={hint}
-                aria-invalid={!!form.errors[key]}
+                invalid={!!form.errors[key]}
             />
             <InputError message={form.errors[key]} />
         </div>
@@ -479,7 +491,9 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                         <DialogDescription>Что это за единица и во сколько она обошлась.</DialogDescription>
                     </DialogHeader>
 
-                    {text('name', 'Наименование', 'Ноутбук Dell Latitude 5440')}
+                    {/* Both are fields of the category, which names them as it
+                        likes; what is sent stays "name" and "inventory_number". */}
+                    {text('name', roleName(asked, 'title'), 'Ноутбук Dell Latitude 5440')}
 
                     <div className="grid content-start gap-2">
                         <Label htmlFor="specs-type">Категория</Label>
@@ -496,7 +510,7 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                         <InputError message={form.errors.equipment_type_id} />
                     </div>
 
-                    {text('inventory_number', 'Инвентарный номер', 'EV-0421')}
+                    {text('inventory_number', roleName(asked, 'inventory'), 'EV-0421')}
 
                     {/* Whatever this category asks about; nothing at all for a
                         category with no fields of its own. */}
@@ -1167,8 +1181,12 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                                             </Link>
                                         )}
                                     </Field>
-                                    <Field label="Инвентарный номер">{unit.inventory_number}</Field>
-                                    {unit.fields.map((field) => (
+                                    {/* The number stands first whatever the category
+                                        calls it; the rest follow in the category's
+                                        own order, the name among them being the
+                                        heading of the card. */}
+                                    <Field label={roleName(unit.fields, 'inventory')}>{unit.inventory_number}</Field>
+                                    {ownFields(unit.fields).map((field) => (
                                         <Field key={field.id} label={field.name}>
                                             {readFieldValue(field)}
                                         </Field>

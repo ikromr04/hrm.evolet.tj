@@ -10,6 +10,7 @@ use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Tests\TestCase;
 
 /**
@@ -149,7 +150,7 @@ class EquipmentRightsTest extends TestCase
         $keeper = $this->person('equipment.create');
         $this->actingAs($keeper)->get('/equipment/create')->assertOk();
         $this->actingAs($keeper)->post('/equipment', $payload)->assertRedirect();
-        $this->assertNotNull(Equipment::firstWhere('inventory_number', 'EV-0421'));
+        $this->assertNotNull(Equipment::whereInventory('EV-0421')->first());
     }
 
     public function test_records_of_repair_are_opened_corrected_and_closed_under_one_right()
@@ -246,6 +247,52 @@ class EquipmentRightsTest extends TestCase
             ->post("/employees/{$employee->id}/equipment", ['equipment' => [$unit->id]])
             ->assertRedirect();
         $this->assertSame($employee->id, $unit->fresh()->holder_user_id);
+    }
+
+    public function test_entering_a_unit_for_a_colleague_takes_all_three_rights_at_once()
+    {
+        $employee = User::factory()->create();
+
+        // Putting a unit on the books and handing it over in one go is both
+        // jobs at once: the block of that colleague's card, the right to hand
+        // units over, and the right to bring one in.
+        $rights = [
+            'card' => ['employees.view', 'employees.field.equipment', 'employees.edit.equipment'],
+            'issue' => ['equipment.issue'],
+            'create' => ['equipment.create'],
+        ];
+
+        $payload = fn (string $number) => [
+            'for' => $employee->id,
+            'equipment_type_id' => $this->type()->id,
+            'name' => 'Ноутбук Dell Latitude 5440',
+            'inventory_number' => $number,
+        ];
+
+        // Any two of the three are two too few.
+        foreach (array_keys($rights) as $missing) {
+            $short = $this->person(...array_merge(...array_values(Arr::except($rights, $missing))));
+
+            $this->actingAs($short)->get("/equipment/create?for={$employee->id}")->assertForbidden();
+            $this->actingAs($short)->post('/equipment', $payload('EV-0421'))->assertForbidden();
+        }
+
+        $this->assertSame(0, Equipment::count());
+
+        $clerk = $this->person(...array_merge(...array_values($rights)));
+        $this->actingAs($clerk)->get("/equipment/create?for={$employee->id}")->assertOk();
+        $this->actingAs($clerk)
+            ->post('/equipment', $payload('EV-0421'))
+            ->assertRedirect("/employees/{$employee->id}");
+
+        $this->assertSame($employee->id, Equipment::whereInventory('EV-0421')->first()->holder_user_id);
+
+        // Without a colleague named, the rights are what they always were: the
+        // one right to put a unit on the books.
+        $keeper = $this->person('equipment.create');
+        $this->actingAs($keeper)->get('/equipment/create')->assertOk();
+        $this->actingAs($keeper)->post('/equipment', [...$payload('EV-0422'), 'for' => null])->assertRedirect();
+        $this->assertNull(Equipment::whereInventory('EV-0422')->first()->holder_user_id);
     }
 
     public function test_an_administrator_needs_none_of_these_rights()

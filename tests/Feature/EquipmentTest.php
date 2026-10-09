@@ -225,7 +225,7 @@ class EquipmentTest extends TestCase
             ])
             ->assertSessionHasNoErrors();
 
-        $unit = Equipment::firstWhere('inventory_number', 'EV-0421');
+        $unit = Equipment::whereInventory('EV-0421')->first();
         $this->assertSame('Ноутбук Dell Latitude 5440', $unit->name);
         // Nobody holds it yet: it is in stock until it is handed out.
         $this->assertSame('stock', $unit->status);
@@ -247,7 +247,7 @@ class EquipmentTest extends TestCase
             ])
             ->assertSessionHasNoErrors();
 
-        $unit = Equipment::firstWhere('inventory_number', 'EV-0422');
+        $unit = Equipment::whereInventory('EV-0422')->first();
         $this->assertSame('issued', $unit->status);
         $this->assertSame($employee->id, $unit->holder_user_id);
         $this->assertSame('2026-03-14', $unit->issued_at->toDateString());
@@ -288,6 +288,128 @@ class EquipmentTest extends TestCase
         $this->actingAs($this->colleague())->get('/equipment/create')->assertForbidden();
     }
 
+    public function test_the_form_knows_which_colleague_a_unit_is_being_entered_for()
+    {
+        $employee = $this->colleague(['surname' => 'Азимов', 'name' => 'Фарход']);
+
+        $this->actingAs($this->sysadmin())
+            ->get("/equipment/create?for={$employee->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('equipment/create')
+                ->where('forEmployee.id', $employee->id)
+                // Named as the page's own holder list names everybody.
+                ->where('forEmployee.name', 'Азимов Фарход')
+            );
+
+        // Opened from the fleet, it is being entered for nobody in particular.
+        $this->actingAs($this->sysadmin())
+            ->get('/equipment/create')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('forEmployee', null));
+    }
+
+    public function test_a_form_opened_for_somebody_who_does_not_work_here_is_the_plain_form()
+    {
+        $fired = User::factory()->create(['status' => 'fired']);
+        $admin = $this->sysadmin();
+
+        // A colleague who has left, an id behind nobody, and a value that is no
+        // id at all: the form opens as itself rather than refusing.
+        foreach ([$fired->id, 404404, 'сотрудник', ''] as $for) {
+            $this->actingAs($admin)
+                ->get('/equipment/create?for='.$for)
+                ->assertOk()
+                ->assertInertia(fn (AssertableInertia $page) => $page->where('forEmployee', null));
+        }
+    }
+
+    public function test_a_unit_entered_from_a_card_is_handed_to_that_colleague()
+    {
+        $employee = $this->colleague();
+        $somebodyElse = User::factory()->create();
+
+        // The card names the colleague in the address it posts to.
+        $this->actingAs($this->sysadmin())
+            ->post("/equipment?for={$employee->id}", [
+                'equipment_type_id' => $this->type()->id,
+                'name' => 'Ноутбук для нового бухгалтера',
+                'inventory_number' => 'EV-0425',
+                // The card named whose it is; the form is not believed about that.
+                'holder_user_id' => $somebodyElse->id,
+                'issued_at' => '2026-03-14',
+            ])
+            ->assertSessionHasNoErrors()
+            // Back to the card it was entered from, where the unit now hangs.
+            ->assertRedirect("/employees/{$employee->id}");
+
+        $unit = Equipment::whereInventory('EV-0425')->first();
+        $this->assertSame('issued', $unit->status);
+        $this->assertSame($employee->id, $unit->holder_user_id);
+        $this->assertSame('2026-03-14', $unit->issued_at->toDateString());
+
+        // The journal reads as it happened: entered, then handed over.
+        $this->assertSame(['created', 'issued'], $unit->events()->reorder('id')->pluck('kind')->all());
+    }
+
+    public function test_a_handover_from_a_card_with_no_date_is_made_today()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post('/equipment', [
+                'for' => $employee->id,
+                'equipment_type_id' => $this->type()->id,
+                'name' => 'Ноутбук без даты',
+                'inventory_number' => 'EV-0428',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $unit = Equipment::whereInventory('EV-0428')->first();
+        $this->assertSame($employee->id, $unit->holder_user_id);
+        $this->assertSame(now()->toDateString(), $unit->issued_at->toDateString());
+    }
+
+    public function test_entering_the_next_unit_keeps_the_form_open_for_the_same_colleague()
+    {
+        $employee = $this->colleague();
+
+        $response = $this->actingAs($this->sysadmin())
+            ->from("/equipment/create?for={$employee->id}")
+            ->post("/equipment?for={$employee->id}", [
+                'equipment_type_id' => $this->type()->id,
+                'name' => 'Мышь из партии',
+                'inventory_number' => 'EV-0426',
+                'issued_at' => '2026-03-14',
+                'another' => true,
+            ]);
+
+        // The form stays open, and stays open for them.
+        $response->assertSessionHasNoErrors()->assertRedirect("/equipment/create?for={$employee->id}");
+        $response->assertSessionHas('equipment.inventory_number', 'EV-0426');
+        $this->assertSame($employee->id, Equipment::whereInventory('EV-0426')->first()->holder_user_id);
+    }
+
+    public function test_a_unit_entered_for_somebody_who_does_not_work_here_stays_on_the_balance_sheet()
+    {
+        $fired = User::factory()->create(['status' => 'fired']);
+        $admin = $this->sysadmin();
+
+        foreach ([$fired->id => 'EV-0427', 'сотрудник' => 'EV-0429'] as $for => $number) {
+            $this->actingAs($admin)
+                ->post('/equipment?for='.$for, [
+                    'equipment_type_id' => $this->type()->id,
+                    'name' => 'Ноутбук на балансе '.$number,
+                    'inventory_number' => $number,
+                ])
+                ->assertSessionHasNoErrors();
+
+            $unit = Equipment::whereInventory($number)->first();
+            // Nobody was named, so nobody holds it, and the card of the unit is
+            // where it ends — the plain way of entering a unit.
+            $this->assertSame('stock', $unit->status);
+            $this->assertNull($unit->holder_user_id);
+        }
+    }
+
     public function test_a_unit_can_be_photographed_as_it_is_entered()
     {
         Storage::fake('public');
@@ -304,7 +426,7 @@ class EquipmentTest extends TestCase
             ])
             ->assertSessionHasNoErrors();
 
-        $unit = Equipment::firstWhere('inventory_number', 'EV-0424');
+        $unit = Equipment::whereInventory('EV-0424')->first();
         $this->assertSame(now()->toDateString(), $unit->checked_at->toDateString());
 
         // The picture hangs on the entry that records the arrival.

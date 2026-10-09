@@ -54,7 +54,7 @@ class EquipmentJournalTest extends TestCase
             'inventory_number' => 'EV-0421',
         ]);
 
-        $event = Equipment::firstWhere('inventory_number', 'EV-0421')->events()->sole();
+        $event = Equipment::whereInventory('EV-0421')->first()->events()->sole();
         $this->assertSame('created', $event->kind);
         $this->assertSame($admin->id, $event->user_id);
         $this->assertStringContainsString('EV-0421', $event->note);

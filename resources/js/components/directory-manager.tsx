@@ -665,9 +665,8 @@ function EditorDialog({
     });
 
     const [fields, setFields] = useState<CategoryField[]>(item?.fields ?? defaultFields ?? []);
-    // Most hardware comes with something, so a new category says it does until
-    // told otherwise.
-    const [hasAccessories, setHasAccessories] = useState(item?.has_accessories ?? true);
+    // A new category comes with nothing in the box until somebody says otherwise.
+    const [hasAccessories, setHasAccessories] = useState(item?.has_accessories ?? false);
 
     const togglePermission = (key: string) =>
         form.setData(
@@ -742,8 +741,10 @@ function EditorDialog({
                       has_accessories: hasAccessories,
                       // A line left blank is a line somebody started and thought
                       // better of, so it drops out rather than failing the save.
+                      // Not so for the two a unit is named by: those cannot be
+                      // dropped, so a blank name there is said out loud instead.
                       fields: fields
-                          .filter((field) => field.name.trim() !== '')
+                          .filter((field) => !!field.role || field.name.trim() !== '')
                           .map((field) => ({
                               ...field,
                               name: field.name.trim(),

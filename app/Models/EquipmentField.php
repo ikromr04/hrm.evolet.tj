@@ -30,22 +30,18 @@ class EquipmentField extends Model
     ];
 
     /**
-     * What a new category starts off with, in this order. Most hardware is
-     * described by these; whatever does not apply to a category is dropped in
-     * the same dialog, and anything missing is added there.
+     * The two a unit cannot be without. A category may call them by its own
+     * words and put them where it likes, but one of each stays: the list, the
+     * journal, the letters and the search all name a unit by these two.
      *
-     * @var list<array{name: string, type: string}>
+     * @var array<string, string>
      */
-    public const DEFAULTS = [
-        ['name' => 'Производитель', 'type' => 'text'],
-        ['name' => 'Модель', 'type' => 'text'],
-        ['name' => 'Серийный номер', 'type' => 'text'],
-        ['name' => 'Процессор', 'type' => 'text'],
-        ['name' => 'Память / диск', 'type' => 'text'],
-        ['name' => 'Год выпуска', 'type' => 'number'],
+    public const ROLES = [
+        'title' => 'Наименование',
+        'inventory' => 'Инвентарный номер',
     ];
 
-    protected $fillable = ['equipment_type_id', 'name', 'type', 'options', 'required', 'position'];
+    protected $fillable = ['equipment_type_id', 'role', 'name', 'type', 'options', 'required', 'position'];
 
     protected function casts(): array
     {
@@ -64,6 +60,12 @@ class EquipmentField extends Model
     public function values(): HasMany
     {
         return $this->hasMany(EquipmentFieldValue::class);
+    }
+
+    /** Whether this is one of the two every unit carries. */
+    public function isRole(): bool
+    {
+        return $this->role !== null;
     }
 
     /** The choices a "select" offers; empty for every other type. */

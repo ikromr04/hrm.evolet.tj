@@ -38,8 +38,32 @@ class EquipmentObserver
         $equipment->events()->create([
             'user_id' => Auth::id(),
             'kind' => 'created',
-            'note' => "Инв. № {$equipment->inventory_number}",
+            'note' => self::arrival($equipment),
         ]);
+    }
+
+    /**
+     * Tell the arrival entry the number the unit was filed under. The number is
+     * a field of the unit's category now, and a field cannot be written before
+     * the row it hangs on exists — so whoever puts a unit on the books writes
+     * the two it is named by and then says so here, and the line itself stays
+     * where every other line is written.
+     */
+    public static function named(Equipment $equipment): void
+    {
+        $equipment->events()
+            ->where('kind', 'created')
+            ->latest('id')
+            ->first()
+            ?->update(['note' => self::arrival($equipment)]);
+    }
+
+    /** What the arrival is remembered by: the number on the unit's sticker. */
+    private static function arrival(Equipment $equipment): ?string
+    {
+        $number = $equipment->inventory_number;
+
+        return $number === null || $number === '' ? null : "Инв. № {$number}";
     }
 
     public function updated(Equipment $equipment): void

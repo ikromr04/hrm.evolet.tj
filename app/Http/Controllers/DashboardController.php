@@ -97,7 +97,10 @@ class DashboardController extends Controller
     private function events(): array
     {
         return EquipmentEvent::query()
-            ->with(['user:id,name,surname', 'equipment:id,name,inventory_number'])
+            // What a unit is called and the number on its sticker are fields of
+            // its category now, so the tile loads them with the unit rather
+            // than reading two columns off the row.
+            ->with(['user:id,name,surname', 'equipment' => fn ($q) => $q->select('equipment.id')->withIdentity()])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->limit(self::RECENT_EVENTS)

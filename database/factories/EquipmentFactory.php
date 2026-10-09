@@ -4,7 +4,9 @@ namespace Database\Factories;
 
 use App\Models\Equipment;
 use App\Models\EquipmentType;
+use App\Observers\EquipmentObserver;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * @extends Factory<Equipment>
@@ -54,6 +56,15 @@ class EquipmentFactory extends Factory
     ];
 
     /**
+     * What a caller named a unit by, kept aside until the row exists: both are
+     * fields of the unit's category now rather than columns of its own, and a
+     * field is only written once there is something to write it against.
+     *
+     * @var array<int, array{?string, ?string}>
+     */
+    private static array $identity = [];
+
+    /**
      * Define the model's default state.
      *
      * @return array<string, mixed>
@@ -69,6 +80,40 @@ class EquipmentFactory extends Factory
             'next_inventory_at' => fake()->dateTimeBetween('+2 months', '+14 months'),
             'status' => 'stock',
         ];
+    }
+
+    /**
+     * The name and the number travel with the unit rather than into it: they
+     * are taken off the attributes here and written into the category's fields
+     * once it has been created, so every caller goes on naming a unit the way
+     * it always has.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function newModel(array $attributes = []): Model
+    {
+        $title = $attributes['name'] ?? null;
+        $number = $attributes['inventory_number'] ?? null;
+        unset($attributes['name'], $attributes['inventory_number']);
+
+        $model = parent::newModel($attributes);
+        self::$identity[spl_object_id($model)] = [$title, $number];
+
+        return $model;
+    }
+
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Equipment $unit) {
+            [$title, $number] = self::$identity[spl_object_id($unit)] ?? [null, null];
+            unset(self::$identity[spl_object_id($unit)]);
+
+            $unit->writeIdentity($title, $number);
+            // The arrival was written down before the unit had a number, the
+            // number being a field value and a field value needing a row to
+            // belong to. Now that it has one, the entry says so.
+            EquipmentObserver::named($unit);
+        });
     }
 
     /**
@@ -88,7 +133,8 @@ class EquipmentFactory extends Factory
                 'accessories' => ($type->has_accessories ?? true) ? self::ACCESSORIES[$type->name] ?? [] : null,
             ];
         })->afterCreating(function (Equipment $unit) use ($type) {
-            [$maker, $model] = self::modelOf($type, $unit->name);
+            // Runs after configure() has written the name, so the unit knows it.
+            [$maker, $model] = self::modelOf($type, (string) $unit->name);
 
             $this->fillFields($unit, ['Производитель' => $maker, 'Модель' => $model]);
         });

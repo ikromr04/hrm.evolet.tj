@@ -6,6 +6,7 @@ use App\Observers\EquipmentObserver;
 use Database\Factories\EquipmentFactory;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -57,8 +58,6 @@ class Equipment extends Model
      */
     protected $fillable = [
         'equipment_type_id',
-        'name',
-        'inventory_number',
         'condition',
         'checked_at',
         'next_inventory_at',
@@ -92,6 +91,108 @@ class Equipment extends Model
     public function fieldValues(): HasMany
     {
         return $this->hasMany(EquipmentFieldValue::class);
+    }
+
+    /**
+     * What the unit is called, and the number on its sticker. Both are fields
+     * of its category like any other — a category names them and orders them
+     * as it likes — and both are read here by the role the field carries, so
+     * everything that speaks of a unit goes on speaking of it the same way.
+     */
+    protected function name(): Attribute
+    {
+        return Attribute::get(fn () => $this->roleValue('title'));
+    }
+
+    protected function inventoryNumber(): Attribute
+    {
+        return Attribute::get(fn () => $this->roleValue('inventory'));
+    }
+
+    /**
+     * The value of the field holding one of the two roles, or null while the
+     * unit is new and has none. Reads what is loaded; `withIdentity` loads it
+     * for a list in one go.
+     */
+    public function roleValue(string $role): ?string
+    {
+        $values = $this->relationLoaded('fieldValues')
+            ? $this->fieldValues
+            : $this->fieldValues()->with('field:id,role')->get();
+
+        return $values->first(fn (EquipmentFieldValue $value) => $value->field?->role === $role)?->value;
+    }
+
+    /**
+     * Writes what the unit is called and the number on its sticker into the
+     * two fields of its category that carry those roles, adding them to the
+     * category if it somehow has none — a unit without either cannot be shown
+     * in a list, named in the journal or found by a search.
+     */
+    public function writeIdentity(?string $title, ?string $number): void
+    {
+        foreach (['title' => $title, 'inventory' => $number] as $role => $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            // A category that somehow has no field for the role gets one at the
+            // end of its list: the directory decides the order, and a mended
+            // field pushing its way to the top would reorder what is there.
+            $field = EquipmentField::firstOrCreate(
+                ['equipment_type_id' => $this->equipment_type_id, 'role' => $role],
+                [
+                    'name' => EquipmentField::ROLES[$role],
+                    'type' => 'text',
+                    'required' => true,
+                    'position' => 1 + (int) EquipmentField::where('equipment_type_id', $this->equipment_type_id)->max('position'),
+                ],
+            );
+
+            $this->fieldValues()->updateOrCreate(['equipment_field_id' => $field->id], ['value' => $value]);
+        }
+
+        $this->unsetRelation('fieldValues');
+    }
+
+    /**
+     * Loads what it takes to name a unit: its values and the roles of the
+     * fields they belong to.
+     *
+     * @param  Builder<Equipment>  $query
+     */
+    public function scopeWithIdentity(Builder $query): void
+    {
+        $query->with(['fieldValues' => fn ($q) => $q->whereHas('field', fn ($q) => $q->whereNotNull('role'))->with('field:id,role,name')]);
+    }
+
+    /**
+     * The unit whose inventory field holds this number. The number is a field
+     * value now, so it is asked for through the field that carries the role
+     * rather than off a column of the unit's own.
+     *
+     * @param  Builder<Equipment>  $query
+     */
+    public function scopeWhereInventory(Builder $query, string $number): void
+    {
+        $query->where(self::roleValueQuery('inventory'), $number);
+    }
+
+    /**
+     * What one unit holds in the field of that role, as a subquery: for sorting
+     * a list by name, searching by number, or showing either in a column.
+     *
+     * @return \Illuminate\Database\Query\Builder
+     */
+    public static function roleValueQuery(string $role)
+    {
+        return EquipmentFieldValue::query()
+            ->select('equipment_field_values.value')
+            ->join('equipment_fields', 'equipment_fields.id', '=', 'equipment_field_values.equipment_field_id')
+            ->whereColumn('equipment_field_values.equipment_id', 'equipment.id')
+            ->where('equipment_fields.role', $role)
+            ->limit(1)
+            ->getQuery();
     }
 
     public function repairs(): HasMany

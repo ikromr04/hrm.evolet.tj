@@ -10,6 +10,14 @@ import { formatDate } from '@/lib/employee';
 
 export type FieldType = 'text' | 'number' | 'date' | 'boolean' | 'select';
 
+/**
+ * Which of the two every unit carries a field holds, if either. A category
+ * names these two as it likes and puts them where it likes among the rest, but
+ * one of each stays: the list, the journal, the letters and the search all name
+ * a unit by them. Null for a field that is the category's own.
+ */
+export type FieldRole = 'title' | 'inventory' | null;
+
 /** One field of a category, as the server describes it. */
 export interface CategoryField {
     /** Missing while the field is being added in the dialog. */
@@ -19,6 +27,40 @@ export interface CategoryField {
     /** The choices a "select" offers; empty for every other type. */
     options: string[];
     required: boolean;
+    role: FieldRole;
+}
+
+/** The usual word for each of the two, for a category that has not renamed them. */
+export const roleLabel: Record<'title' | 'inventory', string> = {
+    title: 'Наименование',
+    inventory: 'Инвентарный номер',
+};
+
+/**
+ * What this category calls the field holding the role — a printer's
+ * «Наименование» may read «Модель» — or the usual word for it while no category
+ * has been chosen and there is nothing to ask.
+ */
+export function roleName(fields: CategoryField[], role: 'title' | 'inventory'): string {
+    return fields.find((field) => field.role === role)?.name.trim() || roleLabel[role];
+}
+
+/**
+ * The field holding the role, for drawing the box it asks for. While no
+ * category has been chosen there is none, so a plain line stands in: it is
+ * what every category starts its two off as.
+ */
+export function roleField(fields: CategoryField[], role: 'title' | 'inventory'): CategoryField {
+    return fields.find((field) => field.role === role) ?? { name: roleLabel[role], type: 'text', options: [], required: true, role };
+}
+
+/**
+ * The fields a form and a card handle by field id. The two a unit is named by
+ * are asked for by themselves and sent as "name" and "inventory_number", so
+ * they are left out here rather than asked for twice.
+ */
+export function ownFields<Field extends CategoryField>(fields: Field[]): Field[] {
+    return fields.filter((field) => !field.role);
 }
 
 /** What a field may hold, for the dialog's own list of types. */
@@ -41,7 +83,7 @@ export function blankValue(field: CategoryField): string | boolean {
 
 /** Every field of a category, blank, keyed the way the form sends them. */
 export function blankValues(fields: CategoryField[]): FieldValues {
-    return Object.fromEntries(fields.map((field) => [field.id!, blankValue(field)]));
+    return Object.fromEntries(ownFields(fields).map((field) => [field.id!, blankValue(field)]));
 }
 
 /** A category as a form offers it: its name, and what its units are described by. */

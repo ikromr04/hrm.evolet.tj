@@ -5,6 +5,70 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { type CategoryField, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
+import { type Ref } from 'react';
+
+/**
+ * One field, as the control its type asks for: a list offers its choices, a
+ * date opens a date picker, a yes-or-no is a tick box, everything else is a
+ * line. The label belongs to whoever draws it — the two a unit is named by are
+ * labelled by the category, the rest by their own name.
+ */
+export function FieldInput({
+    field,
+    id,
+    value,
+    onChange,
+    placeholder,
+    invalid,
+    inputRef,
+}: {
+    field: CategoryField;
+    id: string;
+    value: string | boolean | null | undefined;
+    onChange: (value: string | boolean) => void;
+    placeholder?: string;
+    invalid?: boolean;
+    /**
+     * For a caller that puts the cursor in the box itself — the add form waits
+     * on the number from the sticker after filing a unit. A field the category
+     * gave another type has no line to hold the cursor, and the ref stays empty.
+     */
+    inputRef?: Ref<HTMLInputElement>;
+}) {
+    if (field.type === 'boolean') {
+        return <Checkbox id={id} checked={value === true} onCheckedChange={(next) => onChange(next === true)} />;
+    }
+
+    if (field.type === 'select') {
+        return (
+            <Select value={String(value ?? '')} onValueChange={onChange}>
+                <SelectTrigger id={id} aria-invalid={invalid}>
+                    <SelectValue placeholder="Не выбрано" />
+                </SelectTrigger>
+                <SelectContent>
+                    {field.options.map((option) => (
+                        <SelectItem key={option} value={option}>
+                            {option}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        );
+    }
+
+    return (
+        <Input
+            ref={inputRef}
+            id={id}
+            type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+            step={field.type === 'number' ? 'any' : undefined}
+            value={String(value ?? '')}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            aria-invalid={invalid}
+        />
+    );
+}
 
 /**
  * The fields the chosen category asks about, as inputs.
@@ -42,7 +106,7 @@ export function CategoryFieldInputs({
                         {field.type === 'boolean' ? (
                             // The label belongs next to the box, not above it.
                             <label htmlFor={input} className="flex items-center gap-2 pt-1 text-sm">
-                                <Checkbox id={input} checked={held === true} onCheckedChange={(next) => onChange(id, next === true)} />
+                                <FieldInput field={field} id={input} value={held} onChange={(next) => onChange(id, next)} invalid={!!message} />
                                 {field.name}
                                 {field.required && <span aria-hidden>*</span>}
                             </label>
@@ -53,29 +117,7 @@ export function CategoryFieldInputs({
                                     {field.required && <span aria-hidden> *</span>}
                                 </Label>
 
-                                {field.type === 'select' ? (
-                                    <Select value={String(held ?? '')} onValueChange={(next) => onChange(id, next)}>
-                                        <SelectTrigger id={input} aria-invalid={!!message}>
-                                            <SelectValue placeholder="Не выбрано" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {field.options.map((option) => (
-                                                <SelectItem key={option} value={option}>
-                                                    {option}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <Input
-                                        id={input}
-                                        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-                                        step={field.type === 'number' ? 'any' : undefined}
-                                        value={String(held ?? '')}
-                                        onChange={(event) => onChange(id, event.target.value)}
-                                        aria-invalid={!!message}
-                                    />
-                                )}
+                                <FieldInput field={field} id={input} value={held} onChange={(next) => onChange(id, next)} invalid={!!message} />
                             </>
                         )}
 

@@ -21,7 +21,14 @@ class EquipmentMoved extends InAppNotification
     /**
      * @param  'issued'|'taken'|'written_off'  $move
      */
-    public function __construct(private readonly Equipment $unit, private readonly string $move) {}
+    public function __construct(private readonly Equipment $unit, private readonly string $move)
+    {
+        // The sentence names the unit, and what a unit is called and the number
+        // on its sticker are fields of its category: whoever hands a unit over
+        // may not have had a reason to load them, so the letter makes sure of
+        // it before it writes the line.
+        $this->unit->loadMissing('fieldValues.field:id,role');
+    }
 
     protected function kind(): string
     {

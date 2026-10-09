@@ -10,12 +10,14 @@ use App\Models\EquipmentField;
 use App\Models\EquipmentPhoto;
 use App\Models\EquipmentType;
 use App\Models\User;
+use App\Observers\EquipmentObserver;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -84,7 +86,10 @@ class EquipmentController extends Controller
         $direction = $input['direction'] ?? 'asc';
         $perPage = (int) ($input['per_page'] ?? self::PER_PAGE_OPTIONS[0]);
 
-        $query = Equipment::query()->with(['type:id,name,icon', 'type.fields', 'fieldValues', 'holder:id,name,surname,avatar']);
+        // The values come with the fields they belong to: the name and the
+        // number are read off the two that carry a role, and a page of units
+        // should cost one query for the lot rather than one apiece.
+        $query = Equipment::query()->with(['type:id,name,icon', 'type.fields', 'fieldValues.field:id,role,name', 'holder:id,name,surname,avatar']);
         // Whatever the tabs and filters then do, the list starts from the part of
         // the fleet this person may see at all.
         EquipmentAccess::narrow($query, $request->user());
@@ -152,12 +157,24 @@ class EquipmentController extends Controller
     }
 
     /** The form for a new unit: a page of its own, because it takes photographs. */
-    public function create(): Response
+    public function create(Request $request): Response
     {
+        // Opened from a colleague's card: the unit is put on the books and
+        // handed to them in one go, so the page knows whose it will be.
+        $employee = self::openedFor($request);
+
+        if ($employee !== null) {
+            $this->mayIssueFromCard($request, $employee);
+        }
+
         return Inertia::render('equipment/create', [
+            'forEmployee' => $employee === null ? null : [
+                'id' => $employee->id,
+                // Named as the holder list names everybody else.
+                'name' => "{$employee->surname} {$employee->name}",
+            ],
             'options' => [
-                'types' => EquipmentType::query()->with('fields')->orderBy('name')->get(['id', 'name', 'has_accessories'])
-                    ->map(fn (EquipmentType $type) => self::categoryOption($type)),
+                'types' => EquipmentType::formOptions(),
                 'holders' => User::query()
                     ->active()
                     ->orderBy('surname')
@@ -175,15 +192,31 @@ class EquipmentController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        // Entered from a colleague's card, which says whose it is: the form is
+        // not asked who it goes to, and what it sent about that is not read.
+        $employee = self::openedFor($request);
+
+        if ($employee !== null) {
+            $this->mayIssueFromCard($request, $employee);
+        }
+
+        // The fields the form sent by field id: the category's own, without the
+        // two it asks for by themselves below.
+        $type = self::ownFields($request->integer('equipment_type_id'));
+
         $data = $request->validate([
             'equipment_type_id' => ['required', 'integer', Rule::exists('equipment_types', 'id')],
             'name' => ['required', 'string', 'max:150'],
-            // The number on the sticker: one unit, one number.
-            'inventory_number' => ['required', 'string', 'max:50', Rule::unique('equipment', 'inventory_number')],
+            // The number on the sticker: one unit, one number. The column that
+            // used to see to that is gone with its unique index, so the
+            // inventory field's own values are asked instead — all of them,
+            // whatever category the units holding them are filed under.
+            'inventory_number' => ['required', 'string', 'max:50', Rule::unique('equipment_field_values', 'value')
+                ->whereIn('equipment_field_id', EquipmentField::query()->where('role', 'inventory')->pluck('id')->all())],
 
             // Whatever the chosen category asks about: a processor for a laptop,
             // a diagonal for a monitor, an IMEI for a phone.
-            ...$this->fieldRules(EquipmentType::with('fields')->find($request->integer('equipment_type_id'))),
+            ...$this->fieldRules($type),
 
             'condition' => ['nullable', 'string', 'max:200'],
             'checked_at' => ['nullable', 'date', 'before_or_equal:today'],
@@ -211,18 +244,31 @@ class EquipmentController extends Controller
             'photos' => 'фотографии',
             'holder_user_id' => 'сотрудник',
             'issued_at' => 'дата выдачи',
-            ...$this->fieldAttributes(EquipmentType::with('fields')->find($request->integer('equipment_type_id'))),
+            ...$this->fieldAttributes($type),
         ]);
 
-        $holder = $data['holder_user_id'] ?? null;
+        // Whose card the form was opened from outranks whatever it posted about
+        // the holder: a page opened for somebody hands the unit to them.
+        $holder = $employee?->id ?? $data['holder_user_id'] ?? null;
 
         $equipment = Equipment::create([
-            ...Arr::except($data, ['holder_user_id', 'issued_at', 'photos', 'another', 'fields']),
+            ...Arr::except($data, ['name', 'inventory_number', 'holder_user_id', 'issued_at', 'photos', 'another', 'fields']),
             'status' => 'stock',
         ]);
 
+        // What the unit is called and the number on its sticker are fields of
+        // its category, which can only be written once the row they hang on
+        // exists — so they follow the row rather than going into it.
+        $equipment->writeIdentity($data['name'], $data['inventory_number']);
+        // The arrival entry was written by the save above, a moment before the
+        // unit had a number; it names it as it always has.
+        EquipmentObserver::named($equipment);
+
         // Part of the unit from the day it arrives, so the entry that records
         // the arrival says all there is to say; no separate change is written.
+        // The two the form asked for by themselves are already written, and
+        // stay out of this: the form never sent them among the fields.
+        $equipment->setRelation('type', $type);
         $this->saveFields($equipment, $data['fields'] ?? []);
 
         $photos = $request->file('photos') ?? [];
@@ -238,7 +284,7 @@ class EquipmentController extends Controller
         }
 
         if (! $holder) {
-            return $this->afterCreating($equipment, $data);
+            return $this->afterCreating($equipment, $data, $employee);
         }
 
         // Handed over as it arrives. The move is made as a move rather than
@@ -247,10 +293,48 @@ class EquipmentController extends Controller
         $equipment->update([
             'status' => 'issued',
             'holder_user_id' => $holder,
-            'issued_at' => $data['issued_at'],
+            // The form asks for the day it changed hands; a card that named the
+            // colleague itself need not have been answered, and then it is today,
+            // as it is when a whole workplace is handed over at once.
+            'issued_at' => $data['issued_at'] ?? Carbon::today()->toDateString(),
         ]);
 
-        return $this->afterCreating($equipment, $data);
+        return $this->afterCreating($equipment, $data, $employee);
+    }
+
+    /**
+     * Whom the form was opened for: a colleague's card asks for a unit to be
+     * entered and handed over in one go, and names them in "for" — the same
+     * value on the way back in. Anything that does not name somebody still
+     * working here names nobody at all, and the page is then the plain form
+     * for a new unit rather than a refusal.
+     */
+    private static function openedFor(Request $request): ?User
+    {
+        $for = $request->input('for');
+
+        // An id and nothing else: the value comes off a link, and a stray one
+        // is not read as a number it happens to cast to.
+        if (! is_int($for) && ! (is_string($for) && ctype_digit($for))) {
+            return null;
+        }
+
+        return User::query()->active()->find((int) $for, ['id', 'name', 'surname']);
+    }
+
+    /**
+     * Entering a unit for a named colleague is two jobs at once, and takes the
+     * rights of both: the card's equipment block, as handing a unit over from
+     * that card does, and the right to hand units over at all. The right to
+     * bring a unit in is asked by the route, of this request as of any other.
+     */
+    private function mayIssueFromCard(Request $request, User $employee): void
+    {
+        abort_unless(
+            $request->user()->can(EmployeeFields::blockGate('equipment'), $employee)
+                && $request->user()->can('equipment.issue'),
+            403,
+        );
     }
 
     /**
@@ -258,15 +342,25 @@ class EquipmentController extends Controller
      * more beside them. In the second case the form stays where it is, and the
      * unit that was just filed rides back so the page can name it.
      *
+     * A form opened from a colleague's card came from that card and goes back
+     * to it, where the unit is now on their list; the box of ten keeps the form
+     * open for the same colleague rather than for nobody.
+     *
      * @param  array<string, mixed>  $data
      */
-    private function afterCreating(Equipment $equipment, array $data): RedirectResponse
+    private function afterCreating(Equipment $equipment, array $data, ?User $employee = null): RedirectResponse
     {
         if (! ($data['another'] ?? false)) {
-            return to_route('equipment.show', $equipment);
+            return $employee === null
+                ? to_route('equipment.show', $equipment)
+                : to_route('employees.show', $employee);
         }
 
-        return back()->with('equipment', [
+        $form = $employee === null
+            ? back()
+            : to_route('equipment.create', ['for' => $employee->id]);
+
+        return $form->with('equipment', [
             'id' => $equipment->id,
             'name' => $equipment->name,
             'inventory_number' => $equipment->inventory_number,
@@ -281,7 +375,9 @@ class EquipmentController extends Controller
     {
         $equipment->load([
             'type.fields',
-            'fieldValues',
+            // With the fields they belong to: the name and the number on the
+            // card are read off the two that carry a role.
+            'fieldValues.field:id,role,name',
             'holder:id,name,surname,avatar',
             'repairs.photos',
             'events.user:id,name,surname,avatar',
@@ -299,7 +395,7 @@ class EquipmentController extends Controller
                 'type_icon' => $equipment->type?->icon,
                 'inventory_number' => $equipment->inventory_number,
                 // What this category asks about, and what this unit answers.
-                'fields' => self::fieldList($equipment->type, $equipment),
+                'fields' => $equipment->type?->formFields($equipment) ?? [],
                 'condition' => $equipment->condition,
                 'checked_at' => $equipment->checked_at?->toDateString(),
                 'next_inventory_at' => $equipment->next_inventory_at?->toDateString(),
@@ -357,10 +453,7 @@ class EquipmentController extends Controller
                 ->get(['id', 'name', 'surname'])
                 ->map(fn (User $u) => ['id' => $u->id, 'name' => "{$u->surname} {$u->name}"]),
             // What the card's forms offer; only an editor needs any of it.
-            'types' => EquipmentAccess::edits($request->user())
-                ? EquipmentType::query()->with('fields')->orderBy('name')->get(['id', 'name', 'has_accessories'])
-                    ->map(fn (EquipmentType $type) => self::categoryOption($type))
-                : [],
+            'types' => EquipmentAccess::edits($request->user()) ? EquipmentType::formOptions() : [],
             'neighbours' => $this->neighbours($equipment),
             // Block by block and move by move, asked of this very unit.
             'can' => EquipmentAccess::allowed($request->user()),
@@ -395,19 +488,17 @@ class EquipmentController extends Controller
     }
 
     /**
-     * A category as a form offers it: its name, whether its units come with
-     * anything, and what they are described by.
-     *
-     * @return array<string, mixed>
+     * One category with the fields it asks about by field id: its own, without
+     * the two a unit cannot be without. A form sends those two as "name" and
+     * "inventory_number" rather than among the fields — the page leaves them
+     * out of that list the same way — so the rules and the saving ask about
+     * what is left. The page is given every field, roles and all.
      */
-    private static function categoryOption(EquipmentType $type): array
+    private static function ownFields(int $type): ?EquipmentType
     {
-        return [
-            'id' => $type->id,
-            'name' => $type->name,
-            'has_accessories' => $type->has_accessories,
-            'fields' => self::fieldList($type),
-        ];
+        return EquipmentType::query()
+            ->with(['fields' => fn ($fields) => $fields->whereNull('role')])
+            ->find($type);
     }
 
     /**
@@ -421,39 +512,15 @@ class EquipmentController extends Controller
         $held = $unit->fieldValues->keyBy('equipment_field_id');
 
         $lines = collect($unit->type?->fields ?? [])
+            // What the unit is called and its number are fields of the category
+            // now; the row prints both in their own right and does not repeat
+            // either of them under the name.
+            ->reject(fn (EquipmentField $field) => $field->isRole())
             ->map(fn (EquipmentField $field) => $field->read($held->get($field->id)?->value))
             ->filter()
             ->take(2);
 
         return $lines->isEmpty() ? null : $lines->join(' · ');
-    }
-
-    /**
-     * What a category asks about: its fields in their own order, each with what
-     * the given unit has written in it when there is one.
-     *
-     * @return list<array<string, mixed>>
-     */
-    private static function fieldList(?EquipmentType $type, ?Equipment $unit = null): array
-    {
-        if ($type === null) {
-            return [];
-        }
-
-        $held = $unit?->fieldValues->keyBy('equipment_field_id');
-
-        return $type->fields->map(fn (EquipmentField $field) => [
-            'id' => $field->id,
-            'name' => $field->name,
-            'type' => $field->type,
-            'options' => $field->choices(),
-            'required' => $field->required,
-            ...($unit === null ? [] : [
-                // As it is kept, for a form to put back into its input; the card
-                // spells a yes or a no out for itself.
-                'value' => $held?->get($field->id)?->value,
-            ]),
-        ])->all();
     }
 
     /**
@@ -466,25 +533,31 @@ class EquipmentController extends Controller
      */
     private function neighbours(Equipment $equipment): array
     {
+        // The name is a field of the unit's category now, so the order and the
+        // comparisons ask it of the values rather than of a column. Each call
+        // builds a subquery of its own: one query cannot be used twice.
+        $name = fn () => Equipment::roleValueQuery('title');
+
         $order = fn (string $direction) => Equipment::query()
+            ->withIdentity()
             ->where('status', $equipment->status)
             ->whereKeyNot($equipment->id)
-            ->orderBy('name', $direction)
+            ->orderBy($name(), $direction)
             ->orderBy('id', $direction);
 
         // "Before" means earlier in (name, id) order; a tie on the name falls back to the id.
         $before = fn (Builder $q) => $q->where(fn (Builder $q) => $q
-            ->where('name', '<', $equipment->name)
-            ->orWhere(fn (Builder $q) => $q->where('name', $equipment->name)->where('id', '<', $equipment->id)));
+            ->where($name(), '<', $equipment->name)
+            ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '<', $equipment->id)));
         $after = fn (Builder $q) => $q->where(fn (Builder $q) => $q
-            ->where('name', '>', $equipment->name)
-            ->orWhere(fn (Builder $q) => $q->where('name', $equipment->name)->where('id', '>', $equipment->id)));
+            ->where($name(), '>', $equipment->name)
+            ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '>', $equipment->id)));
 
         $unit = fn (?Equipment $u) => $u ? ['id' => $u->id, 'name' => $u->name, 'inventory_number' => $u->inventory_number] : null;
 
         return [
-            'prev' => $unit($order('desc')->tap($before)->first(['id', 'name', 'inventory_number'])),
-            'next' => $unit($order('asc')->tap($after)->first(['id', 'name', 'inventory_number'])),
+            'prev' => $unit($order('desc')->tap($before)->first(['id', 'equipment_type_id'])),
+            'next' => $unit($order('asc')->tap($after)->first(['id', 'equipment_type_id'])),
         ];
     }
 
@@ -500,8 +573,10 @@ class EquipmentController extends Controller
      */
     private function applyFilters(Builder $query, array $filters): void
     {
-        $query->when($filters['name'], fn (Builder $q, string $term) => $q->where('name', 'like', "%{$term}%"));
-        $query->when($filters['inventory_number'], fn (Builder $q, string $term) => $q->where('inventory_number', 'like', "%{$term}%"));
+        // By what the two columns print, which are fields of the unit's
+        // category now: each asks the value itself, one unit at a time.
+        $query->when($filters['name'], fn (Builder $q, string $term) => $q->where(Equipment::roleValueQuery('title'), 'like', "%{$term}%"));
+        $query->when($filters['inventory_number'], fn (Builder $q, string $term) => $q->where(Equipment::roleValueQuery('inventory'), 'like', "%{$term}%"));
         $query->when($filters['type'], fn (Builder $q, array $ids) => $q->whereIn('equipment_type_id', $ids));
         $query->when($filters['status'], fn (Builder $q, array $statuses) => $q->whereIn('status', $statuses));
         // By the name the column prints: the colleague, or the department a unit
@@ -522,15 +597,19 @@ class EquipmentController extends Controller
 
         // One box over everything printed on a unit: its name, its sticker, and
         // whatever its category asks about — a serial number, an IMEI, a model.
-        $query->when($filters['q'], fn (Builder $q, string $term) => $q->where(fn (Builder $q) => $q
-            ->where('name', 'like', "%{$term}%")
-            ->orWhere('inventory_number', 'like', "%{$term}%")
-            ->orWhereHas('fieldValues', fn (Builder $q) => $q->where('value', 'like', "%{$term}%"))));
+        // All of it is written in the fields now, the first two included, so
+        // one question over the values covers the lot.
+        $query->when($filters['q'], fn (Builder $q, string $term) => $q
+            ->whereHas('fieldValues', fn (Builder $q) => $q->where('value', 'like', "%{$term}%")));
     }
 
     private function applySort(Builder $query, string $sort, string $direction): void
     {
         match ($sort) {
+            // The two a unit is named by live in its category's fields, so the
+            // order is taken from the value each unit holds there.
+            'name' => $query->orderBy(Equipment::roleValueQuery('title'), $direction),
+            'inventory_number' => $query->orderBy(Equipment::roleValueQuery('inventory'), $direction),
             // Sorting by a related name, not by the foreign key behind it.
             'type' => $query->orderBy(EquipmentType::select('name')->whereColumn('equipment_types.id', 'equipment.equipment_type_id'), $direction),
             'holder' => $query->orderBy(User::select('surname')->whereColumn('users.id', 'equipment.holder_user_id'), $direction),
