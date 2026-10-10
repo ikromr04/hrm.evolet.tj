@@ -35,7 +35,7 @@ interface SearchResults {
         status: EquipmentStatus;
         holder: string | null;
     }[];
-    departments: { id: number; name: string }[];
+    departments: { id: number; name: string; full_name: string }[];
     positions: { id: number; name: string }[];
     roles: { name: string; title: string }[];
     equipmentTypes: { id: number; name: string; icon: string | null }[];
@@ -126,6 +126,7 @@ export function GlobalSearch() {
                 // The journal opens for whoever may read it on any part of the fleet;
                 // the page itself shows only the entries of that part.
                 ...(readsEquipmentJournal(can) ? [{ label: 'Журнал операций', href: '/equipment/journal', icon: History }] : []),
+                ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
                 // One of the five lists is enough: the section opens on the first
                 // one its viewer may read.
                 ...(seesDirectories(can) ? [{ label: 'Справочники', href: '/directories', icon: BookMarked }] : []),
@@ -136,6 +137,7 @@ export function GlobalSearch() {
 
     const items = useMemo<Item[]>(() => {
         const term = query.trim().toLowerCase();
+        const opensPositions = can('directories.view.positions');
 
         return [
             ...results.employees.map((person) => ({
@@ -158,15 +160,20 @@ export function GlobalSearch() {
                 key: `department-${department.id}`,
                 group: 'Отделы',
                 label: department.name,
+                // A result row has a line under it for the fuller text, which
+                // beats a hover: it reads the same on a phone as on a desktop.
+                hint: department.full_name === department.name ? undefined : department.full_name,
                 href: route('departments.show', department.id),
                 icon: iconBox(Network),
             })),
+            // A position has a page of its own now; for whoever may not open that
+            // section the hit still leads to the staff who hold it, as it used to.
             ...results.positions.map((position) => ({
                 key: `position-${position.id}`,
                 group: 'Должности',
                 label: position.name,
-                hint: 'Сотрудники с этой должностью',
-                href: route('employees.index', { position: [position.id] }),
+                hint: opensPositions ? undefined : 'Сотрудники с этой должностью',
+                href: opensPositions ? route('positions.show', position.id) : route('employees.index', { position: [position.id] }),
                 icon: iconBox(Briefcase),
             })),
             ...results.roles.map((role) => ({
@@ -198,7 +205,7 @@ export function GlobalSearch() {
                 .filter((page) => !term || page.label.toLowerCase().includes(term))
                 .map((page) => ({ key: `page-${page.href}`, group: 'Разделы', label: page.label, href: page.href, icon: iconBox(page.icon) })),
         ];
-    }, [results, pages, query]);
+    }, [results, pages, query, can]);
 
     // A new set of results starts from the top.
     useEffect(() => setActive(0), [items]);

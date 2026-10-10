@@ -17,6 +17,7 @@ use App\Http\Controllers\EquipmentJournalController;
 use App\Http\Controllers\EquipmentRepairController;
 use App\Http\Controllers\EquipmentStatusController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PositionController;
 use App\Http\Controllers\SearchController;
 // The reference lists themselves, under a name of their own: "Directories" here
 // already stands for the controllers that serve them.
@@ -62,6 +63,19 @@ Route::middleware(['auth'])->group(function () {
     Route::get('equipment/{equipment}', [EquipmentController::class, 'show'])
         ->middleware('can:view,equipment')
         ->name('equipment.show');
+
+    // The job titles people hold, "Должности": a section after the equipment
+    // rather than a tab of "Справочники", because a position is read far more
+    // often than it is changed. The right is still the one the access table
+    // names the list with — moving a page does not move what it takes to open
+    // it.
+    Route::get('positions', [PositionController::class, 'index'])
+        ->middleware('can:'.DirectoryLists::viewPermission('positions'))
+        ->name('positions.index');
+    // Who holds the position and what each of them answers for.
+    Route::get('positions/{position}', [PositionController::class, 'show'])
+        ->middleware('can:'.DirectoryLists::viewPermission('positions'))
+        ->name('positions.show');
 
     // Who works where is nobody's secret: the structure of the company is open
     // to everybody who signs in, and the pages show names and nothing more.
@@ -175,10 +189,20 @@ Route::middleware('auth')->prefix('equipment/{equipment}')->name('equipment.')->
     });
 });
 
-// Directories: roles ("Позиция"), positions ("Должность"), departments, languages, citizenships and equipment categories.
+// Keeping the job titles: the same right the access table has always named the
+// list with, asked as the pair — changing a list takes being able to read it, so
+// the gate stands for "directories.edit.positions and directories.view.positions"
+// rather than the bare right, which would pass on its own.
+Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions.')->group(function () {
+    Route::post('positions', [PositionController::class, 'store'])->name('store');
+    Route::put('positions/{position}', [PositionController::class, 'update'])->name('update');
+    Route::delete('positions/{position}', [PositionController::class, 'destroy'])->name('destroy');
+});
+
+// Directories: roles ("Позиция"), departments, languages, citizenships and equipment categories.
 Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(function () {
     // The section opens on the first list this person may read rather than always
-    // on the positions, which not everybody who keeps a directory may see.
+    // on the roles, which not everybody who keeps a directory may see.
     Route::get('/', function (Request $request) {
         $first = DirectoryLists::firstFor($request->user());
 
@@ -190,9 +214,10 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
     // Lists kept by different people, so each is a right of its own — reading it,
     // and adding to it and renaming in it. "Доступы" is one of them too, further
     // down: it is a page of its own rather than a resource.
+    // "Должности" is not among them any more: the list has a section of its own,
+    // at /positions, and is read and kept by the very same two rights.
     $lists = [
         'roles' => Directories\RoleController::class,
-        'positions' => Directories\PositionController::class,
         'departments' => Directories\DepartmentController::class,
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,

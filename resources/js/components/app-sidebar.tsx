@@ -4,7 +4,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
 import { type SharedData, type SidebarNavGroup } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { BookMarked, CircleUser, Laptop, LayoutGrid, Network, Users } from 'lucide-react';
+import { BookMarked, Briefcase, CircleUser, Laptop, LayoutGrid, Network, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 /** Entries that only show for viewers who may open what is behind them. */
@@ -18,6 +18,9 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
             { title: 'Структура компании', url: '/departments', icon: Network },
             // Any part of the fleet — own, the department's or all of it — opens the section.
             ...(seesEquipment(can) ? [{ title: 'Оборудование', url: '/equipment', icon: Laptop }] : []),
+            // Job titles left the reference lists: they carry duties and the people
+            // who hold them, which is a section of its own rather than a tab.
+            ...(can('directories.view.positions') ? [{ title: 'Должности', url: '/positions', icon: Briefcase }] : []),
         ],
     },
 ];

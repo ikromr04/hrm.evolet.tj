@@ -8,20 +8,28 @@ use App\Models\User;
  * Which of the reference lists a position may open, and which it may change.
  *
  * "Справочники" is not one section but several lists that happen to share a
- * page: the positions a company has, the job titles people hold, the tree of
- * departments, the languages they speak, the countries they are citizens of and
- * the categories of hardware. They are
+ * page: the positions a company has, the tree of departments, the languages
+ * people speak, the countries they are citizens of and the categories of
+ * hardware. They are
  * kept by different people — an HR officer renames job titles, whoever looks
  * after the fleet adds a category of monitors — so each list is a right of its
  * own, and changing one takes being able to read it first.
+ *
+ * One of them no longer shares that page. The job titles are read far more often
+ * than they are changed, so "Должности" became a section of its own at
+ * /positions — but the two rights behind it did not move, and this is still the
+ * catalogue they come from.
  */
 final class Directories
 {
     /**
-     * key => [what the tab is called, what the list holds].
+     * Every list of the section as a right: key => [what it is called, what it
+     * holds].
      *
-     * The order is the order of the tabs, because the page lands on the first
-     * list a person may open.
+     * This is the catalogue the access page is built from, so a key here is a
+     * string the production access table is keyed by: "positions" stays even
+     * though the list is no longer a tab, because renaming or dropping it would
+     * silently take away what every position has been granted.
      *
      * @var array<string, array{string, string}>
      */
@@ -57,6 +65,19 @@ final class Directories
             'Таблица позиций и прав, вместе с личными исключениями на карточках.',
         ],
     ];
+
+    /**
+     * The lists that are tabs of the page, in the order the tabs show them,
+     * because the section lands on the first one a person may open.
+     *
+     * Everything in the catalogue but the job titles: those have a section of
+     * their own now, so the tabs no longer offer them and the section never
+     * opens on them — while their two rights stay in the catalogue above, where
+     * the access page and the seeder read them.
+     *
+     * @var list<string>
+     */
+    public const TABS = ['roles', 'departments', 'languages', 'citizenships', 'equipment', 'access'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string
@@ -131,14 +152,15 @@ final class Directories
     }
 
     /**
-     * Which lists this person may open.
+     * Which tabs of the section this person may open. A list that has a page of
+     * its own is not one of them: it answers for itself, on its own address.
      *
      * @return list<string>
      */
     public static function visibleTo(User $user): array
     {
         return array_values(array_filter(
-            array_keys(self::LISTS),
+            self::TABS,
             fn (string $list) => $user->can(self::viewPermission($list)),
         ));
     }

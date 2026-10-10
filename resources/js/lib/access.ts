@@ -119,8 +119,10 @@ export const readsEquipmentJournal = (can: (permission: Permission) => boolean):
 
 /**
  * "Справочники" is not one section but five lists that share a page, and they are
- * kept by different hands — an HR officer renames job titles, whoever looks after
- * the fleet adds a category of monitors — so each list is a right of its own.
+ * kept by different hands — an HR officer renames a department, whoever looks
+ * after the fleet adds a category of monitors — so each list is a right of its
+ * own. Job titles were one of them until they grew duties and a page of their
+ * own; the right that opens them is still directories.view.positions.
  */
 
 /** One of the reference lists: what it is called and what right opens it. */
@@ -137,7 +139,6 @@ export interface DirectoryList {
  */
 export const directoryLists: DirectoryList[] = [
     { key: 'roles', title: 'Позиции', view: 'directories.view.roles' },
-    { key: 'positions', title: 'Должности', view: 'directories.view.positions' },
     { key: 'departments', title: 'Отделы', view: 'directories.view.departments' },
     { key: 'languages', title: 'Языки', view: 'directories.view.languages' },
     { key: 'citizenships', title: 'Гражданства', view: 'directories.view.citizenships' },

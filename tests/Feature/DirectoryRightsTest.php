@@ -15,11 +15,15 @@ use Tests\TestCase;
 /**
  * Which reference lists a person may open, and which they may keep.
  *
- * "Справочники" is five lists sharing a page, and they are kept by different
- * people: an HR officer renames job titles, whoever answers for the fleet adds a
- * category of monitors, and only a system administrator touches the positions.
- * So each list is a right of its own, and changing one takes being able to read
- * it — a list one cannot open is not a list one renames entries in.
+ * "Справочники" is several lists sharing a page, and they are kept by different
+ * people: whoever answers for the fleet adds a category of monitors, and only a
+ * system administrator touches the positions. So each list is a right of its
+ * own, and changing one takes being able to read it — a list one cannot open is
+ * not a list one renames entries in.
+ *
+ * The job titles are a right of the section too, and read with every other one
+ * here, although their page is no longer a tab of it: they are kept at
+ * /positions now, and moving a page moved nothing about what it takes to open.
  */
 class DirectoryRightsTest extends TestCase
 {
@@ -33,16 +37,18 @@ class DirectoryRightsTest extends TestCase
      */
     private const LISTS = [
         'roles' => ['/directories/roles', ['title' => 'Кладовщик']],
-        'positions' => ['/directories/positions', ['name' => 'Переводчик']],
         'departments' => ['/directories/departments', ['name' => 'Отдел дизайна']],
         'languages' => ['/directories/languages', ['name' => 'Немецкий']],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
     ];
 
-    /** The pages of the section, in the order the tabs show them. */
+    /**
+     * The pages of the section, in the order the tabs show them. The job titles
+     * are not among them: they have a page of its own, and PositionPagesTest
+     * reads the rights there.
+     */
     private const READABLE = [
         'roles' => '/directories/roles',
-        'positions' => '/directories/positions',
         'departments' => '/directories/departments',
         'languages' => '/directories/languages',
         'citizenships' => '/directories/citizenships',
@@ -105,8 +111,9 @@ class DirectoryRightsTest extends TestCase
         $this->actingAs($keeper)->post('/directories/languages', ['name' => 'Немецкий'])->assertRedirect();
         $this->assertSame(1, Language::where('name', 'Немецкий')->count());
 
-        // And only that list: keeping the languages is not keeping the job titles.
-        $this->actingAs($keeper)->post('/directories/positions', ['name' => 'Переводчик'])->assertForbidden();
+        // And only that list: keeping the languages is not keeping the job titles,
+        // wherever those are now kept.
+        $this->actingAs($keeper)->post('/positions', ['name' => 'Переводчик'])->assertForbidden();
         $this->assertSame(0, Position::count());
     }
 
@@ -117,8 +124,8 @@ class DirectoryRightsTest extends TestCase
         $editor = $this->person(Directories::editPermission('positions'));
 
         $this->assertFalse(Directories::canEdit($editor, 'positions'));
-        $this->actingAs($editor)->get('/directories/positions')->assertForbidden();
-        $this->actingAs($editor)->post('/directories/positions', ['name' => 'Переводчик'])->assertForbidden();
+        $this->actingAs($editor)->get('/positions')->assertForbidden();
+        $this->actingAs($editor)->post('/positions', ['name' => 'Переводчик'])->assertForbidden();
         $this->assertSame([], Directories::editableBy($editor->fresh()));
     }
 
@@ -135,8 +142,8 @@ class DirectoryRightsTest extends TestCase
 
     public function test_the_section_opens_on_the_first_list_its_reader_may_see()
     {
-        // Not on the positions, which is where the tabs start but not everybody
-        // who keeps a directory is allowed.
+        // Not on the roles, which is where the tabs start but not everybody who
+        // keeps a directory is allowed.
         $this->actingAs($this->person(Directories::viewPermission('languages')))
             ->get('/directories')
             ->assertRedirect('/directories/languages');
@@ -208,8 +215,14 @@ class DirectoryRightsTest extends TestCase
 
         $page = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
 
-        $this->assertCount(count(self::READABLE), $page['directoryLists']);
-        $this->assertCount(count(self::READABLE), $page['directoryEdits']);
+        // Every list of the catalogue, which is one more than the tabs: the job
+        // titles are read and kept by rights of this section although their page
+        // sits elsewhere, so the table still offers both of theirs.
+        $this->assertCount(count(Directories::LISTS), $page['directoryLists']);
+        $this->assertCount(count(Directories::LISTS), $page['directoryEdits']);
+        $this->assertCount(count(self::READABLE) + 1, $page['directoryLists']);
+        $this->assertContains(Directories::viewPermission('positions'), array_column($page['directoryLists'], 'key'));
+        $this->assertContains(Directories::editPermission('positions'), array_column($page['directoryEdits'], 'key'));
         // Every right to change a list names the right to read it, so the dialog
         // can grey out what would never answer yes.
         foreach ($page['directoryEdits'] as $right) {

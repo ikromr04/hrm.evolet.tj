@@ -108,13 +108,15 @@ class PermissionsTest extends TestCase
 
     public function test_reading_a_directory_and_changing_it_are_separate_rights()
     {
+        // Read on the job titles, which are kept by two rights of the section
+        // even though their page is a section of its own.
         $reader = $this->withRights('directories.view.positions');
 
-        $this->actingAs($reader)->get('/directories/positions')->assertOk();
-        $this->actingAs($reader)->post('/directories/positions', ['name' => 'Хакер'])->assertForbidden();
+        $this->actingAs($reader)->get('/positions')->assertOk();
+        $this->actingAs($reader)->post('/positions', ['name' => 'Хакер'])->assertForbidden();
 
         $editor = $this->withRights('directories.view.positions', 'directories.edit.positions');
-        $this->actingAs($editor)->post('/directories/positions', ['name' => 'Аналитик данных'])->assertRedirect();
+        $this->actingAs($editor)->post('/positions', ['name' => 'Аналитик данных'])->assertRedirect();
     }
 
     public function test_moving_somebody_about_and_striking_them_out_are_separate_rights()

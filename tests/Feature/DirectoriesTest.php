@@ -34,9 +34,11 @@ class DirectoriesTest extends TestCase
         $this->actingAs($employee);
 
         $this->get('/directories/roles')->assertForbidden();
-        $this->get('/directories/positions')->assertForbidden();
         $this->get('/directories/departments')->assertForbidden();
-        $this->post('/directories/positions', ['name' => 'Хакер'])->assertForbidden();
+        // The job titles are a section of their own now, read and kept by the
+        // very same two rights — which a colleague holds neither of.
+        $this->get('/positions')->assertForbidden();
+        $this->post('/positions', ['name' => 'Хакер'])->assertForbidden();
         $this->assertSame(0, Position::count());
 
         // The rights travel with every page, keyed the way they are named — asked
@@ -59,10 +61,12 @@ class DirectoriesTest extends TestCase
             // included, are ordinary entries of the list.
             ->where('items', fn ($items) => collect($items)->where('protected', true)->pluck('name')->all() === ['sysadmin'])
         );
-        $this->get('/directories/positions')->assertInertia(fn (Assert $page) => $page
-            ->component('directories/positions')
-            ->where('items.0.name', 'Переводчик')
-            ->where('items.0.users_count', 2)
+        // The job titles are not a tab of the section any more; their own page
+        // counts their people, and PositionPagesTest reads it.
+        $this->get('/positions')->assertInertia(fn (Assert $page) => $page
+            ->component('positions/index')
+            ->where('positions.0.name', 'Переводчик')
+            ->where('positions.0.employees_count', 2)
         );
         $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page->component('directories/departments'));
     }
@@ -97,44 +101,9 @@ class DirectoriesTest extends TestCase
         $this->assertTrue($this->admin->fresh()->hasRole('sysadmin'));
     }
 
-    public function test_positions_can_be_added_renamed_and_deleted()
-    {
-        $this->actingAs($this->admin);
-
-        $this->post('/directories/positions', ['name' => 'Юрист'])->assertSessionHasNoErrors();
-        $position = Position::firstWhere('name', 'Юрист');
-        $employee = $this->colleague();
-        $employee->positions()->attach($position);
-
-        $this->put("/directories/positions/{$position->id}", ['name' => 'Юрисконсульт'])->assertSessionHasNoErrors();
-        $this->assertSame('Юрисконсульт', $position->fresh()->name);
-
-        $this->post('/directories/positions', ['name' => 'Юрисконсульт'])->assertSessionHasErrors('name');
-        $this->post('/directories/positions', ['name' => ''])->assertSessionHasErrors('name');
-
-        $this->delete("/directories/positions/{$position->id}")->assertSessionHasNoErrors();
-        $this->assertSame(0, Position::count());
-        $this->assertCount(0, $employee->fresh()->positions);
-    }
-
-    public function test_positions_carry_their_duties()
-    {
-        $this->actingAs($this->admin);
-
-        $this->post('/directories/positions', ['name' => 'Юрист', 'duties' => "Договоры\nСуды"])->assertSessionHasNoErrors();
-        $position = Position::firstWhere('name', 'Юрист');
-        $this->assertSame("Договоры\nСуды", $position->duties);
-
-        $this->get('/directories/positions')->assertInertia(fn (Assert $page) => $page->where('items.0.duties', "Договоры\nСуды"));
-
-        // A rename that does not mention them leaves them be; emptied, they go.
-        $this->put("/directories/positions/{$position->id}", ['name' => 'Юрисконсульт'])->assertSessionHasNoErrors();
-        $this->assertSame("Договоры\nСуды", $position->fresh()->duties);
-        $this->put("/directories/positions/{$position->id}", ['name' => 'Юрисконсульт', 'duties' => ''])->assertSessionHasNoErrors();
-        $this->assertNull($position->fresh()->duties);
-
-        $this->post('/directories/positions', ['name' => 'Бухгалтер', 'duties' => str_repeat('а', 5001)])->assertSessionHasErrors('duties');
-    }
+    // Adding a job title, renaming it, deleting it and writing down what it
+    // answers for are read in PositionPagesTest: the list has a section of its
+    // own now, and only the two rights behind it are still of this section.
 
     public function test_departments_can_be_nested_but_not_in_a_cycle()
     {
@@ -214,7 +183,7 @@ class DirectoriesTest extends TestCase
             ->where('items.1.total_count', 2)
         );
 
-        $this->get('/directories/positions')->assertInertia(fn (Assert $page) => $page->where('items.0.users_count', 1));
+        $this->get('/positions')->assertInertia(fn (Assert $page) => $page->where('positions.0.employees_count', 1));
     }
 
     public function test_department_members_are_edited_from_the_directory()
