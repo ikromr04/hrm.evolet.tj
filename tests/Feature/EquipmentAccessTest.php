@@ -114,7 +114,7 @@ class EquipmentAccessTest extends TestCase
         $stock = $this->unitOf();
 
         $this->actingAs($viewer)
-            ->get('/equipment')
+            ->get('/equipment?view=list')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('equipment.total', 1)
                 ->where('scopes', ['own'])
@@ -137,7 +137,7 @@ class EquipmentAccessTest extends TestCase
         Equipment::factory(1)->ofType($this->type())->writtenOff()->create();
 
         $this->actingAs($viewer)
-            ->get('/equipment')
+            ->get('/equipment?view=list')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('counts.all', 2)
                 ->where('counts.issued', 2)
@@ -293,6 +293,36 @@ class EquipmentAccessTest extends TestCase
 
         $this->assertContains($mine->id, $ids);
         $this->assertNotContains($theirs->id, $ids);
+    }
+
+    /**
+     * The box above the list asks about the whole row, the holder's name among
+     * it. That is still a question about the part of the fleet this person was
+     * given: naming somebody else's colleague finds their unit no sooner than
+     * an empty box does.
+     */
+    public function test_the_lists_search_narrows_the_slice_and_never_widens_it()
+    {
+        $viewer = $this->person(['equipment.view.own']);
+        $mine = $this->unitOf($viewer);
+        $keeper = User::factory()->create(['surname' => 'Зокиров', 'name' => 'Бахтиёр']);
+        $theirs = $this->unitOf($keeper);
+
+        $found = fn (string $term) => $this->actingAs($viewer)
+            ->get('/equipment?tab=all&q='.urlencode($term))
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 0));
+
+        // By the name of whoever holds it, and by the sticker on it.
+        $found('Зокиров Бахтиёр');
+        $found($theirs->inventory_number);
+
+        // What is theirs is still found, so the box narrows rather than shuts.
+        $this->actingAs($viewer)
+            ->get('/equipment?tab=all&q='.urlencode($mine->inventory_number))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('equipment.data', 1)
+                ->where('equipment.data.0.id', $mine->id)
+            );
     }
 
     public function test_search_offers_nothing_from_a_section_that_is_shut()

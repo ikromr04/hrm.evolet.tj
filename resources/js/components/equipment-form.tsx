@@ -52,7 +52,7 @@ export interface EquipmentFormProps {
  * the unit is being bought for somebody, the list of units otherwise.
  */
 export const equipmentFormBack = (forEmployee: { id: number } | null) =>
-    forEmployee ? route('employees.show', forEmployee.id) : route('equipment.index');
+    forEmployee ? route('employees.show', forEmployee.id) : route('equipment.index', { view: 'list' });
 
 /**
  * Four fields across on a desktop, two on a tablet, one on a phone. The form

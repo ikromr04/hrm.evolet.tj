@@ -1123,7 +1123,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                                     <span aria-hidden="true">·</span>
                                     {/* The category leads back to the list, narrowed to it. */}
                                     <Link
-                                        href={route('equipment.index', { type: [unit.equipment_type_id] })}
+                                        href={route('equipment.index', { view: 'list', type: [unit.equipment_type_id] })}
                                         title={`Вся категория: ${unit.type}`}
                                         className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                     >
@@ -1173,7 +1173,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                                     <Field label="Категория">
                                         {unit.type && (
                                             <Link
-                                                href={route('equipment.index', { type: [unit.equipment_type_id] })}
+                                                href={route('equipment.index', { view: 'list', type: [unit.equipment_type_id] })}
                                                 title={`Вся категория: ${unit.type}`}
                                                 className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                             >

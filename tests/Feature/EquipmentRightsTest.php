@@ -188,7 +188,8 @@ class EquipmentRightsTest extends TestCase
         $unit = Equipment::factory()->ofType($this->type())->writtenOff()->create();
 
         $this->actingAs($this->person('equipment.write_off'))->delete("/equipment/{$unit->id}")->assertForbidden();
-        $this->actingAs($this->person('equipment.delete'))->delete("/equipment/{$unit->id}")->assertRedirect('/equipment');
+        // Back to the units: the page itself opens on who holds what.
+        $this->actingAs($this->person('equipment.delete'))->delete("/equipment/{$unit->id}")->assertRedirect('/equipment?view=list');
         $this->assertNull(Equipment::find($unit->id));
     }
 
@@ -305,6 +306,6 @@ class EquipmentRightsTest extends TestCase
         }
 
         $written = Equipment::factory()->ofType($this->type())->writtenOff()->create();
-        $this->actingAs($admin)->delete("/equipment/{$written->id}")->assertRedirect('/equipment');
+        $this->actingAs($admin)->delete("/equipment/{$written->id}")->assertRedirect('/equipment?view=list');
     }
 }

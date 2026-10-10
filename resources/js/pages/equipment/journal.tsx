@@ -373,7 +373,8 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                     </DropdownMenu>
 
                     <Button variant="outline" className="h-10 max-md:hidden lg:h-8" asChild>
-                        <Link href={route('equipment.index')}>К списку оборудования</Link>
+                        {/* The list of units, which is what the button says — the page opens on who holds what. */}
+                        <Link href={route('equipment.index', { view: 'list' })}>К списку оборудования</Link>
                     </Button>
                 </div>
 
