@@ -65,7 +65,10 @@ class SessionExpiryTest extends TestCase
     public function test_a_stale_token_sends_the_form_back_with_a_sentence_and_an_error()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
-        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        // Named outright: the factory picks from a list that holds the surname
+        // the form below sends, and on the run where it picks that one the
+        // check at the end would compare a string with itself and pass.
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create(['surname' => 'Шарипова']);
 
         $this->withTokenCheck();
 
