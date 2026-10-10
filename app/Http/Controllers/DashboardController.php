@@ -72,18 +72,18 @@ class DashboardController extends Controller
      * The top of the structure, each with everybody working below it — the
      * same totals the structure page shows — largest first.
      *
-     * @return list<array{id: int, name: string, count: int}>
+     * @return list<array{id: int, name: string, full_name: string, count: int}>
      */
     private function departments(): array
     {
         $departments = Department::query()
             ->with(['users' => fn ($q) => $q->active()->select('users.id')])
-            ->get(['id', 'name', 'parent_id']);
+            ->get(['id', 'name', 'abbreviation', 'parent_id']);
         $totals = Department::staffTotals($departments);
 
         return $departments
             ->whereNull('parent_id')
-            ->map(fn (Department $d) => ['id' => $d->id, 'name' => $d->name, 'count' => $totals[$d->id]])
+            ->map(fn (Department $d) => ['id' => $d->id, 'name' => $d->display_name, 'full_name' => $d->name, 'count' => $totals[$d->id]])
             ->sortBy([['count', 'desc'], ['name', 'asc']])
             ->values()
             ->all();

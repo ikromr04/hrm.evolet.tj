@@ -16,7 +16,7 @@ class PlacementChanged extends InAppNotification
 {
     /**
      * The three lines of a card this is about: the relation that holds each,
-     * the column it is read by, what it is called after «Вам изменили» and
+     * the attribute it is read by, what it is called after «Вам изменили» and
      * what an empty one reads as.
      *
      * @var array<string, array{string, string, string}>
@@ -24,7 +24,8 @@ class PlacementChanged extends InAppNotification
     private const LINES = [
         'roles' => ['title', 'позицию', 'не указана'],
         'positions' => ['name', 'должность', 'не указана'],
-        'departments' => ['name', 'отдел', 'не указан'],
+        // The line reads the way the card itself does: by the abbreviation.
+        'departments' => ['display_name', 'отдел', 'не указан'],
     ];
 
     /**
@@ -48,10 +49,11 @@ class PlacementChanged extends InAppNotification
         $snapshot = [];
 
         foreach ($lines as $line) {
-            [$column] = self::LINES[$line];
-            $table = $employee->{$line}()->getRelated()->getTable();
+            [$attribute] = self::LINES[$line];
 
-            $snapshot[$line] = $employee->{$line}()->pluck("{$table}.{$column}", "{$table}.id")->all();
+            // Read off the models rather than straight out of a column: a
+            // department's name on screen is decided in PHP, not in SQL.
+            $snapshot[$line] = $employee->{$line}()->get()->pluck($attribute, 'id')->all();
         }
 
         return $snapshot;

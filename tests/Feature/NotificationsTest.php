@@ -319,7 +319,7 @@ class NotificationsTest extends TestCase
     {
         $admin = $this->sysadmin();
         $employee = $this->colleague();
-        $department = Department::create(['name' => 'Отдел продаж']);
+        $department = Department::create(['name' => 'Отдел продаж', 'abbreviation' => 'ОП']);
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
@@ -328,8 +328,9 @@ class NotificationsTest extends TestCase
             ]))
             ->assertSessionHasNoErrors();
 
-        // One line per save, naming everything that moved.
-        $this->assertSame(['Вам изменили позицию: Специалист; отдел: Отдел продаж'], $this->lines($employee));
+        // One line per save, naming everything that moved — and naming a
+        // department the way the card they are sent to names it.
+        $this->assertSame(['Вам изменили позицию: Специалист; отдел: ОП'], $this->lines($employee));
         $this->assertSame(PlacementChanged::class, $employee->notifications()->first()->type);
         $this->assertSame([], $this->lines($admin));
 

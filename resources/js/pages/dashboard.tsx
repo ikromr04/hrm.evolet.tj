@@ -1,3 +1,4 @@
+import { DepartmentName } from '@/components/department-name';
 import { MobileFab } from '@/components/mobile-fab';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,7 @@ interface DashboardProps {
     today: string;
     staff: { active: number; hired: number; fired: number };
     equipment: { issued: number; stock: number; service: number };
-    departments: { id: number; name: string; count: number }[];
+    departments: { id: number; name: string; full_name: string; count: number }[];
     events: JournalRow[];
 }
 
@@ -197,9 +198,9 @@ export default function Dashboard({ since, today, staff, equipment, departments,
                                         <Link
                                             href={`/departments/${department.id}`}
                                             className="text-muted-foreground hover:text-foreground max-md:text-foreground truncate max-md:text-[15px]"
-                                            title={department.name}
+                                            title={department.full_name}
                                         >
-                                            {department.name}
+                                            <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
                                         </Link>
                                         <div className="bg-muted h-2.5 rounded-full max-md:order-last max-md:col-span-2 max-md:h-1.5">
                                             <div

@@ -1,7 +1,12 @@
 import { type ReactNode } from 'react';
 
-/** `depth` indents tree options such as departments. */
-export type Option<T> = { value: T; label: string; depth?: number };
+/**
+ * `depth` indents tree options such as departments. `hint` spells a short label
+ * out beside itself — a department named by its abbreviation everywhere else
+ * says here what it stands for, because a filter is not a link one can follow
+ * to find out.
+ */
+export type Option<T> = { value: T; label: string; depth?: number; hint?: string };
 
 /**
  * What a column's filter asks for. The `param` names the query string key the

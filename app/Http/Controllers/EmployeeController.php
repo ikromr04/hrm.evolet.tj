@@ -154,7 +154,7 @@ class EmployeeController extends Controller
         $perPage = (int) ($input['per_page'] ?? self::PER_PAGE_OPTIONS[0]);
         $status = $input['status'] ?? 'active';
 
-        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name', 'departments:id,name,parent_id', 'languages:id,name'])
+        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name', 'departments:id,name,abbreviation,parent_id', 'languages:id,name'])
             ->where('status', $status);
         $this->applySearch($query, $filters['q'], $visible);
         $this->applyFilters($query, $filters);
@@ -357,7 +357,7 @@ class EmployeeController extends Controller
      */
     private function card(Request $request, User $employee, bool $neighbours): Response
     {
-        $employee->load(['roles:id,name,title', 'positions:id,name', 'departments:id,name,parent_id', 'languages:id,name']);
+        $employee->load(['roles:id,name,title', 'positions:id,name', 'departments:id,name,abbreviation,parent_id', 'languages:id,name']);
         // Which fields of this card the viewer reads. Their own card is whole;
         // anybody else's is what their position and their exceptions allow.
         $visible = EmployeeFields::visibleTo($request->user(), $employee);
@@ -578,6 +578,12 @@ class EmployeeController extends Controller
                     }
                 }
 
+                // A department is named by its abbreviation everywhere it is
+                // shown, so that is what somebody types to find one.
+                if ($shows('departments')) {
+                    $q->orWhereHas('departments', fn (Builder $q) => $q->where('abbreviation', 'like', $like));
+                }
+
                 if ($shows('sex')) {
                     foreach (['male' => 'мужской', 'female' => 'женский'] as $sex => $label) {
                         if (str_starts_with($label, $lower)) {
@@ -719,7 +725,8 @@ class EmployeeController extends Controller
                 DB::table('department_user')
                     ->join('departments', 'departments.id', '=', 'department_user.department_id')
                     ->whereColumn('department_user.user_id', 'users.id')
-                    ->selectRaw('min(departments.name)'),
+                    // Ordered by what the column shows, which is the abbreviation.
+                    ->selectRaw('min(coalesce(departments.abbreviation, departments.name))'),
                 $direction,
             ),
             'role' => $query->orderBy(
@@ -750,14 +757,18 @@ class EmployeeController extends Controller
     }
 
     /**
-     * @return list<array{id: int, name: string, path: string, is_head: bool}>
+     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, is_head: bool}>
      */
     private function departmentList(User $user): array
     {
         return $user->departments->map(fn (Department $d) => [
             'id' => $d->id,
-            'name' => $d->name,
+            'name' => $d->display_name,
+            // The same two lines spelled out, for the hover and the screen
+            // reader that have to say what the short ones stand for.
+            'full_name' => $d->name,
             'path' => $this->departmentPath($d->id),
+            'full_path' => $this->departmentPath($d->id, full: true),
             'is_head' => (bool) $d->pivot->is_head,
         ])->all();
     }
@@ -767,18 +778,19 @@ class EmployeeController extends Controller
      */
     private function allDepartments(): Collection
     {
-        return $this->departments ??= Department::query()->orderBy('name')->get(['id', 'name', 'parent_id'])->keyBy('id');
+        return $this->departments ??= Department::query()->orderBy('name')->get(['id', 'name', 'abbreviation', 'parent_id'])->keyBy('id');
     }
 
     /**
-     * "Департамент маркетинга › Отдел Дизайна", resolved in memory.
+     * "ДМ › ОД", resolved in memory, each step named the way it is on screen —
+     * or spelled out in full, for the hover that says what those stand for.
      */
-    private function departmentPath(int $id): string
+    private function departmentPath(int $id, bool $full = false): string
     {
         $names = [];
 
         for ($d = $this->allDepartments()->get($id); $d && ! isset($names[$d->id]); $d = $this->allDepartments()->get($d->parent_id)) {
-            $names[$d->id] = $d->name;
+            $names[$d->id] = $full ? $d->name : $d->display_name;
         }
 
         return implode(' › ', array_reverse($names));
@@ -787,14 +799,14 @@ class EmployeeController extends Controller
     /**
      * The tree flattened for the filter: parents first, children indented.
      *
-     * @return list<array{id: int, name: string, depth: int}>
+     * @return list<array{id: int, name: string, full_name: string, depth: int}>
      */
     private function departmentOptions(?int $parentId = null, int $depth = 0): array
     {
         return $this->allDepartments()
             ->where('parent_id', $parentId)
             ->flatMap(fn (Department $d) => [
-                ['id' => $d->id, 'name' => $d->name, 'depth' => $depth],
+                ['id' => $d->id, 'name' => $d->display_name, 'full_name' => $d->name, 'depth' => $depth],
                 ...$this->departmentOptions($d->id, $depth + 1),
             ])
             ->values()

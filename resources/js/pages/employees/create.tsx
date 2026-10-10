@@ -17,7 +17,7 @@ interface Options {
     roles: { name: string; title: string }[];
     positions: { id: number; name: string }[];
     /** The department tree flattened, parents first. */
-    departments: { id: number; name: string; depth: number }[];
+    departments: { id: number; name: string; full_name: string; depth: number }[];
     languages: { id: number; name: string }[];
     nationalities: string[];
     citizenships: string[];
@@ -688,6 +688,9 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 options={options.departments.map((department) => ({
                                                     value: department.id,
                                                     label: department.name,
+                                                    // A list one picks from is not a link one can
+                                                    // follow, so it says here what the short name is.
+                                                    hint: department.full_name === department.name ? undefined : department.full_name,
                                                     depth: department.depth,
                                                 }))}
                                                 value={main.data.departments}

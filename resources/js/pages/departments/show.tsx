@@ -1,4 +1,5 @@
 import { MobileRow } from '@/components/data-table';
+import { DepartmentName, departmentTitle } from '@/components/department-name';
 import { OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -29,13 +30,15 @@ interface Colleague extends Person {
 
 interface Department {
     id: number;
+    /** The abbreviation, or the full name when there is none. */
     name: string;
+    full_name: string;
     /** From the top of the tree down to the direct parent. */
-    parents: { id: number; name: string }[];
+    parents: { id: number; name: string; full_name: string }[];
     /** Working people here and in sub-departments, heads included. */
     total_count: number;
     heads: Colleague[];
-    children: { id: number; name: string; total_count: number; heads: Person[] }[];
+    children: { id: number; name: string; full_name: string; total_count: number; heads: Person[] }[];
     /** Working members who do not lead it. */
     members: Colleague[];
 }
@@ -178,24 +181,39 @@ export default function DepartmentPage({ department, chart }: { department: Depa
     // into a refusal is worse than none.
     const canOpenList = department.total_count > 0 && can('employees.view') && can('employees.field.departments');
 
+    // This is the one page besides the directory that says both names: it is
+    // where somebody lands to find out what an abbreviation elsewhere meant.
+    const title = departmentTitle(department.full_name, department.name);
+
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Структура компании', href: '/departments' },
+        // The trail is a row of ancestors, so it stays short: the abbreviation
+        // here, and the heading right below it spells the same name out.
         { title: department.name, href: `/departments/${department.id}` },
     ];
 
     return (
         // The chart scrolls inside its own frame; the list scrolls with the page.
         <AppLayout breadcrumbs={breadcrumbs} fitViewport={view === 'chart'}>
-            <Head title={department.name} />
+            <Head title={title} />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
                 {/* A phone: the top bar already names the department, so the head of
                     the page is a grouped card of facts, the way into the staff list is
                     a row of its own and the two views share one segmented control. */}
                 <div className="flex flex-col gap-3 md:hidden">
-                    <h1 className="sr-only">{department.name}</h1>
+                    <h1 className="sr-only">{title}</h1>
                     <PhoneSection title="Подразделение">
                         <dl className="px-4">
+                            {/* The bar above says «ОД» and so does every screen that
+                                sent somebody here; a finger has no hover, so this is
+                                where a phone says what those two letters stand for. */}
+                            {department.full_name !== department.name && (
+                                <div className="border-border/60 flex items-baseline justify-between gap-4 border-b py-3 last:border-0">
+                                    <dt className="text-muted-foreground shrink-0 text-[15px]">Название</dt>
+                                    <dd className="min-w-0 text-right text-[15px]">{department.full_name}</dd>
+                                </div>
+                            )}
                             {department.parents.length > 0 && (
                                 <div className="border-border/60 flex items-baseline justify-between gap-4 border-b py-3 last:border-0">
                                     <dt className="text-muted-foreground shrink-0 text-[15px]">Входит в</dt>
@@ -208,7 +226,7 @@ export default function DepartmentPage({ department, chart }: { department: Depa
                                                         href={route('departments.show', parent.id)}
                                                         className="text-brand-strong break-words dark:text-[#C5E27A]"
                                                     >
-                                                        {parent.name}
+                                                        <DepartmentName name={parent.name} full={parent.full_name} />
                                                     </Link>
                                                 </span>
                                             ))}
@@ -258,14 +276,14 @@ export default function DepartmentPage({ department, chart }: { department: Depa
                                 {department.parents.map((parent) => (
                                     <span key={parent.id} className="flex items-center gap-1">
                                         <Link href={route('departments.show', parent.id)} className="hover:text-foreground hover:underline">
-                                            {parent.name}
+                                            <DepartmentName name={parent.name} full={parent.full_name} />
                                         </Link>
                                         <ChevronRight className="size-3.5" />
                                     </span>
                                 ))}
                             </nav>
                         )}
-                        <h1 className="text-xl font-semibold tracking-tight break-words">{department.name}</h1>
+                        <h1 className="text-xl font-semibold tracking-tight break-words">{title}</h1>
                         <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
                             <Users className="size-4" />
                             {peopleLabel(department.total_count)}
@@ -336,7 +354,7 @@ export default function DepartmentPage({ department, chart }: { department: Depa
                                                         <CornerDownRight className="size-4" aria-hidden="true" />
                                                     </span>
                                                 }
-                                                title={<span className="whitespace-normal">{child.name}</span>}
+                                                title={<DepartmentName name={child.name} full={child.full_name} className="whitespace-normal" />}
                                                 subtitle={
                                                     child.heads.length > 0
                                                         ? child.heads.map((head) => head.name).join(', ')
@@ -397,7 +415,11 @@ export default function DepartmentPage({ department, chart }: { department: Depa
                                                         className="hover:bg-muted/60 flex items-start gap-3 rounded-md px-2 py-2"
                                                     >
                                                         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                                            <span className="text-sm font-medium">{child.name}</span>
+                                                            <DepartmentName
+                                                                name={child.name}
+                                                                full={child.full_name}
+                                                                className="text-sm font-medium"
+                                                            />
                                                             {child.heads.length > 0 && (
                                                                 <span className="text-muted-foreground truncate text-xs">
                                                                     {child.heads.map((head) => head.name).join(', ')}

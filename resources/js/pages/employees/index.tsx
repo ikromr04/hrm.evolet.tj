@@ -14,6 +14,7 @@ import {
     type ColumnDef as TableColumn,
     type FilterDef as TableFilter,
 } from '@/components/data-table';
+import { DepartmentName } from '@/components/department-name';
 import { EmployeeActions, type EmploymentStatus } from '@/components/employee-actions';
 import { LanguageBadges } from '@/components/language-badges';
 import { MobileFab } from '@/components/mobile-fab';
@@ -62,7 +63,7 @@ interface EmployeeRow {
     roles?: string[];
     /** Positions, shown as "Должность"; an employee can hold several. */
     positions?: string[];
-    departments?: { id: number; name: string; path: string; is_head: boolean }[];
+    departments?: { id: number; name: string; full_name: string; path: string; full_path: string; is_head: boolean }[];
     /** Public, like positions; the best known first. */
     languages?: SpokenLanguage[];
     status: EmploymentStatus;
@@ -133,7 +134,7 @@ interface EmployeesProps {
         roles: { name: string; title: string }[];
         positions: { id: number; name: string }[];
         /** The department tree flattened, parents first. */
-        departments: { id: number; name: string; depth: number }[];
+        departments: { id: number; name: string; full_name: string; depth: number }[];
         languages: { id: number; name: string }[];
         nationalities: string[];
         citizenships: string[];
@@ -210,11 +211,11 @@ function DepartmentBadges({ departments }: { departments: NonNullable<EmployeeRo
                 >
                     <StatusBadge
                         tone="neutral"
-                        title={department.is_head ? `${department.path} · руководитель` : department.path}
+                        title={department.is_head ? `${department.full_path} · руководитель` : department.full_path}
                         className="h-auto min-h-[22px] gap-1 py-0.5 whitespace-normal transition-colors group-hover:bg-[#E4E4E7] group-hover:text-[#18181B] dark:group-hover:bg-white/20 dark:group-hover:text-white"
                     >
                         {department.is_head && <Crown className="size-3 shrink-0 text-[#9A4A06] dark:text-[#F8C471]" aria-label="Руководитель" />}
-                        {department.name}
+                        <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
                     </StatusBadge>
                 </Link>
             ))}
@@ -375,7 +376,12 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 filter: {
                     type: 'multi',
                     param: 'department',
-                    options: options.departments.map((d) => ({ value: d.id, label: d.name, depth: d.depth })),
+                    options: options.departments.map((d) => ({
+                        value: d.id,
+                        label: d.name,
+                        hint: d.full_name === d.name ? undefined : d.full_name,
+                        depth: d.depth,
+                    })),
                 },
                 cell: (row) => (row.departments?.length ? <DepartmentBadges departments={row.departments} /> : <Empty />),
             },

@@ -1,3 +1,4 @@
+import { DepartmentName } from '@/components/department-name';
 import { EvoletMark } from '@/components/evolet-logo';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -17,7 +18,9 @@ export interface OrgPerson {
 
 export interface OrgDepartment {
     id: number;
+    /** The abbreviation, or the full name when there is none. */
     name: string;
+    full_name: string;
     parent_id: number | null;
     /** Working people here and in sub-departments, heads included. */
     total_count: number;
@@ -80,8 +83,15 @@ function Node({ department, top }: { department: OrgDepartment; top?: boolean })
             )}
         >
             <div className="flex items-start gap-2">
-                <Link href={route('departments.show', department.id)} className="flex-1 text-[13px] leading-snug font-semibold hover:underline">
-                    {department.name}
+                {/* A box is small and its link already owns the hover, so the
+                    full name goes on the link rather than into a tooltip
+                    nested inside it. */}
+                <Link
+                    href={route('departments.show', department.id)}
+                    title={department.full_name === department.name ? undefined : department.full_name}
+                    className="flex-1 text-[13px] leading-snug font-semibold hover:underline"
+                >
+                    <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
                 </Link>
                 <Count value={department.total_count} />
             </div>

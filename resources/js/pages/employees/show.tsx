@@ -1,4 +1,5 @@
 import { CitizenshipBadges } from '@/components/citizenship-badges';
+import { DepartmentName } from '@/components/department-name';
 import { EmployeeActions } from '@/components/employee-actions';
 import { ChangeLines } from '@/components/equipment-changes';
 import { EquipmentForm, type EquipmentFormProps } from '@/components/equipment-form';
@@ -133,7 +134,7 @@ interface Employee {
     roles?: string[];
     /** Positions, shown as "Должность"; an employee can hold several. */
     positions?: string[];
-    departments?: { id: number; name: string; path: string; is_head: boolean }[];
+    departments?: { id: number; name: string; full_name: string; path: string; full_path: string; is_head: boolean }[];
     /** The best known first. */
     languages?: SpokenLanguage[];
     /** Null when the viewer may not see this person's private data. */
@@ -219,7 +220,7 @@ interface EditOptions {
     roles: { name: string; title: string }[];
     positions: { id: number; name: string }[];
     /** Flattened tree; `depth` indents the children. */
-    departments: { id: number; name: string; depth: number }[];
+    departments: { id: number; name: string; full_name: string; depth: number }[];
     languages: { id: number; name: string }[];
     /** Countries already on file, as suggestions for a previous job. */
     countries: string[];
@@ -616,6 +617,7 @@ function PersonalDialog({
                                     options={options.departments.map((department) => ({
                                         value: department.id,
                                         label: department.name,
+                                        hint: department.full_name === department.name ? undefined : department.full_name,
                                         depth: department.depth,
                                     }))}
                                     value={form.data.departments}
@@ -1836,8 +1838,10 @@ function Departments({ items }: { items: NonNullable<Employee['departments']> })
         <ul className="flex flex-col gap-1">
             {items.map((department) => (
                 <li key={department.id}>
+                    {/* The chain is abbreviations; the full one is a hover away,
+                        and a tap leads to the page that spells it out. */}
                     <Link href={route('departments.show', department.id)} className="hover:underline">
-                        {department.path}
+                        <DepartmentName name={department.path} full={department.full_path} />
                     </Link>
                     {department.is_head && <span className="text-brand-strong font-semibold dark:text-[#C5E27A]"> · руководитель</span>}
                 </li>

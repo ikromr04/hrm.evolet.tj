@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Department;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
@@ -98,6 +99,26 @@ class FieldVisibilityTest extends TestCase
                 ->where('employees.data.0.positions', [])
                 ->where('visibleFields', fn ($fields) => collect($fields)->sort()->values()->all() === ['name', 'positions', 'surname'])
             );
+    }
+
+    public function test_a_department_is_searched_by_its_short_name_only_where_that_line_is_read()
+    {
+        $employee = $this->colleagueWithEverything();
+        $employee->departments()->attach(Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']));
+
+        // The column is open, and the short name is what it prints, so it is
+        // what somebody types to find the people of a department.
+        $this->actingAs($this->reader('departments'))
+            ->get('/employees?q='.urlencode('ОД'))
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->has('employees.data', 1)
+                ->where('employees.data.0.id', $employee->id)
+            );
+
+        // Closed: matching by it would say who sits where without ever showing it.
+        $this->actingAs($this->reader('positions'))
+            ->get('/employees?q='.urlencode('ОД'))
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('employees.data', 0));
     }
 
     public function test_a_hidden_field_cannot_be_filtered_or_sorted_by()

@@ -133,7 +133,7 @@ class EmployeeDirectoryTest extends TestCase
 
     public function test_toolbar_search_matches_every_public_column()
     {
-        $design = Department::create(['name' => 'Отдел Дизайна']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
         $target = $this->giveTitles(User::factory()->create(['surname' => 'Назарова', 'name' => 'Дилноза', 'sex' => 'female']), 'Графический дизайнер');
         $target->assignRole('kpg');
         $target->departments()->attach($design);
@@ -145,6 +145,7 @@ class EmployeeDirectoryTest extends TestCase
 
         $finds('Графический');       // position
         $finds('Дизайна');           // department (SQLite in tests only folds ASCII case)
+        $finds('ОД');                // the short name the department column prints
         $finds('КПГ');               // role
         $finds('Дилноза Назарова');  // several words across fields
         $finds('женский');           // sex
@@ -252,9 +253,53 @@ class EmployeeDirectoryTest extends TestCase
                 ->where('employees.data.0.departments.0.name', 'Департамент маркетинга')
                 ->where('employees.data.0.departments.1.path', 'Департамент маркетинга › Отдел Дизайна')
                 ->where('options.departments', [
-                    ['id' => $marketing->id, 'name' => 'Департамент маркетинга', 'depth' => 0],
-                    ['id' => $design->id, 'name' => 'Отдел Дизайна', 'depth' => 1],
+                    ['id' => $marketing->id, 'name' => 'Департамент маркетинга', 'full_name' => 'Департамент маркетинга', 'depth' => 0],
+                    ['id' => $design->id, 'name' => 'Отдел Дизайна', 'full_name' => 'Отдел Дизайна', 'depth' => 1],
                 ])
+            );
+    }
+
+    public function test_rows_name_a_department_by_its_short_name()
+    {
+        $marketing = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $marketing->id]);
+        $user = $this->colleague();
+        $user->departments()->attach($design);
+
+        $this->actingAs($user)
+            ->get('/employees')
+            ->assertInertia(fn (Assert $page) => $page
+                // The column has no room for a department's full name, so the
+                // row and the path above it are written short.
+                ->where('employees.data.0.departments.0.name', 'ОД')
+                ->where('employees.data.0.departments.0.path', 'ДМ › ОД')
+                // A list one picks from is not a link one can follow, so each
+                // option carries the full name the filter prints beside it.
+                ->where('options.departments', [
+                    ['id' => $marketing->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга', 'depth' => 0],
+                    ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'depth' => 1],
+                ])
+            );
+    }
+
+    public function test_the_department_column_sorts_by_what_it_shows()
+    {
+        // Short names in the other order than the full ones: sorted by the name
+        // the column prints, «АБ» comes before «Архив».
+        $archive = Department::create(['name' => 'Архив']);
+        $accounting = Department::create(['name' => 'Бухгалтерия', 'abbreviation' => 'АБ']);
+        $viewer = $this->colleague();
+        $inAccounting = User::factory()->create();
+        $inAccounting->departments()->attach($accounting);
+        $inArchive = User::factory()->create();
+        $inArchive->departments()->attach($archive);
+        $this->actingAs($viewer);
+
+        // The viewer has no department and sorts first.
+        $this->get('/employees?sort=department')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data.1.id', $inAccounting->id)
+                ->where('employees.data.2.id', $inArchive->id)
             );
     }
 

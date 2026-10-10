@@ -100,6 +100,7 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
                             <Checkbox id={id} checked={selected.includes(option.value)} onCheckedChange={(on) => toggle(option.value, on === true)} />
                             <Label htmlFor={id} className="flex-1 cursor-pointer font-normal">
                                 {option.label}
+                                {option.hint && <span className="text-muted-foreground ml-1.5 text-xs">{option.hint}</span>}
                             </Label>
                         </div>
                     );

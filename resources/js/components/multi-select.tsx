@@ -9,6 +9,12 @@ export interface MultiSelectOption<T extends string | number> {
     label: string;
     /** Indent level, for trees such as departments. */
     depth?: number;
+    /**
+     * The short label spelled out beside itself. A department is named by its
+     * abbreviation everywhere, and here is where it says what that stands for:
+     * a list one picks from is not a link one can follow to find out.
+     */
+    hint?: string;
 }
 
 /** Choose any number of options from a searchable list; the choice shows as removable chips. */
@@ -140,6 +146,7 @@ export function MultiSelect<T extends string | number>({
                                     <Check className={cn('size-4 shrink-0', value.includes(option.value) ? 'opacity-100' : 'opacity-0')} />
                                     <span className="truncate" style={term ? undefined : { paddingLeft: (option.depth ?? 0) * 16 }}>
                                         {option.label}
+                                        {option.hint && <span className="text-muted-foreground ml-1.5 text-xs">{option.hint}</span>}
                                     </span>
                                 </button>
                             </li>

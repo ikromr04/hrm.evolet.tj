@@ -62,10 +62,10 @@ class DepartmentPagesTest extends TestCase
             ->where('chart', fn ($chart) => collect($chart)->pluck('id')->all() === [$sub->id, $unit->id])
             ->where('chart', fn ($chart) => collect($chart)->firstWhere('id', $unit->id)['members'] === [['id' => $member->id, 'name' => 'Бобоев Фаррух', 'avatar' => null]])
             ->where('department.name', 'Отдел')
-            ->where('department.parents', [['id' => $top->id, 'name' => 'Департамент']])
+            ->where('department.parents', [['id' => $top->id, 'name' => 'Департамент', 'full_name' => 'Департамент']])
             ->where('department.total_count', 2)
             ->where('department.heads.0.id', $head->id)
-            ->where('department.children', [['id' => $sub->id, 'name' => 'Группа', 'total_count' => 0, 'heads' => []]])
+            ->where('department.children', [['id' => $sub->id, 'name' => 'Группа', 'full_name' => 'Группа', 'total_count' => 0, 'heads' => []]])
             ->has('department.members', 1)
             ->where('department.members.0', [
                 'id' => $member->id,
@@ -74,6 +74,36 @@ class DepartmentPagesTest extends TestCase
                 'email' => $member->email,
                 'positions' => ['Дизайнер'],
             ])
+        );
+    }
+
+    public function test_the_structure_names_a_department_by_its_short_name()
+    {
+        $top = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $unit = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $top->id]);
+        // Nothing short to call this one by yet, so it reads by its full name.
+        $sub = Department::create(['name' => 'Группа вёрстки', 'parent_id' => $unit->id]);
+        $named = fn ($chart, int $id) => collect($chart)->firstWhere('id', $id)['name'];
+
+        $this->actingAs($this->colleague());
+
+        $this->get('/departments')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('departments/index')
+            ->where('departments', fn ($chart) => $named($chart, $top->id) === 'ДМ')
+            ->where('departments', fn ($chart) => $named($chart, $unit->id) === 'ОД')
+            ->where('departments', fn ($chart) => $named($chart, $sub->id) === 'Группа вёрстки')
+        );
+
+        // Its own page, the chain above it and the units under it: every box of
+        // the structure is named the one way.
+        $this->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('departments/show')
+            ->where('chart', fn ($chart) => $named($chart, $unit->id) === 'ОД')
+            ->where('department.name', 'ОД')
+            // Short on screen, spelled out for the hover and the screen reader.
+            ->where('department.parents', [['id' => $top->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга']])
+            ->where('department.full_name', 'Отдел Дизайна')
+            ->where('department.children', [['id' => $sub->id, 'name' => 'Группа вёрстки', 'full_name' => 'Группа вёрстки', 'total_count' => 0, 'heads' => []]])
         );
     }
 }

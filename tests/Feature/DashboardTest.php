@@ -50,7 +50,9 @@ class DashboardTest extends TestCase
         // Structure: a department with a sub-department, and one of its own.
         // A person in both the parent and the child counts once; the fired
         // colleague does not count at all.
-        $sales = Department::create(['name' => 'Продажи']);
+        // The bar names a department the way every other page does, by the short
+        // name it is known by, and by its full one while it has none.
+        $sales = Department::create(['name' => 'Продажи', 'abbreviation' => 'ОП']);
         $retail = Department::create(['name' => 'Розница', 'parent_id' => $sales->id]);
         $finance = Department::create(['name' => 'Финансы']);
         $sales->users()->attach([$recentA->id, $veteran->id]);
@@ -83,8 +85,10 @@ class DashboardTest extends TestCase
                 ->where('equipment.stock', 2)
                 ->where('equipment.service', 1)
                 ->has('departments', 2)
-                ->where('departments.0', ['id' => $sales->id, 'name' => 'Продажи', 'count' => 3])
-                ->where('departments.1', ['id' => $finance->id, 'name' => 'Финансы', 'count' => 1])
+                // Short on the bar, spelled out for the hover beside it; one
+                // with no short name of its own reads in full either way.
+                ->where('departments.0', ['id' => $sales->id, 'name' => 'ОП', 'full_name' => 'Продажи', 'count' => 3])
+                ->where('departments.1', ['id' => $finance->id, 'name' => 'Финансы', 'full_name' => 'Финансы', 'count' => 1])
                 ->has('events', 6)
                 ->where('events.0.id', $latest->id)
                 ->where('events.0.kind', $latest->kind)

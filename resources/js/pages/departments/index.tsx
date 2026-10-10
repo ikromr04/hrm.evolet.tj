@@ -1,4 +1,5 @@
 import { MobileRow } from '@/components/data-table';
+import { DepartmentName } from '@/components/department-name';
 import { groupByParent, OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
@@ -74,7 +75,13 @@ function DepartmentList({ departments }: { departments: OrgDepartment[] }) {
                                     )
                                 }
                                 // A department's name is the whole point of the row, so it wraps rather than being cut.
-                                title={<span className={cn('whitespace-normal', depth === 0 && 'font-semibold')}>{department.name}</span>}
+                                title={
+                                    <DepartmentName
+                                        name={department.name}
+                                        full={department.full_name}
+                                        className={cn('whitespace-normal', depth === 0 && 'font-semibold')}
+                                    />
+                                }
                                 subtitle={
                                     department.heads.length > 0 ? department.heads.map((head) => head.name).join(', ') : 'Руководитель не назначен'
                                 }

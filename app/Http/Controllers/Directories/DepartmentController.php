@@ -22,7 +22,7 @@ class DepartmentController extends Controller
         $departments = Department::query()
             ->with(['heads:id,name,surname', 'users' => fn ($q) => $q->active()->select('users.id')])
             ->orderBy('name')
-            ->get(['id', 'name', 'parent_id']);
+            ->get(['id', 'name', 'abbreviation', 'parent_id']);
 
         $totals = Department::staffTotals($departments);
 
@@ -33,7 +33,11 @@ class DepartmentController extends Controller
             'items' => $departments
                 ->map(fn (Department $d) => [
                     'id' => $d->id,
+                    // The one list that spells a department out: everywhere
+                    // else it is named by its abbreviation alone, and this is
+                    // where that abbreviation is written.
                     'name' => $d->name,
+                    'abbreviation' => $d->abbreviation,
                     'parent_id' => $d->parent_id,
                     // Working members of this department itself, heads included.
                     'users_count' => $d->users->count(),
@@ -149,12 +153,15 @@ class DepartmentController extends Controller
     }
 
     /**
-     * @return array{0: array{name: string, parent_id?: int|null}, 1: list<int>|null, 2: list<int>|null}
+     * @return array{0: array{name: string, abbreviation?: string|null, parent_id?: int|null}, 1: list<int>|null, 2: list<int>|null}
      */
     private function validated(Request $request, ?Department $department = null): array
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:150', Rule::unique('departments', 'name')->ignore($department)],
+            // Not required: the departments already on file have none, and one
+            // without it goes on reading by its full name.
+            'abbreviation' => ['nullable', 'string', 'max:50'],
             'parent_id' => [
                 'nullable',
                 'integer',
@@ -171,12 +178,24 @@ class DepartmentController extends Controller
             'member_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')->where('status', 'active')],
         ], attributes: [
             'name' => 'название',
+            'abbreviation' => 'аббревиатура',
             'parent_id' => 'родительский отдел',
             'head_ids' => 'руководители',
             'head_ids.*' => 'руководитель',
             'member_ids' => 'сотрудники',
             'member_ids.*' => 'сотрудник',
         ]);
+
+        // An abbreviation somebody cleared is a department that has none again,
+        // not one called by an empty string. A request that does not carry the
+        // field at all is changing something else and leaves it alone, the way
+        // the two lists of people below do: left to fall through, a save of
+        // anything else would wipe a short name somebody had written.
+        if ($request->has('abbreviation')) {
+            $data['abbreviation'] = trim((string) ($data['abbreviation'] ?? '')) ?: null;
+        } else {
+            unset($data['abbreviation']);
+        }
 
         $ids = fn (string $key) => $request->has($key) ? array_map('intval', $data[$key] ?? []) : null;
         $heads = $ids('head_ids');

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -18,8 +19,21 @@ class Department extends Model
      */
     protected $fillable = [
         'name',
+        'abbreviation',
         'parent_id',
     ];
+
+    /**
+     * What this department is called wherever it is shown: its abbreviation
+     * when it has one, its full name when it has not, so a department never
+     * reads as blank. Every page names a department by this; the two with room
+     * to say what the short name stands for — the «Отделы» directory, where it
+     * is written, and the department's own page — spell both out instead.
+     */
+    protected function displayName(): Attribute
+    {
+        return Attribute::get(fn (): string => $this->abbreviation ?: $this->name);
+    }
 
     protected static function booted(): void
     {
@@ -95,15 +109,15 @@ class Department extends Model
     }
 
     /**
-     * "Департамент маркетинга › Отдел Дизайна"
+     * "ДМ › ОД", each step named the way it is named on screen.
      */
     public function path(): string
     {
-        $names = [$this->name];
+        $names = [$this->display_name];
         $seen = [$this->id];
 
         for ($parent = $this->parent; $parent && ! in_array($parent->id, $seen, true); $parent = $parent->parent) {
-            array_unshift($names, $parent->name);
+            array_unshift($names, $parent->display_name);
             $seen[] = $parent->id;
         }
 

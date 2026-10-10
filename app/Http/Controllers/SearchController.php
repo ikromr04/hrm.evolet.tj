@@ -62,12 +62,14 @@ class SearchController extends Controller
         return response()->json([
             'employees' => $people ? $this->employees($words) : [],
             'equipment' => $units ? $this->equipment($words, $user) : [],
+            // A department answers to either of its names, and is listed under
+            // the short one, the way it is written everywhere else.
             'departments' => Department::query()
-                ->where(fn (Builder $q) => $this->everyWord($q, $words, ['name']))
+                ->where(fn (Builder $q) => $this->everyWord($q, $words, ['name', 'abbreviation']))
                 ->orderBy('name')
                 ->limit(self::LIMIT)
-                ->get(['id', 'name'])
-                ->map(fn (Department $d) => ['id' => $d->id, 'name' => $d->name]),
+                ->get(['id', 'name', 'abbreviation'])
+                ->map(fn (Department $d) => ['id' => $d->id, 'name' => $d->display_name, 'full_name' => $d->name]),
             'positions' => $narrows('positions') ? Position::query()
                 ->where(fn (Builder $q) => $this->everyWord($q, $words, ['name']))
                 ->orderBy('name')

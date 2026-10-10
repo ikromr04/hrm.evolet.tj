@@ -63,15 +63,21 @@ class SearchTest extends TestCase
     public function test_finds_departments_positions_and_roles()
     {
         $this->seed(RoleSeeder::class);
-        $department = Department::create(['name' => 'Отдел Дизайна']);
+        $department = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
         $position = Position::create(['name' => 'Графический дизайнер']);
 
         $this->actingAs($this->colleague())
             ->getJson('/search?q=изайн')
             ->assertOk()
-            ->assertJsonPath('departments', [['id' => $department->id, 'name' => 'Отдел Дизайна']])
+            // Typed in full and answered the way the pages name it.
+            ->assertJsonPath('departments', [['id' => $department->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна']])
             ->assertJsonPath('positions', [['id' => $position->id, 'name' => 'Графический дизайнер']])
             ->assertJsonPath('roles.0.name', 'graphic-designer');
+
+        // And found by that short name, which is all anybody ever sees of it.
+        $this->getJson('/search?q=ОД')
+            ->assertOk()
+            ->assertJsonPath('departments', [['id' => $department->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна']]);
     }
 
     public function test_finds_a_unit_by_anything_printed_on_it_or_by_who_has_it()

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserChild;
@@ -45,6 +46,39 @@ class EmployeeProfileTest extends TestCase
                 ->where('employee.surname', $employee->surname)
                 ->where('employee.positions', ['Переводчик'])
                 ->where('employee.private', null)
+            );
+    }
+
+    public function test_a_card_names_a_department_by_its_short_name()
+    {
+        $marketing = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $marketing->id]);
+        // One that has no short name yet, which the line still has to print.
+        $science = Department::create(['name' => 'Научный отдел', 'parent_id' => $marketing->id]);
+        $employee = User::factory()->create();
+        $employee->departments()->attach([$design->id, $science->id]);
+
+        $this->actingAs($this->colleague())
+            ->get("/employees/{$employee->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                // Short on the card, with the spelled-out chain beside it for
+                // the hover and the screen reader.
+                ->where('employee.departments.0', [
+                    'id' => $science->id,
+                    'name' => 'Научный отдел',
+                    'full_name' => 'Научный отдел',
+                    'path' => 'ДМ › Научный отдел',
+                    'full_path' => 'Департамент маркетинга › Научный отдел',
+                    'is_head' => false,
+                ])
+                ->where('employee.departments.1', [
+                    'id' => $design->id,
+                    'name' => 'ОД',
+                    'full_name' => 'Отдел Дизайна',
+                    'path' => 'ДМ › ОД',
+                    'full_path' => 'Департамент маркетинга › Отдел Дизайна',
+                    'is_head' => false,
+                ])
             );
     }
 

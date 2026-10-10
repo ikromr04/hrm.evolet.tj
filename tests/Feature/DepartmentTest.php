@@ -24,7 +24,11 @@ class DepartmentTest extends TestCase
 
         $design = Department::firstWhere('name', 'Отдел Дизайна');
         $this->assertSame('Департамент маркетинга', $design->parent->name);
-        $this->assertSame('Департамент маркетинга › Отдел Дизайна', $design->path());
+        // Each seeded department comes with the short name it is known by, and
+        // a path is spelled with those, because that is what the pages show.
+        $this->assertSame('ОД', $design->abbreviation);
+        $this->assertSame('ДМ', $design->parent->abbreviation);
+        $this->assertSame('ДМ › ОД', $design->path());
     }
 
     public function test_seeder_can_run_twice_without_duplicates()
@@ -43,6 +47,18 @@ class DepartmentTest extends TestCase
 
         $this->assertEqualsCanonicalizing([$middle->id, $leaf->id], $root->descendantIds()->all());
         $this->assertSame('Корень › Середина › Лист', $leaf->path());
+    }
+
+    public function test_a_department_with_no_short_name_goes_on_reading_by_its_full_one()
+    {
+        $marketing = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'parent_id' => $marketing->id]);
+
+        $this->assertSame('ДМ', $marketing->display_name);
+        // Nothing short to call it by, so a page would print it blank if it did
+        // not fall back to the name the directory keeps.
+        $this->assertSame('Отдел Дизайна', $design->display_name);
+        $this->assertSame('ДМ › Отдел Дизайна', $design->path());
     }
 
     public function test_a_department_cannot_be_moved_under_itself_or_its_sub_department()

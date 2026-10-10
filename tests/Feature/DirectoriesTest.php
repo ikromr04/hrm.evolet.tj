@@ -124,6 +124,51 @@ class DirectoriesTest extends TestCase
         $this->assertSame('Отдел продаж', $child->fresh()->name);
     }
 
+    public function test_a_department_is_given_the_short_name_it_is_known_by()
+    {
+        $this->actingAs($this->admin);
+
+        $this->post('/directories/departments', ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ', 'parent_id' => null])
+            ->assertSessionHasNoErrors();
+        $department = Department::firstWhere('name', 'Департамент маркетинга');
+        $this->assertSame('ДМ', $department->abbreviation);
+
+        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМК', 'parent_id' => null])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('ДМК', $department->fresh()->abbreviation);
+
+        // Cleared in the form: the department has none again and reads by its
+        // full name, rather than being called by an empty string.
+        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => '   ', 'parent_id' => null])
+            ->assertSessionHasNoErrors();
+        $this->assertNull($department->fresh()->abbreviation);
+        $this->assertSame('Департамент маркетинга', $department->fresh()->display_name);
+
+        // A short name is short: anything longer belongs in the name itself.
+        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => str_repeat('Д', 51), 'parent_id' => null])
+            ->assertSessionHasErrors('abbreviation');
+        $this->post('/directories/departments', ['name' => 'Отдел Дизайна', 'abbreviation' => str_repeat('О', 51), 'parent_id' => null])
+            ->assertSessionHasErrors('abbreviation');
+        $this->assertNull(Department::firstWhere('name', 'Отдел Дизайна'));
+    }
+
+    public function test_the_directory_is_the_one_list_that_spells_a_department_out()
+    {
+        $this->actingAs($this->admin);
+        Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        Department::create(['name' => 'Научный отдел']);
+
+        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page
+            // Everywhere else a department is named by its abbreviation alone;
+            // here both are shown, because here is where the short one is written.
+            ->where('items.0.name', 'Департамент маркетинга')
+            ->where('items.0.abbreviation', 'ДМ')
+            // And one that has none is left empty rather than repeating the name.
+            ->where('items.1.name', 'Научный отдел')
+            ->where('items.1.abbreviation', null)
+        );
+    }
+
     public function test_department_heads_are_chosen_from_working_staff_and_join_the_department()
     {
         $this->actingAs($this->admin);
@@ -262,6 +307,17 @@ class DirectoriesTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
+    }
+
+    public function test_renaming_a_department_without_an_abbreviation_keeps_the_one_it_has()
+    {
+        $this->actingAs($this->admin);
+        $department = Department::create(['name' => 'Отдел маркетинга', 'abbreviation' => 'ОМ']);
+
+        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел рекламы', 'parent_id' => null])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('ОМ', $department->refresh()->abbreviation);
     }
 
     public function test_deleting_a_head_removes_them_from_the_heads()

@@ -23,7 +23,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
@@ -40,6 +39,12 @@ export interface DirectoryItem {
     users_count: number;
     /** Departments only: working employees here and in sub-departments, each counted once. */
     total_count?: number;
+    /**
+     * Departments only: the short name the department is known by. Every other
+     * page shows it instead of the full name; this list, where it is filled in,
+     * is the one place that shows both.
+     */
+    abbreviation?: string | null;
     /** System records that can be renamed but not deleted. */
     protected?: boolean;
     /** Passes every check whatever the list says, so there is nothing to tick. */
@@ -58,16 +63,6 @@ export interface DirectoryItem {
     fields?: CategoryField[];
     /** Equipment categories only: whether its units come with anything at all. */
     has_accessories?: boolean;
-    /** A few lines about the record, such as a position's duties. */
-    description?: string | null;
-}
-
-/** A field of free text the record carries besides its name (a position's duties). */
-interface DescriptionField {
-    /** Server field that holds it. */
-    field: string;
-    label: string;
-    placeholder?: string;
 }
 
 interface Labels {
@@ -107,6 +102,13 @@ interface DirectoryManagerProps {
     countLabel?: string;
     /** The same count in words, for the line under a name on a phone: one, few, many. */
     countWords?: [string, string, string];
+    /**
+     * When set, each record also has a short name, written here and shown in
+     * brackets after the full one (departments). Everywhere else that short
+     * name stands in for the record entirely, so this list is where somebody
+     * can still see which department is which.
+     */
+    abbreviation?: boolean;
     /** Show and edit the parent/child structure (departments). */
     tree?: boolean;
     /** When given, each record has heads and members chosen from these people (departments). */
@@ -167,8 +169,6 @@ interface DirectoryManagerProps {
     defaultFields?: CategoryField[];
     /** What a new record starts with, right by right (positions); from the server. */
     defaultRights?: string[];
-    /** When given, each record also carries a few lines of text (a position's duties). */
-    description?: DescriptionField;
 }
 
 type Row = DirectoryItem & { depth: number };
@@ -179,6 +179,14 @@ type Row = DirectoryItem & { depth: number };
  */
 export const searchBox =
     'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-10 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none lg:h-8';
+
+/**
+ * "Департамент маркетинга (ДМ)" — how a record reads in this list, and only
+ * here: the rest of the system knows a department by the short name alone.
+ */
+function rowLabel(row: DirectoryItem): string {
+    return row.abbreviation ? `${row.label} (${row.abbreviation})` : row.label;
+}
 
 /** Items in tree order (parents first, children indented), or as given when flat. */
 function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
@@ -213,6 +221,7 @@ export function DirectoryManager({
     items,
     canEdit,
     field,
+    abbreviation: abbreviated = false,
     route: routeName,
     labels,
     employeesUrl,
@@ -233,7 +242,6 @@ export function DirectoryManager({
     directoryLists,
     directoryEdits,
     defaultRights,
-    description,
 }: DirectoryManagerProps) {
     const can = useCan();
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
@@ -242,7 +250,7 @@ export function DirectoryManager({
     const [deleting, setDeleting] = useState<DirectoryItem | null>(null);
 
     const rows = useMemo(() => orderRows(items, tree), [items, tree]);
-    const visible = query.trim() ? rows.filter((row) => row.label.toLowerCase().includes(query.trim().toLowerCase())) : rows;
+    const visible = query.trim() ? rows.filter((row) => rowLabel(row).toLowerCase().includes(query.trim().toLowerCase())) : rows;
 
     return (
         <>
@@ -294,7 +302,7 @@ export function DirectoryManager({
                                     }
                                     title={
                                         <span className="flex min-w-0 items-center gap-1.5">
-                                            <span className={cn('truncate', tree && row.depth === 0 && 'font-semibold')}>{row.label}</span>
+                                            <span className={cn('truncate', tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
                                             {row.protected && (
                                                 <Lock
                                                     className="text-muted-foreground size-3.5 shrink-0"
@@ -324,14 +332,14 @@ export function DirectoryManager({
                                         canEdit ? (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="size-10" aria-label={`Действия: ${row.label}`}>
+                                                    <Button variant="ghost" size="icon" className="size-10" aria-label={`Действия: ${rowLabel(row)}`}>
                                                         <MoreHorizontal className="size-5" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end" className="min-w-44">
                                                     <DropdownMenuItem
                                                         className="min-h-10 text-[15px]"
-                                                        aria-label={`Изменить: ${row.label}`}
+                                                        aria-label={`Изменить: ${rowLabel(row)}`}
                                                         onSelect={() => setEditing(row)}
                                                     >
                                                         <Pencil />
@@ -339,7 +347,7 @@ export function DirectoryManager({
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem
                                                         className="min-h-10 text-[15px] text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current"
-                                                        aria-label={`Удалить: ${row.label}`}
+                                                        aria-label={`Удалить: ${rowLabel(row)}`}
                                                         disabled={row.protected}
                                                         onSelect={() => setDeleting(row)}
                                                     >
@@ -398,16 +406,11 @@ export function DirectoryManager({
                                             {icons && (
                                                 <IconChip icon={(row.icon && equipmentIcons[row.icon]) || fallbackIcon} size={28} iconSize={15} />
                                             )}
-                                            <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{row.label}</span>
+                                            <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
                                             {row.protected && (
                                                 <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />
                                             )}
                                         </span>
-                                        {row.description && (
-                                            <p className="text-muted-foreground mt-0.5 line-clamp-2 max-w-2xl text-xs whitespace-pre-line">
-                                                {row.description}
-                                            </p>
-                                        )}
                                     </td>
                                     {people && (
                                         <td className="px-3 py-2.5 md:px-4">
@@ -456,7 +459,7 @@ export function DirectoryManager({
                                                     variant="ghost"
                                                     size="icon"
                                                     className="size-9 lg:size-8"
-                                                    aria-label={`Изменить: ${row.label}`}
+                                                    aria-label={`Изменить: ${rowLabel(row)}`}
                                                     onClick={() => setEditing(row)}
                                                 >
                                                     <Pencil className="size-4" />
@@ -465,7 +468,7 @@ export function DirectoryManager({
                                                     variant="ghost"
                                                     size="icon"
                                                     className="size-9 text-[#B42318] hover:text-[#B42318] lg:size-8 dark:text-[#F7A19A]"
-                                                    aria-label={`Удалить: ${row.label}`}
+                                                    aria-label={`Удалить: ${rowLabel(row)}`}
                                                     disabled={row.protected}
                                                     onClick={() => setDeleting(row)}
                                                 >
@@ -498,6 +501,7 @@ export function DirectoryManager({
                     item={editing === 'new' ? null : editing}
                     items={items}
                     field={field}
+                    abbreviated={abbreviated}
                     routeName={routeName}
                     labels={labels}
                     tree={tree}
@@ -514,7 +518,6 @@ export function DirectoryManager({
                     directoryLists={directoryLists}
                     directoryEdits={directoryEdits}
                     defaultRights={defaultRights}
-                    description={description}
                     onClose={() => setEditing(null)}
                 />
             )}
@@ -603,6 +606,7 @@ function EditorDialog({
     item,
     items,
     field,
+    abbreviated,
     routeName,
     labels,
     tree,
@@ -619,12 +623,12 @@ function EditorDialog({
     directoryLists,
     directoryEdits,
     defaultRights,
-    description,
     onClose,
 }: {
     item: DirectoryItem | null;
     items: DirectoryItem[];
     field: 'title' | 'name';
+    abbreviated: boolean;
     routeName: string;
     labels: Labels;
     tree: boolean;
@@ -641,27 +645,26 @@ function EditorDialog({
     directoryLists?: PlainRight[];
     directoryEdits?: PlainRight[];
     defaultRights?: string[];
-    description?: DescriptionField;
     onClose: () => void;
 }) {
     // A position that is new to the system may look around, like every other
     // one; what it opens beyond that is ticked here.
     const form = useForm<{
         label: string;
+        abbreviation: string;
         parent_id: number | null;
         head_ids: number[];
         member_ids: number[];
         icon: string | null;
         permissions: string[];
-        description: string;
     }>({
         label: item?.label ?? '',
+        abbreviation: item?.abbreviation ?? '',
         parent_id: item?.parent_id ?? null,
         head_ids: item?.heads?.map((head) => head.id) ?? [],
         member_ids: item?.member_ids ?? [],
         icon: item?.icon ?? null,
         permissions: item?.permissions ?? [...(defaultRights ?? [])],
-        description: item?.description ?? '',
     });
 
     const [fields, setFields] = useState<CategoryField[]>(item?.fields ?? defaultFields ?? []);
@@ -730,11 +733,12 @@ function EditorDialog({
 
         form.transform((data) => ({
             [field]: data.label.trim(),
+            // Left blank it stays blank: a department with no short name of its
+            // own goes on reading by its full one.
+            ...(abbreviated ? { abbreviation: data.abbreviation.trim() || null } : {}),
             ...(tree ? { parent_id: data.parent_id } : {}),
             ...(people ? { head_ids: data.head_ids, member_ids: data.member_ids } : {}),
             ...(icons ? { icon: data.icon } : {}),
-            // Emptied, the text goes rather than staying behind as blank lines.
-            ...(description ? { [description.field]: data.description.trim() || null } : {}),
             ...(rights && !item?.everything ? { permissions: withViewRight(data.permissions) } : {}),
             ...(fieldTypes
                 ? {
@@ -794,18 +798,19 @@ function EditorDialog({
                         <InputError message={errors[field]} />
                     </div>
 
-                    {description && (
+                    {/* The short name the rest of the system shows in place of
+                        the one above, which is why this list shows both. */}
+                    {abbreviated && (
                         <div className="grid content-start gap-2">
-                            <Label htmlFor="directory-description">{description.label}</Label>
-                            <Textarea
-                                id="directory-description"
-                                rows={6}
-                                placeholder={description.placeholder}
-                                value={form.data.description}
-                                onChange={(event) => form.setData('description', event.target.value)}
-                                aria-invalid={Boolean(errors[description.field]) || undefined}
+                            <Label htmlFor="directory-abbreviation">Аббревиатура</Label>
+                            <Input
+                                id="directory-abbreviation"
+                                className="max-md:h-11 sm:max-w-40"
+                                value={form.data.abbreviation}
+                                onChange={(event) => form.setData('abbreviation', event.target.value)}
                             />
-                            <InputError message={errors[description.field]} />
+                            <p className="text-muted-foreground text-[13px]">Ею отдел будет назван везде, кроме этого справочника.</p>
+                            <InputError message={errors.abbreviation} />
                         </div>
                     )}
 
@@ -1005,7 +1010,7 @@ function EditorDialog({
                                     <SelectItem value="root">— Верхний уровень —</SelectItem>
                                     {parents.map((row) => (
                                         <SelectItem key={row.id} value={String(row.id)}>
-                                            <span style={{ paddingLeft: row.depth * 16 }}>{row.label}</span>
+                                            <span style={{ paddingLeft: row.depth * 16 }}>{rowLabel(row)}</span>
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -1098,7 +1103,7 @@ function DeleteDialog({
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="break-words">
-                        Удалить {labels.accusative} «{item?.label}»?
+                        Удалить {labels.accusative} «{item ? rowLabel(item) : ''}»?
                     </DialogTitle>
                     <DialogDescription asChild>
                         <div className="flex flex-col gap-1.5">
