@@ -422,7 +422,7 @@ function DeleteDialog({ position, onClose }: { position: Position; onClose: () =
 }
 
 export default function PositionsIndex({ positions, canEdit, canSeeEmployees, showsEmployees }: Props) {
-    const { view, pin } = useTableView(STORAGE_KEY, columnKeys, defaultView);
+    const { view, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
     const [editing, setEditing] = useState<Position | 'new' | null>(null);
@@ -534,6 +534,8 @@ export default function PositionsIndex({ positions, canEdit, canSeeEmployees, sh
                     onFilter={noFilter}
                     view={view}
                     onPin={pin}
+                    reorderable
+                    onReorder={reorder}
                     lockedKey="name"
                     actions={
                         canEdit

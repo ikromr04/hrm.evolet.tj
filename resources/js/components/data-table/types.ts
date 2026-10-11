@@ -36,10 +36,18 @@ export interface Sort {
     direction: 'asc' | 'desc';
 }
 
-/** Which columns are hidden and which are pinned to an edge. */
+/**
+ * Which columns are hidden, which are pinned to an edge, and the order a viewer
+ * dragged them into. The order is left out until something is dragged, and a
+ * view saved before the dragging existed has none either, so an absent order
+ * means the page's own one — which is also what a reset returns to. The order
+ * names the unpinned columns; a pinned one takes its place from the side it is
+ * pinned to.
+ */
 export interface ViewState {
     hidden: string[];
     pinned: { left: string[]; right: string[] };
+    order?: string[];
 }
 
 /** Whatever shape of filters a page uses; the table only reads them by param. */

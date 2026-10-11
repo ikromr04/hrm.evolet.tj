@@ -7,6 +7,7 @@ import {
     isSorted,
     MobileListTools,
     MobileRow,
+    orderedColumns,
     resetView,
     useDebouncedSearch,
     useRememberedQuery,
@@ -591,7 +592,7 @@ export default function Employees({
         [options, visibleFields],
     );
     const defaults = useMemo(() => defaultView(), []);
-    const { view, setView, pin, toggleHidden } = useTableView(
+    const { view, setView, pin, toggleHidden, reorder, order } = useTableView(
         STORAGE_KEY,
         columns.map((c) => c.key),
         defaults,
@@ -714,7 +715,7 @@ export default function Employees({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
                             <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {columns.map((column) => (
+                            {orderedColumns(columns, order).map((column) => (
                                 <DropdownMenuCheckboxItem
                                     key={column.key}
                                     checked={!isHidden(column.key)}
@@ -811,6 +812,8 @@ export default function Employees({
                     }}
                     view={view}
                     onPin={pin}
+                    reorderable
+                    onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="name"
                     actions={canManage ? (row) => <EmployeeActions employee={row} isSelf={row.id === auth.user?.id} /> : undefined}

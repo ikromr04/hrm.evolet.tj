@@ -3,6 +3,7 @@ import {
     countActiveFilters,
     DataTable,
     MobileListTools,
+    orderedColumns,
     resetView,
     useRememberedQuery,
     useTableView,
@@ -130,7 +131,7 @@ const defaultView = (): ViewState => ({ hidden: [], pinned: { left: ['at'], righ
 export default function EquipmentJournal({ events, names, filters, perPage, perPageOptions, options }: Props) {
     const columns = useMemo(() => buildColumns(options), [options]);
     const defaults = useMemo(defaultView, []);
-    const { view, setView, pin, toggleHidden } = useTableView(
+    const { view, setView, pin, toggleHidden, reorder, order } = useTableView(
         STORAGE_KEY,
         columns.map((column) => column.key),
         defaults,
@@ -348,7 +349,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
                             <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {columns.map((column) => (
+                            {orderedColumns(columns, order).map((column) => (
                                 <DropdownMenuCheckboxItem
                                     key={column.key}
                                     checked={!isHidden(column.key)}
@@ -390,6 +391,8 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                     onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                     view={view}
                     onPin={pin}
+                    reorderable
+                    onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="at"
                     empty={<span className={cn('text-sm')}>За этот период операций не было.</span>}

@@ -5,6 +5,7 @@ import {
     DataTable,
     MobileListTools,
     MobileRow,
+    orderedColumns,
     resetView,
     useDebouncedSearch,
     useRememberedQuery,
@@ -658,9 +659,11 @@ export default function EquipmentIndex({
         ['holder', ...options.types.map((type) => typeKey(type.id))],
         defaults,
     );
-    const { view: layout, setView: setLayout, pin, toggleHidden } = byHolder ? holderView : unitView;
+    const { view: layout, setView: setLayout, pin, toggleHidden, reorder, order } = byHolder ? holderView : unitView;
     const isHidden = (key: string) => layout.hidden.includes(key);
     const storageKey = byHolder ? HOLDERS_STORAGE_KEY : STORAGE_KEY;
+    /* Both tables can be dragged into another order, so the menu reads along whichever is on screen. */
+    const listed = orderedColumns(columns, order);
 
     useRememberedQuery('equipment.table.query');
     const [asking, setAsking] = useState<{ unit: Unit; kind: AskedMove } | null>(null);
@@ -972,7 +975,7 @@ export default function EquipmentIndex({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
                             <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {columns.map((column) => (
+                            {listed.map((column) => (
                                 <DropdownMenuCheckboxItem
                                     key={column.key}
                                     checked={!isHidden(column.key)}
@@ -985,6 +988,7 @@ export default function EquipmentIndex({
                                     {column.label}
                                 </DropdownMenuCheckboxItem>
                             ))}
+
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 onSelect={() => {
@@ -1037,6 +1041,10 @@ export default function EquipmentIndex({
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                         view={layout}
                         onPin={pin}
+                        // The columns here are the categories, and which of them
+                        // a viewer cares about is their own business.
+                        reorderable
+                        onReorder={reorder}
                         onHide={(key) => toggleHidden(key, true)}
                         lockedKey="holder"
                         empty={
@@ -1111,6 +1119,8 @@ export default function EquipmentIndex({
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                         view={layout}
                         onPin={pin}
+                        reorderable
+                        onReorder={reorder}
                         onHide={(key) => toggleHidden(key, true)}
                         lockedKey="holder"
                         actions={actsOnRows ? (unit) => <RowActions unit={unit} can={can} onAsk={setAsking} onDelete={setDeleting} /> : undefined}

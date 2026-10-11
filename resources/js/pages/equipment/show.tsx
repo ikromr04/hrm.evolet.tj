@@ -1015,8 +1015,9 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
     const [journalFilters, setJournalFilters] = useState<JournalFilters>(noJournalFilters);
     const columns = useMemo(() => journalColumns(events), [events]);
     // Columns cannot be hidden here — there is no "Колонки" menu to bring one
-    // back from — but pinning is still remembered between visits.
-    const { view, pin } = useTableView(
+    // back from — but a pin and an order of their own are remembered between
+    // visits; both are offered in each column's own menu.
+    const { view, pin, reorder } = useTableView(
         JOURNAL_VIEW_KEY,
         columns.map((column) => column.key),
         journalView(),
@@ -1502,6 +1503,8 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                             onFilter={(changes) => setJournalFilters((current) => ({ ...current, ...(changes as Partial<JournalFilters>) }))}
                             view={view}
                             onPin={pin}
+                            reorderable
+                            onReorder={reorder}
                             lockedKey="at"
                             empty={
                                 <span className="text-sm">
