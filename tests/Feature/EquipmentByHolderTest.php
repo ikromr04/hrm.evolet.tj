@@ -89,13 +89,16 @@ class EquipmentByHolderTest extends TestCase
                 ->where('holders.data.0.id', $holder->id)
                 ->where('holders.data.0.name', 'Абдуллоев Фарход')
                 // Keyed by the category, which is the column the cell is drawn
-                // in, and read by name inside it as the list reads them.
+                // in, and read by name inside it as the list reads them. A unit
+                // says of itself what it says in the other table: its name, the
+                // first couple of things its category asks about, and the
+                // number on its sticker.
                 ->where('holders.data.0.units.'.$this->type()->id, [
-                    ['id' => $spare->id, 'name' => 'Ноутбук Acer Aspire 5', 'inventory_number' => 'EV-0002'],
-                    ['id' => $laptop->id, 'name' => 'Ноутбук Dell Latitude 5440', 'inventory_number' => 'EV-0001'],
+                    ['id' => $spare->id, 'name' => 'Ноутбук Acer Aspire 5', 'details' => 'Acer · Aspire 5', 'inventory_number' => 'EV-0002'],
+                    ['id' => $laptop->id, 'name' => 'Ноутбук Dell Latitude 5440', 'details' => 'Dell · Latitude 5440', 'inventory_number' => 'EV-0001'],
                 ])
                 ->where('holders.data.0.units.'.$this->type('Мониторы')->id, [
-                    ['id' => $monitor->id, 'name' => 'Монитор Dell P2422H', 'inventory_number' => 'EV-0003'],
+                    ['id' => $monitor->id, 'name' => 'Монитор Dell P2422H', 'details' => 'Dell · P2422H', 'inventory_number' => 'EV-0003'],
                 ])
                 // A category they hold nothing of is absent rather than empty.
                 ->missing('holders.data.0.units.'.$this->type('Телефоны')->id)

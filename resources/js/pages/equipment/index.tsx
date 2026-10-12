@@ -94,6 +94,8 @@ interface Unit {
 interface Held {
     id: number;
     name: string;
+    /** The same line the unit list prints under a name; null for a category that asks nothing. */
+    details: string | null;
     inventory_number: string;
 }
 
@@ -452,6 +454,26 @@ function MoreChip({ hidden, open, onToggle }: { hidden: number; open: boolean; o
 }
 
 /**
+ * The number on a unit's sticker, as both shapes of this view print it: under
+ * the name and under whatever the unit's category asks about.
+ *
+ * Three muted lines one under the other read as one line repeated, so the label
+ * keeps the muted grey and the digits take the ordinary foreground. The number
+ * is then told apart by weight rather than by a colour, which would compete
+ * with the name above it — a link, in brand green — for the loudest thing in a
+ * cell. The digits stay plain selectable text, because this is what people
+ * search by and read out to each other, and they are tabular so that the
+ * numbers of several units line up down the cell.
+ */
+function InventoryNumber({ number }: { number: string }) {
+    return (
+        <span className="text-[13px] leading-tight">
+            <span className="text-muted-foreground">инв. №</span> <span className="text-foreground font-medium tabular-nums">{number}</span>
+        </span>
+    );
+}
+
+/**
  * What a colleague has of one category, each unit a way to its card.
  *
  * A row has to survive somebody with six monitors, so it names a few and counts
@@ -484,7 +506,11 @@ function HeldUnits({ units, icon }: { units: Held[]; icon: string | null }) {
                         <span className="text-brand-strong leading-tight font-medium break-words group-hover:underline dark:text-[#C5E27A]">
                             {unit.name}
                         </span>
-                        <span className="text-muted-foreground text-[13px] leading-tight tabular-nums">инв. № {unit.inventory_number}</span>
+                        {/* What its category asks about, as the unit list prints it under a
+                            name. A category that asks nothing leaves no line behind, so a
+                            cell of such units stays as tight as it was. */}
+                        {unit.details !== null && <span className="text-muted-foreground text-[13px] leading-tight break-words">{unit.details}</span>}
+                        <InventoryNumber number={unit.inventory_number} />
                     </span>
                 </Link>
             ))}
@@ -1089,9 +1115,16 @@ export default function EquipmentIndex({
                                                             />
                                                             <span className="flex min-w-0 flex-col">
                                                                 <span className="text-[15px] leading-tight font-medium break-words">{unit.name}</span>
-                                                                <span className="text-muted-foreground text-[13px] leading-tight tabular-nums">
-                                                                    инв. № {unit.inventory_number}
-                                                                </span>
+                                                                {/* The card is the whole answer about this person,
+                                                                    so it says of a unit what the wide table says:
+                                                                    two monitors of one name are told apart here
+                                                                    and nowhere else. */}
+                                                                {unit.details !== null && (
+                                                                    <span className="text-muted-foreground text-[13px] leading-tight break-words">
+                                                                        {unit.details}
+                                                                    </span>
+                                                                )}
+                                                                <InventoryNumber number={unit.inventory_number} />
                                                             </span>
                                                         </Link>
                                                     ))}
