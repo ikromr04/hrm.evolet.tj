@@ -26,9 +26,20 @@ class Position extends Model
      * What a person in this position answers for, in the order somebody entered
      * them: duties are written down as a list and read back as the same list, so
      * the one nobody thought of first stays last.
+     *
+     * They come in groups — the duties the position carries everywhere first,
+     * then the ones each department adds — and `order` is a duty's place inside
+     * its own group, so every group reads from the top. Which group is which is
+     * spelled out rather than left to the engine: MySQL and SQLite both sort a
+     * null first, but the common duties lead the list because they are the ones
+     * everybody holding the position carries, not because of that.
      */
     public function duties(): HasMany
     {
-        return $this->hasMany(PositionDuty::class)->orderBy('order')->orderBy('id');
+        return $this->hasMany(PositionDuty::class)
+            ->orderByRaw('department_id is null desc')
+            ->orderBy('department_id')
+            ->orderBy('order')
+            ->orderBy('id');
     }
 }

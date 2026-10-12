@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
@@ -78,6 +79,61 @@ class PositionTest extends TestCase
         ]);
 
         $this->assertSame(['Ведение договоров', 'Арбитраж'], $position->fresh()->duties->pluck('name')->all());
+    }
+
+    public function test_the_duties_of_a_department_are_read_after_the_common_ones()
+    {
+        $position = Position::create(['name' => 'Аналитик']);
+        $regulation = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+
+        // Each group is numbered from the top — the common duties are a group
+        // and so is every department — and the list is read group by group, the
+        // ones everybody carries first.
+        $position->duties()->createMany([
+            ['name' => 'Ведёт закреплённые за ним препараты', 'order' => 0],
+            ['name' => 'Готовит отчёт по рынку', 'order' => 1],
+            ['name' => 'Проверяет документы на соответствие закону', 'department_id' => $regulation->id, 'order' => 0],
+            ['name' => 'Готовит ответы регулятору', 'department_id' => $regulation->id, 'order' => 1],
+        ]);
+
+        $this->assertSame([
+            'Ведёт закреплённые за ним препараты',
+            'Готовит отчёт по рынку',
+            'Проверяет документы на соответствие закону',
+            'Готовит ответы регулятору',
+        ], $position->fresh()->duties->pluck('name')->all());
+    }
+
+    public function test_a_duty_of_a_department_goes_when_that_department_does()
+    {
+        $position = Position::create(['name' => 'Аналитик']);
+        $regulation = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+        $europe = Department::create(['name' => 'Отдел мониторинга Эволет Европы', 'abbreviation' => 'ОМФК Европа']);
+
+        $common = $position->duties()->create(['name' => 'Готовит отчёт по рынку', 'order' => 0]);
+        $theirs = $position->duties()->create([
+            'name' => 'Готовит ответы регулятору',
+            'department_id' => $regulation->id,
+            'order' => 0,
+        ]);
+        $elsewhere = $position->duties()->create([
+            'name' => 'Сверяет цены по Европе',
+            'department_id' => $europe->id,
+            'order' => 0,
+        ]);
+
+        $this->assertTrue($theirs->department->is($regulation));
+
+        // A duty that names a department is about that department and means
+        // nothing without it, so it goes with it. What the position answers for
+        // everywhere, and what it answers for in the other department, stay.
+        $regulation->delete();
+
+        $this->assertNull(PositionDuty::find($theirs->id));
+        $this->assertSame(
+            [$common->id, $elsewhere->id],
+            $position->fresh()->duties->pluck('id')->all(),
+        );
     }
 
     public function test_duties_belong_to_their_position_and_go_when_it_does()

@@ -8,6 +8,12 @@ export interface SearchableOption {
     label: string;
     /** A second line under the label, such as a department or an inventory number. */
     hint?: string;
+    /**
+     * How deep in a tree the option sits, for a list of departments. It indents
+     * the row in the open list and nothing else — the closed box names one
+     * option, where a hanging indent would read as a stray space.
+     */
+    depth?: number;
 }
 
 interface SearchableSelectProps {
@@ -159,7 +165,9 @@ export function SearchableSelect({
                             )}
                         >
                             <Check className={cn('size-4 shrink-0', option.value === value ? 'opacity-100' : 'opacity-0')} />
-                            <span className="flex min-w-0 flex-col">
+                            {/* Searching flattens the tree: a match is shown where it was found,
+                                and an indent without its parents above it would mean nothing. */}
+                            <span className="flex min-w-0 flex-col" style={query.trim() ? undefined : { paddingLeft: (option.depth ?? 0) * 16 }}>
                                 <span className="truncate">{option.label}</span>
                                 {option.hint && <span className="text-muted-foreground truncate text-xs">{option.hint}</span>}
                             </span>

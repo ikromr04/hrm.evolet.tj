@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
@@ -10,6 +11,7 @@ use App\Support\EmployeeFields;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -23,12 +25,18 @@ use Inertia\Response;
  * — so it has a list like the employees and the equipment, and a page of its own
  * per entry. The two rights it is read and kept by stay the ones the access table
  * has always named it with.
+ *
+ * A duty may name a department, because an analyst in one department does not
+ * answer for what an analyst in another answers for. The pages read the duties of
+ * a position in groups: the common ones, which everybody holding the position
+ * carries, and then one group per department that adds something of its own.
  */
 class PositionController extends Controller
 {
     public function index(Request $request): Response
     {
         $user = $request->user();
+        $departments = $this->departments();
         // The holders named on a row are the staff list read a position at a
         // time, so a row asks the same right a position's own page asks. The
         // page is told outright, or "nobody holds this position" and "the
@@ -62,7 +70,12 @@ class PositionController extends Controller
                     'name' => $position->name,
                     // What "newest first" is read from — the order the list opens in.
                     'created_at' => $position->created_at?->toIso8601String(),
-                    'duties' => $position->duties->pluck('name')->all(),
+                    'duties' => $this->commonDuties($position)->pluck('name')->all(),
+                    'department_duties' => $this->departmentDuties(
+                        $position,
+                        $departments,
+                        fn (PositionDuty $duty) => $duty->name,
+                    ),
                     'employees_count' => $position->users_count,
                     'employees' => $showsEmployees
                         ? $position->users->map(fn (User $employee) => [
@@ -81,6 +94,13 @@ class PositionController extends Controller
             // viewer may not read. A link into a refusal is worse than no link.
             'canSeeEmployees' => $user->can('employees.view') && $user->can(EmployeeFields::permission('positions')),
             'showsEmployees' => $showsEmployees,
+            // The editor writes the duties here, so it needs the departments one
+            // may be pinned to. Naming a department on a duty is part of keeping
+            // the position and asks no right of its own; the picker is sent to
+            // everybody, and the form behind it is what is gated.
+            'options' => [
+                'departments' => $this->departmentOptions($departments),
+            ],
         ]);
     }
 
@@ -101,10 +121,15 @@ class PositionController extends Controller
             'position' => [
                 'id' => $position->id,
                 'name' => $position->name,
-                'duties' => $position->duties->map(fn (PositionDuty $duty) => [
+                'duties' => $this->commonDuties($position)->map(fn (PositionDuty $duty) => [
                     'id' => $duty->id,
                     'name' => $duty->name,
                 ])->values(),
+                'department_duties' => $this->departmentDuties(
+                    $position,
+                    $this->departments(),
+                    fn (PositionDuty $duty) => ['id' => $duty->id, 'name' => $duty->name],
+                ),
             ],
             'employees' => $showsEmployees ? $this->holders($position, $user, $showsPositions) : [],
             'canEdit' => Directories::canEdit($user, 'positions'),
@@ -162,6 +187,98 @@ class PositionController extends Controller
     }
 
     /**
+     * The duties the position carries everywhere — the ones that name no
+     * department, which is every duty written before departments came into it.
+     *
+     * @return Collection<int, PositionDuty>
+     */
+    private function commonDuties(Position $position): Collection
+    {
+        return $position->duties->filter(fn (PositionDuty $duty) => $duty->department_id === null)->values();
+    }
+
+    /**
+     * What the position answers for in one department and not in another,
+     * grouped by that department and ordered by the name it is shown under.
+     *
+     * Only the departments that add something of their own: the pages head each
+     * group with a department, and a heading over nothing is not a group. A duty
+     * whose department is gone is gone with it, so a group here always has a
+     * department to be headed with.
+     *
+     * @param  Collection<int, Department>  $departments  every department, by id
+     * @param  callable(PositionDuty): mixed  $read  how this page reads one duty
+     * @return list<array{department: array<string, mixed>, duties: list<mixed>}>
+     */
+    private function departmentDuties(Position $position, Collection $departments, callable $read): array
+    {
+        return $position->duties
+            ->filter(fn (PositionDuty $duty) => $departments->has($duty->department_id))
+            ->groupBy('department_id')
+            ->map(fn (Collection $duties, int $departmentId) => [
+                'department' => $this->departmentRef($departments->get($departmentId)),
+                'duties' => $duties->map($read)->values()->all(),
+            ])
+            ->sortBy(fn (array $group) => $group['department']['name'])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * A department as every screen but the directory names it: the short form it
+     * is known by, with the full name along for the hover that says what those
+     * letters stand for.
+     *
+     * @return array{id: int, name: string, full_name: string}
+     */
+    private function departmentRef(Department $department): array
+    {
+        return [
+            'id' => $department->id,
+            'name' => $department->display_name,
+            'full_name' => $department->name,
+        ];
+    }
+
+    /**
+     * The tree flattened for the picker: parents first, children indented by the
+     * depth, the way the employee list's department filter is already written.
+     *
+     * @param  Collection<int, Department>  $departments  every department, by id
+     * @return list<array{id: int, name: string, full_name: string, depth: int}>
+     */
+    private function departmentOptions(Collection $departments, ?int $parentId = null, int $depth = 0): array
+    {
+        return $departments
+            ->where('parent_id', $parentId)
+            ->flatMap(fn (Department $department) => [
+                [...$this->departmentRef($department), 'depth' => $depth],
+                ...$this->departmentOptions($departments, $department->id, $depth + 1),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Every department by id, in the order the directory lists them.
+     *
+     * A page says a department's name in two places — over a group of duties,
+     * and in the picker the editor chooses from — so it reads them once and
+     * hands the lot down rather than asking for a row at a time. Handed down and
+     * not kept on the controller: the router gives one and the same controller
+     * to every request it serves, and a list kept there would be yesterday's.
+     *
+     * @return Collection<int, Department>
+     */
+    private function departments(): Collection
+    {
+        return Department::query()
+            ->orderBy('name')
+            ->get(['id', 'name', 'abbreviation', 'parent_id'])
+            ->keyBy('id');
+    }
+
+    /**
      * Everybody who still works here and holds this position, by surname.
      *
      * Each of them comes with the duties of all their positions rather than of
@@ -176,9 +293,11 @@ class PositionController extends Controller
         return User::query()
             ->active()
             ->whereHas('positions', fn (Builder $query) => $query->whereKey($position->id))
-            // Everything the page reads about the people in two queries rather
-            // than in two per row.
-            ->when($showsPositions, fn (Builder $query) => $query->with('positions.duties'))
+            // Everything the page reads about the people in a few queries rather
+            // than in a few per row. Which departments somebody is in decides
+            // which duties of their positions are theirs, so they are read with
+            // the rest and not asked for a person at a time.
+            ->when($showsPositions, fn (Builder $query) => $query->with(['positions.duties', 'departments']))
             ->orderBy('surname')
             ->orderBy('name')
             ->get(['id', 'name', 'surname', 'avatar', 'sex', 'status'])
@@ -212,14 +331,37 @@ class PositionController extends Controller
             'positions' => $showsPositions
                 ? $employee->positions->map(fn (Position $held) => ['id' => $held->id, 'name' => $held->name])->values()
                 : [],
-            'duties' => $showsPositions
-                ? $employee->positions->flatMap(fn (Position $held) => $held->duties->map(fn (PositionDuty $duty) => [
+            'duties' => $showsPositions ? $this->carries($employee) : [],
+        ];
+    }
+
+    /**
+     * What this person answers for: for every position they hold, its common
+     * duties plus the ones it has in a department they are in. A duty of a
+     * department somebody is not in is not theirs, and a duty naming a
+     * department where nobody holds the position is nobody's.
+     *
+     * Which department a duty came from travels with it, because the page shows
+     * the people of a department together and says where a duty comes from.
+     *
+     * @return list<array{id: int, name: string, position_id: int, department_id: int|null}>
+     */
+    private function carries(User $employee): array
+    {
+        $departments = $employee->departments->pluck('id');
+
+        return $employee->positions
+            ->flatMap(fn (Position $held) => $held->duties
+                ->filter(fn (PositionDuty $duty) => $duty->department_id === null
+                    || $departments->contains($duty->department_id))
+                ->map(fn (PositionDuty $duty) => [
                     'id' => $duty->id,
                     'name' => $duty->name,
                     'position_id' => $held->id,
-                ]))->values()
-                : [],
-        ];
+                    'department_id' => $duty->department_id,
+                ]))
+            ->values()
+            ->all();
     }
 
     /**
@@ -227,23 +369,32 @@ class PositionController extends Controller
      * position had are written afresh: nothing points at a duty, and a list that
      * is read back in the order it was entered is simplest kept in that order.
      *
-     * @param  list<string>  $duties
+     * `order` is a duty's place within its own group — the common duties are a
+     * group and each department is a group — so each of them is numbered from
+     * the top and reads as the list somebody typed.
+     *
+     * @param  list<array{name: string, department_id?: int|string|null}>  $duties
      */
     private function writeDuties(Position $position, array $duties): void
     {
         $position->duties()->delete();
 
-        $duties = array_values($duties);
+        $orders = [];
 
-        $position->duties()->createMany(array_map(
-            fn (string $name, int $order) => ['name' => $name, 'order' => $order],
-            $duties,
-            array_keys($duties),
-        ));
+        $position->duties()->createMany(array_map(function (array $duty) use (&$orders) {
+            $department = ($duty['department_id'] ?? null) === null ? null : (int) $duty['department_id'];
+            $group = $department ?? 'common';
+
+            return [
+                'name' => $duty['name'],
+                'department_id' => $department,
+                'order' => $orders[$group] = ($orders[$group] ?? -1) + 1,
+            ];
+        }, array_values($duties)));
     }
 
     /**
-     * @return array{name: string, duties?: list<string>}
+     * @return array{name: string, duties?: list<array{name: string, department_id: int|null}>}
      */
     private function validated(Request $request, ?Position $position = null): array
     {
@@ -254,19 +405,25 @@ class PositionController extends Controller
             // A position nobody has written the duties of yet is a position all
             // the same, so saying nothing about them is not an omission.
             'duties' => ['sometimes', 'array'],
-            'duties.*' => ['required', 'string', 'max:300'],
+            'duties.*' => ['required', 'array'],
+            'duties.*.name' => ['required', 'string', 'max:300'],
+            // Naming no department is the usual case: the duty then belongs to
+            // the position wherever it is held.
+            'duties.*.department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
         ], attributes: [
             'name' => 'название',
             'duties' => 'обязанности',
             'duties.*' => 'обязанность',
+            'duties.*.name' => 'обязанность',
+            'duties.*.department_id' => 'отдел',
         ]);
     }
 
     /**
      * The duties trimmed and the blank ones dropped before any rule sees them: a
      * line left empty in the form is not something somebody asked to save, so it
-     * is nothing to put an error in front of them for. Anything that is not a
-     * list of strings is left as it came, for the rules to refuse.
+     * is nothing to put an error in front of them for. An entry that is not a
+     * duty at all is left as it came, for the rules to refuse.
      */
     private function trimDuties(Request $request): void
     {
@@ -274,11 +431,32 @@ class PositionController extends Controller
             return;
         }
 
-        $duties = array_map(fn (mixed $duty) => is_string($duty) ? trim($duty) : $duty, $sent);
+        $duties = [];
 
-        $request->merge(['duties' => array_values(array_filter(
-            $duties,
-            fn (mixed $duty) => $duty !== '' && $duty !== null,
-        ))]);
+        foreach ($sent as $duty) {
+            if (! is_array($duty)) {
+                $duties[] = $duty;
+
+                continue;
+            }
+
+            $name = is_string($duty['name'] ?? null) ? trim($duty['name']) : ($duty['name'] ?? null);
+
+            if ($name === '' || $name === null) {
+                continue;
+            }
+
+            $department = $duty['department_id'] ?? null;
+
+            $duties[] = [
+                'name' => $name,
+                // A duty of the position everywhere arrives with nothing here;
+                // an empty string counts as the same answer, since that is what
+                // an unanswered picker sends.
+                'department_id' => $department === '' ? null : $department,
+            ];
+        }
+
+        $request->merge(['duties' => $duties]);
     }
 }

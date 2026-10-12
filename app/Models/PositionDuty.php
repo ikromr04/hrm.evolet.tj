@@ -13,6 +13,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * position picks out, among everything a holder is responsible for, the duties
  * that come from this position — so each is a row of its own rather than a line
  * of one block of text.
+ *
+ * A duty may name a department as well, because an analyst in one department
+ * does not answer for what an analyst in another answers for. Named, it belongs
+ * only to the people holding the position in that department; unnamed, it
+ * belongs to everybody holding the position, wherever they sit.
  */
 class PositionDuty extends Model
 {
@@ -23,6 +28,7 @@ class PositionDuty extends Model
      */
     protected $fillable = [
         'position_id',
+        'department_id',
         'name',
         'order',
     ];
@@ -30,5 +36,14 @@ class PositionDuty extends Model
     public function position(): BelongsTo
     {
         return $this->belongsTo(Position::class);
+    }
+
+    /**
+     * The department the duty is done in, and nothing at all when it is one of
+     * the duties the position carries everywhere.
+     */
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 }
