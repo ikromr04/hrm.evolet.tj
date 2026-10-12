@@ -159,7 +159,11 @@ function useTab(shown: TabKey[]): [TabKey, (key: TabKey) => void] {
         tab,
         (key: TabKey) => {
             setTab(key);
-            window.history.replaceState(null, '', key === 'overview' ? window.location.pathname : `#${key}`);
+            // The state travels with the address. Inertia keeps the page of this
+            // history entry in it, and writing null here would throw that away:
+            // going back would then land on an entry it cannot restore, leaving
+            // the previous page's hash on the page one is already looking at.
+            window.history.replaceState(window.history.state, '', key === 'overview' ? window.location.pathname : `#${key}`);
         },
     ];
 }
