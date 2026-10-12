@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { blankValues, ownFields, roleField, roleName, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
+import { blankValues, ownFields, roleName, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
 import { Link, useForm } from '@inertiajs/react';
@@ -133,8 +133,12 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
     const inventory = useRef<HTMLInputElement>(null);
     /** Which of the two buttons was pressed, read as the form is sent. */
     const batch = useRef(false);
-    /** What has been filed without leaving the page, newest last. */
-    const [filed, setFiled] = useState<{ id: number; name: string; inventory_number: string }[]>([]);
+    /**
+     * What has been filed without leaving the page, newest last. Either of the
+     * two a unit is named by may be missing: a category that keeps no such
+     * field never asked, and the unit has none.
+     */
+    const [filed, setFiled] = useState<{ id: number; name: string | null; inventory_number: string | null }[]>([]);
     const [photos, setPhotos] = useState<File[]>([]);
     /** What is written in the chosen category's fields, by field id. */
     const [values, setValues] = useState<FieldValues>({});
@@ -175,6 +179,18 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
     const asked = category?.fields ?? [];
     const fields = ownFields(asked);
 
+    // The two a unit is named by, as this category asks for them — or nothing,
+    // where the category has dropped the field. There is then no box and no
+    // question: a unit of such a category simply has no name, or no number,
+    // and asking for one would be asking for something with nowhere to go.
+    const title = asked.find((field) => field.role === 'title');
+    const number = asked.find((field) => field.role === 'inventory');
+
+    // A category may keep nothing at all. The form then says so, because the
+    // gap between the category and the tick boxes would otherwise read as
+    // something that failed to load rather than as the whole of it.
+    const asksNothing = asked.length === 0 && !category?.has_accessories;
+
     // Another category asks other things, so what was typed for the last one is
     // not carried over — it would only be saved into fields nobody chose.
     const pickType = (id: string) => {
@@ -190,6 +206,12 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
         form.transform((data) => ({
             ...data,
             fields: values,
+            // Nothing is sent for a role this category does not keep: handed
+            // null, the server writes none. The box is gone, but what was
+            // typed under the category chosen before it is still in hand, and
+            // would otherwise follow the unit into one with nowhere to keep it.
+            name: title ? data.name : null,
+            inventory_number: number ? data.inventory_number : null,
             // One box, comma by comma: "Блок питания 65 Вт, Сумка". A category
             // whose units come with nothing sends nothing.
             accessories: category?.has_accessories
@@ -256,6 +278,9 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
         });
     };
 
+    /** The unit filed a moment ago, which the page offers a way back to. */
+    const last = filed.at(-1);
+
     // Said the same way wherever the buttons stand, only placed differently.
     const complaints = Object.keys(form.errors).length;
     const refused = complaints > 0 ? `Не сохранено: проверьте ${complaints === 1 ? 'поле' : 'поля'} выше.` : null;
@@ -287,34 +312,45 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
                 </Field>
 
                 {/* Everything else waits for a category: it is the category
-                    that decides what a unit is asked about, down to the two
-                    it is named by — a printer's «Наименование» may read
-                    «Модель» — while what is sent stays "name" and
+                    that decides what a unit is asked about, down to whether it
+                    is named at all — a printer's «Наименование» may read
+                    «Модель», and a category that keeps no such field is not
+                    asked — while what is sent stays "name" and
                     "inventory_number". */}
                 {category && (
                     <>
-                        <Field label={roleName(asked, 'title')} htmlFor="name" error={form.errors.name}>
-                            <FieldInput
-                                field={roleField(asked, 'title')}
-                                id="name"
-                                value={form.data.name}
-                                onChange={(value) => form.setData('name', String(value))}
-                                placeholder="Ноутбук Dell Latitude 5440"
-                                invalid={!!form.errors.name}
-                            />
-                        </Field>
+                        {asksNothing && (
+                            <p className="text-muted-foreground col-span-full text-sm">
+                                Эта категория ничего не спрашивает о единице — ниже остаются только состояние и выдача.
+                            </p>
+                        )}
 
-                        <Field label={roleName(asked, 'inventory')} htmlFor="inventory_number" error={form.errors.inventory_number}>
-                            <FieldInput
-                                field={roleField(asked, 'inventory')}
-                                inputRef={inventory}
-                                id="inventory_number"
-                                value={form.data.inventory_number}
-                                onChange={(value) => form.setData('inventory_number', String(value))}
-                                placeholder="EV-0421"
-                                invalid={!!form.errors.inventory_number}
-                            />
-                        </Field>
+                        {title && (
+                            <Field label={roleName(asked, 'title')} htmlFor="name" error={form.errors.name}>
+                                <FieldInput
+                                    field={title}
+                                    id="name"
+                                    value={form.data.name}
+                                    onChange={(value) => form.setData('name', String(value))}
+                                    placeholder="Ноутбук Dell Latitude 5440"
+                                    invalid={!!form.errors.name}
+                                />
+                            </Field>
+                        )}
+
+                        {number && (
+                            <Field label={roleName(asked, 'inventory')} htmlFor="inventory_number" error={form.errors.inventory_number}>
+                                <FieldInput
+                                    field={number}
+                                    inputRef={inventory}
+                                    id="inventory_number"
+                                    value={form.data.inventory_number}
+                                    onChange={(value) => form.setData('inventory_number', String(value))}
+                                    placeholder="EV-0421"
+                                    invalid={!!form.errors.inventory_number}
+                                />
+                            </Field>
+                        )}
 
                         {/* Whatever this category asks about: a processor for
                             a laptop, a diagonal for a monitor, nothing at all
@@ -484,16 +520,20 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
                 /* A phone keeps the buttons in a bar that rides just above the tab
                    bar, so saving is never a scroll away; «Отмена» is the back arrow there. */
                 <div className="max-md:bg-background/90 flex flex-col gap-2 border-t pt-6 max-md:sticky max-md:bottom-[calc(3.5rem+env(safe-area-inset-bottom))] max-md:z-20 max-md:-mx-4 max-md:-mb-4 max-md:flex-row max-md:flex-wrap max-md:items-center max-md:rounded-b-2xl max-md:px-4 max-md:py-3 max-md:backdrop-blur-xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-                    {filed.length > 0 && (
+                    {/* Named by whatever the unit has: its name, failing that
+                        the number on its sticker, and the plain word for it
+                        where its category keeps neither — a link has to say
+                        something to be followed. */}
+                    {last && (
                         <p className="text-muted-foreground mr-auto text-sm max-md:basis-full">
                             Добавлено {filed.length}, последнее —{' '}
                             <Link
-                                href={route('equipment.show', filed[filed.length - 1].id)}
+                                href={route('equipment.show', last.id)}
                                 className="text-brand-strong font-medium hover:underline dark:text-[#C5E27A]"
                             >
-                                {filed[filed.length - 1].name}
-                            </Link>{' '}
-                            (инв. № {filed[filed.length - 1].inventory_number})
+                                {last.name || last.inventory_number || 'единица'}
+                            </Link>
+                            {last.name && last.inventory_number ? ` (инв. № ${last.inventory_number})` : ''}
                         </p>
                     )}
 

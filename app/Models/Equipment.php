@@ -13,8 +13,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * One unit of company hardware, identified by its inventory number. It belongs
- * to the company throughout: being handed to someone only changes who holds it.
+ * One unit of company hardware, known by whatever its category asks about it —
+ * an inventory number where the category keeps one. It belongs to the company
+ * throughout: being handed to someone only changes who holds it.
  */
 #[ObservedBy(EquipmentObserver::class)]
 class Equipment extends Model
@@ -96,8 +97,10 @@ class Equipment extends Model
     /**
      * What the unit is called, and the number on its sticker. Both are fields
      * of its category like any other — a category names them and orders them
-     * as it likes — and both are read here by the role the field carries, so
-     * everything that speaks of a unit goes on speaking of it the same way.
+     * as it likes, and may have neither — and both are read here by the role
+     * the field carries, so everything that speaks of a unit goes on speaking
+     * of it the same way. Null where the category asks nothing of the kind, or
+     * where it asks and this unit was left blank.
      */
     protected function name(): Attribute
     {
@@ -110,9 +113,9 @@ class Equipment extends Model
     }
 
     /**
-     * The value of the field holding one of the two roles, or null while the
-     * unit is new and has none. Reads what is loaded; `withIdentity` loads it
-     * for a list in one go.
+     * The value of the field holding that role, or null when the category has
+     * no such field, when the unit is new, or when the field was left blank.
+     * Reads what is loaded; `withIdentity` loads it for a list in one go.
      */
     public function roleValue(string $role): ?string
     {
@@ -125,29 +128,31 @@ class Equipment extends Model
 
     /**
      * Writes what the unit is called and the number on its sticker into the
-     * two fields of its category that carry those roles, adding them to the
-     * category if it somehow has none — a unit without either cannot be shown
-     * in a list, named in the journal or found by a search.
+     * fields of its category that carry those roles.
+     *
+     * A category that has dropped one of them is asked nothing about it and has
+     * nowhere to keep it: the value is let go rather than written into a field
+     * made up for it, so deleting a field in the directory stays deleted. A
+     * value of null is left alone either way — nobody said anything about it.
      */
     public function writeIdentity(?string $title, ?string $number): void
     {
+        if ($title === null && $number === null) {
+            return;
+        }
+
+        $fields = EquipmentField::query()
+            ->where('equipment_type_id', $this->equipment_type_id)
+            ->whereNotNull('role')
+            ->get(['id', 'role'])
+            ->keyBy('role');
+
         foreach (['title' => $title, 'inventory' => $number] as $role => $value) {
-            if ($value === null) {
+            $field = $fields->get($role);
+
+            if ($value === null || $field === null) {
                 continue;
             }
-
-            // A category that somehow has no field for the role gets one at the
-            // end of its list: the directory decides the order, and a mended
-            // field pushing its way to the top would reorder what is there.
-            $field = EquipmentField::firstOrCreate(
-                ['equipment_type_id' => $this->equipment_type_id, 'role' => $role],
-                [
-                    'name' => EquipmentField::ROLES[$role],
-                    'type' => 'text',
-                    'required' => true,
-                    'position' => 1 + (int) EquipmentField::where('equipment_type_id', $this->equipment_type_id)->max('position'),
-                ],
-            );
 
             $this->fieldValues()->updateOrCreate(['equipment_field_id' => $field->id], ['value' => $value]);
         }
@@ -179,8 +184,42 @@ class Equipment extends Model
     }
 
     /**
+     * In the order of what the units hold in the field of that role, the ones
+     * holding nothing after them — whichever way the column itself is read.
+     *
+     * A unit whose category has no field for a name has nothing to be ordered
+     * by, and the foot of the list is where it is least in the way: a column
+     * sorted by name is read for the names in it.
+     *
+     * @param  Builder<Equipment>  $query
+     */
+    public function scopeOrderByRole(Builder $query, string $role, string $direction = 'asc'): void
+    {
+        self::putMissingLast($query, $role);
+
+        $query->orderBy(self::roleValueQuery($role), $direction);
+    }
+
+    /**
+     * Units holding nothing in the field of that role sort after the ones that
+     * do. Its own direction, for a walk that reads one order backwards: the
+     * step back from a unit has to undo the step forward exactly.
+     *
+     * @param  Builder<Equipment>  $query
+     */
+    public static function putMissingLast(Builder $query, string $role, string $direction = 'asc'): void
+    {
+        $value = self::roleValueQuery($role);
+
+        $query->orderByRaw('('.$value->toSql().') is null '.($direction === 'desc' ? 'desc' : 'asc'), $value->getBindings());
+    }
+
+    /**
      * What one unit holds in the field of that role, as a subquery: for sorting
-     * a list by name, searching by number, or showing either in a column.
+     * a list by name, searching by number, or showing either in a column. Null
+     * where the unit's category has no field of the kind: a comparison against
+     * null is simply never true, so such a unit answers no search, and where it
+     * lands in an order is `orderByRole`'s business.
      *
      * @return \Illuminate\Database\Query\Builder
      */

@@ -745,10 +745,11 @@ function EditorDialog({
                       has_accessories: hasAccessories,
                       // A line left blank is a line somebody started and thought
                       // better of, so it drops out rather than failing the save.
-                      // Not so for the two a unit is named by: those cannot be
-                      // dropped, so a blank name there is said out loud instead.
+                      // That holds for the two a unit is named by as well, now
+                      // that a category may let either of them go: an unnamed
+                      // row is nobody's field, whatever role it was marked with.
                       fields: fields
-                          .filter((field) => !!field.role || field.name.trim() !== '')
+                          .filter((field) => field.name.trim() !== '')
                           .map((field) => ({
                               ...field,
                               name: field.name.trim(),

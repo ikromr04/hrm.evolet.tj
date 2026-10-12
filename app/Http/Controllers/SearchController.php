@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\Access;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
+use App\Support\EquipmentName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -154,11 +155,13 @@ class SearchController extends Controller
                     ->orWhere('name', 'like', $like)));
         }
 
-        return $query->orderBy(Equipment::roleValueQuery('title'))->limit(self::LIMIT)->get()
+        // By name, and whatever has none after it: a category may keep no field
+        // for one, and a result with nothing to be ordered by reads last.
+        return $query->orderByRole('title')->limit(self::LIMIT)->get()
             ->map(fn (Equipment $unit) => [
                 'id' => $unit->id,
-                'name' => $unit->name,
-                'inventory_number' => $unit->inventory_number,
+                'name' => EquipmentName::read($unit->name),
+                'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
                 'type' => $unit->type?->name,
                 'icon' => $unit->type?->icon,
                 'status' => $unit->status,

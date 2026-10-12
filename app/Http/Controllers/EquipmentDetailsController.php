@@ -28,20 +28,23 @@ class EquipmentDetailsController extends Controller
     {
         // The fields asked about are those of the category the form was filled
         // in for, which is not necessarily the one the unit is filed under now.
-        // The two a unit cannot be without are left out of them: the form asks
-        // for those by themselves, as it always has.
+        // The ones a unit is named by are left out of them: the form asks for
+        // those by themselves, as it always has.
         $type = EquipmentType::with(['fields' => fn ($fields) => $fields->whereNull('role')])
             ->find($request->integer('equipment_type_id'));
+        // Whichever of the two that category keeps. One it has dropped is not
+        // asked for and not written: a unit of it has no name, or no number.
+        $named = $this->identityFields($type);
 
         $data = $request->validate([
             'equipment_type_id' => ['required', 'integer', Rule::exists('equipment_types', 'id')],
-            'name' => ['required', 'string', 'max:150'],
-            // Still one unit, one number — this one's own does not clash with
-            // it. The column that used to see to that is gone with its unique
-            // index, so the inventory field's own values are asked instead.
-            'inventory_number' => ['required', 'string', 'max:50', Rule::unique('equipment_field_values', 'value')
-                ->whereIn('equipment_field_id', EquipmentField::query()->where('role', 'inventory')->pluck('id')->all())
-                ->ignore($equipment->id, 'equipment_id')],
+            'name' => $this->identityRules($type, $named, 'title', 150),
+            // Still one unit, one number where the category keeps one — and
+            // this unit's own number is no clash with itself.
+            'inventory_number' => [
+                ...$this->identityRules($type, $named, 'inventory', 50),
+                ...($named->has('inventory') ? [$this->freeNumber($equipment)] : []),
+            ],
             ...$this->fieldRules($type),
         ], attributes: [
             'equipment_type_id' => 'категория',
@@ -56,8 +59,10 @@ class EquipmentDetailsController extends Controller
 
         // What the unit was called and the number it carried, before either is
         // written over. Both are fields of its category now, so the journal is
-        // told about them here rather than by the row's own diff.
-        $identity = self::identityChanges($equipment, $data['name'], $data['inventory_number']);
+        // told about them here rather than by the row's own diff — and a unit
+        // moved into a category that keeps neither loses both, which is a
+        // change worth a line like any other.
+        $identity = self::identityChanges($equipment, $data['name'] ?? null, $data['inventory_number'] ?? null);
 
         // The category is set first: the values belong to the fields of the
         // category the unit ends up in.
@@ -76,7 +81,7 @@ class EquipmentDetailsController extends Controller
             )->delete();
         }
 
-        $equipment->writeIdentity($data['name'], $data['inventory_number']);
+        $equipment->writeIdentity($data['name'] ?? null, $data['inventory_number'] ?? null);
 
         $equipment->journalExtra = [...$identity, ...$this->saveFields($equipment, $data['fields'] ?? [])];
         $equipment->update(Arr::except($data, ['fields', 'name', 'inventory_number']));
@@ -95,11 +100,12 @@ class EquipmentDetailsController extends Controller
     }
 
     /**
-     * What a save did to the two a unit cannot be without, named as the journal
-     * has always named them. They were columns of the row once and read as a
-     * plain change of "Наименование" or "Инвентарный номер"; they are fields of
-     * the category now, and the line has to come out the same — whatever words
-     * the category happens to call them by.
+     * What a save did to what the unit is called and the number it carries,
+     * named as the journal has always named them. They were columns of the row
+     * once and read as a plain change of "Наименование" or "Инвентарный номер";
+     * they are fields of the category now, and the line has to come out the
+     * same — whatever words the category happens to call them by, and whether
+     * it still asks for them at all.
      *
      * @return array<string, array{?string, ?string}>
      */

@@ -46,15 +46,6 @@ export function roleName(fields: CategoryField[], role: 'title' | 'inventory'): 
 }
 
 /**
- * The field holding the role, for drawing the box it asks for. While no
- * category has been chosen there is none, so a plain line stands in: it is
- * what every category starts its two off as.
- */
-export function roleField(fields: CategoryField[], role: 'title' | 'inventory'): CategoryField {
-    return fields.find((field) => field.role === role) ?? { name: roleLabel[role], type: 'text', options: [], required: true, role };
-}
-
-/**
  * The fields a form and a card handle by field id. The two a unit is named by
  * are asked for by themselves and sent as "name" and "inventory_number", so
  * they are left out here rather than asked for twice.

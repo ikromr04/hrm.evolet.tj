@@ -11,7 +11,8 @@ import { Plus, Trash2 } from 'lucide-react';
  * What the two a unit is named by are read as elsewhere. A category may call
  * them whatever suits it — a printer's «Наименование» may read «Модель» — so
  * the line under the box says what the field is for instead of leaving the
- * word in it to explain itself.
+ * word in it to explain itself. Since the two are dropped like any other field,
+ * that line is also the only thing saying what a category gives up with them.
  */
 const ROLE_HINT: Record<'title' | 'inventory', string> = {
     title: 'Так называется единица в списках и письмах.',
@@ -23,9 +24,12 @@ const ROLE_HINT: Record<'title' | 'inventory', string> = {
  * dialog: a line per field with its name, what it holds and whether it must be
  * filled in.
  *
- * Two of those lines are the ones every unit carries, marked by a role. They
- * are renamed, reordered and made optional like any other, but neither can be
- * dropped and neither holds anything but text.
+ * Two of those lines are the ones a unit is usually named by, marked by a role.
+ * The line under each says what the role is for, because a category renames
+ * them as it likes; in every other way they are ordinary lines, dropped like
+ * the rest. A category left without them, or without any field at all, is a
+ * category that names its units by nothing, and the list says so rather than
+ * standing empty.
  *
  * Dropping a field takes with it whatever the units had written in it, so the
  * line says so plainly instead of asking a second time in a dialog of its own.
@@ -87,21 +91,16 @@ export function CategoryFieldsEditor({
                             </div>
 
                             <div className="flex shrink-0 gap-0.5">
-                                {/* A category whose units have no name and no inventory
-                                    number is one nothing could call them by, so these two
-                                    stay whatever else the dialog does. */}
-                                {!field.role && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-9 text-[#B42318] hover:text-[#B42318] max-md:size-10 dark:text-[#F7A19A]"
-                                        aria-label={`Убрать поле: ${field.name || 'новое поле'}`}
-                                        onClick={() => remove(index)}
-                                    >
-                                        <Trash2 className="size-4" />
-                                    </Button>
-                                )}
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="size-9 text-[#B42318] hover:text-[#B42318] max-md:size-10 dark:text-[#F7A19A]"
+                                    aria-label={`Убрать поле: ${field.name || 'новое поле'}`}
+                                    onClick={() => remove(index)}
+                                >
+                                    <Trash2 className="size-4" />
+                                </Button>
                             </div>
                         </div>
 
@@ -138,6 +137,14 @@ export function CategoryFieldsEditor({
                     </li>
                 ))}
             </ul>
+
+            {/* Having dropped every field, somebody should read that the category
+                is saved that way on purpose rather than wonder where the list went. */}
+            {fields.length === 0 && (
+                <p className="text-muted-foreground border-border rounded-lg border border-dashed p-3 text-[13px]">
+                    Полей нет — своих данных у единиц этой категории не будет. Так тоже можно, поля добавляются в любое время.
+                </p>
+            )}
 
             <Button type="button" variant="outline" className="h-8 justify-self-start max-md:h-11 max-md:justify-self-stretch" onClick={add}>
                 <Plus />

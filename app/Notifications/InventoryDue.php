@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Equipment;
+use App\Support\EquipmentName;
 
 /**
  * The day a unit was to be counted again has come. Told to whoever keeps the
@@ -14,7 +15,9 @@ class InventoryDue extends InAppNotification
     {
         // The reminder names the unit, and what a unit is called and the number
         // on its sticker are fields of its category: the command that walks the
-        // due dates has no other reason to load them, so the letter does.
+        // due dates has no other reason to load them, so the letter does. A
+        // category that keeps neither leaves nothing to load, and the reminder
+        // names the unit by what it has.
         $this->unit->loadMissing('fieldValues.field:id,role');
     }
 
@@ -35,7 +38,7 @@ class InventoryDue extends InAppNotification
 
     protected function text(): string
     {
-        return "Подошёл срок инвентаризации: {$this->unit->name}, инв. № {$this->unit->inventory_number}";
+        return 'Подошёл срок инвентаризации: '.EquipmentName::sentence($this->unit);
     }
 
     protected function target(): array

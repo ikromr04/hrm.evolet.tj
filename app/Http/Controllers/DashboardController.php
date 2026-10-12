@@ -7,6 +7,7 @@ use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\User;
 use App\Support\Access;
+use App\Support\EquipmentName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -111,8 +112,8 @@ class DashboardController extends Controller
                 'at' => $event->created_at?->toIso8601String(),
                 'unit' => $event->equipment === null ? null : [
                     'id' => $event->equipment->id,
-                    'name' => $event->equipment->name,
-                    'inventory_number' => $event->equipment->inventory_number,
+                    'name' => EquipmentName::read($event->equipment->name),
+                    'inventory_number' => EquipmentName::readNumber($event->equipment->inventory_number),
                 ],
                 'actor' => $event->user === null ? null : "{$event->user->surname} {$event->user->name}",
             ])

@@ -16,11 +16,12 @@ use Inertia\Response;
 
 /**
  * Categories of hardware ("Ноутбуки", "Мониторы"); the units themselves live
- * in the equipment section, each with its own inventory number.
+ * in the equipment section, each under the category that says what it is.
  *
  * A category also decides what its units are described by: a monitor has a
- * diagonal and no processor, a phone has an IMEI. Those fields are set here,
- * which is why the dialog of this directory is the longest of them all.
+ * diagonal and no processor, a phone has an IMEI, a box of patch cords has
+ * neither a name of its own nor a number. Every one of those fields is set
+ * here, which is why the dialog of this directory is the longest of them all.
  */
 class EquipmentTypeController extends Controller
 {
@@ -31,9 +32,10 @@ class EquipmentTypeController extends Controller
             'icons' => EquipmentIcons::KEYS,
             // What a field can hold, for the form's own list of types.
             'fieldTypes' => collect(EquipmentField::TYPES)->map(fn (string $title, string $key) => ['key' => $key, 'title' => $title])->values(),
-            // What a new category starts from: the two a unit cannot be without
+            // What a new category starts from: the two most units are named by
             // and nothing else. What describes a monitor says nothing about a
-            // cable, so the rest is written in the dialog by whoever knows.
+            // cable, so the rest is written in the dialog by whoever knows —
+            // and a category that needs neither of the two may drop them.
             'defaultFields' => $this->roleFields(),
             // Units in the category, written-off ones aside: the directory
             // counts hardware, and the number links nowhere else.
@@ -54,8 +56,9 @@ class EquipmentTypeController extends Controller
                     'fields' => $type->fields->map(fn (EquipmentField $field) => [
                         'id' => $field->id,
                         // Null for an ordinary field, and one of the two roles
-                        // for the pair every unit is named by: the editor shows
-                        // those differently and sends the role back untouched.
+                        // for the fields a unit is named by: the rest of the
+                        // app reads a name and a number off those, and the
+                        // editor sends the role back as it was given it.
                         'role' => $field->role,
                         'name' => $field->name,
                         'type' => $field->type,
@@ -76,9 +79,10 @@ class EquipmentTypeController extends Controller
             'has_accessories' => $data['has_accessories'] ?? true,
         ]);
 
-        // A category is born with the two fields its units are named by, even
-        // when the request says nothing about fields at all: without them a
-        // unit could not be put on the books under this category.
+        // A request that says nothing about fields gets the two most units are
+        // named by, which is what the dialog opens on. A list that is sent is
+        // taken as it is — an empty one included: a category whose units need
+        // neither a name nor a number is a category all the same.
         $this->syncFields($type, $data['fields'] ?? $this->roleFields());
 
         return back();
@@ -118,10 +122,11 @@ class EquipmentTypeController extends Controller
      * it lets anybody drop one.
      *
      * The two roles travel with the fields that carry them, so a role field can
-     * be renamed and moved like any other and still be the one the list, the
-     * journal, the letters and the search read a unit's name and number from.
-     * A list that drops a role or hands it elsewhere never gets this far: the
-     * rules below send it back.
+     * be renamed, moved, handed to another field or dropped like any other and
+     * whatever holds a role afterwards is the field the list, the journal, the
+     * letters and the search read a unit's name and number from. A category
+     * that keeps neither leaves its units with no name and no number, and
+     * everything that speaks of a unit is written to manage without.
      *
      * @param  list<array<string, mixed>>  $fields
      */
@@ -170,15 +175,15 @@ class EquipmentTypeController extends Controller
             'has_accessories' => ['sometimes', 'boolean'],
 
             // A category with nothing of its own is a category all the same,
-            // so saying nothing about the fields leaves them as they are. A list
-            // that is sent, though, has to carry the two roles through.
+            // so saying nothing about the fields leaves them as they are and
+            // an empty list leaves the category with none.
             'fields' => ['nullable', 'array', 'max:20', function (string $attribute, mixed $value, Closure $fail) use ($type) {
-                $this->keepsRoles((array) $value, $type, $fail);
+                $this->oneFieldPerRole((array) $value, $type, $fail);
             }],
             // A field already in the category keeps its id, so what the units
             // have written in it survives a rename.
             'fields.*.id' => ['nullable', 'integer', Rule::exists('equipment_fields', 'id')->where('equipment_type_id', $type?->id ?? 0)],
-            // Nothing for an ordinary field; one of the two for the pair a unit
+            // Nothing for an ordinary field; one of the two for a field a unit
             // is named by, exactly as the page was given it.
             'fields.*.role' => ['nullable', Rule::in(array_keys(EquipmentField::ROLES))],
             'fields.*.name' => ['required', 'string', 'max:100', 'distinct:ignore_case'],
@@ -209,9 +214,10 @@ class EquipmentTypeController extends Controller
     }
 
     /**
-     * The two a unit cannot be without, in the shape the dialog sends a field.
+     * The two most units are named by, in the shape the dialog sends a field.
      * What a new category starts out with, and what it is created with when the
-     * request names no fields at all.
+     * request names no fields at all — a starting point rather than a rule:
+     * either of them can be dropped here like any other field.
      *
      * @return list<array<string, mixed>>
      */
@@ -224,60 +230,43 @@ class EquipmentTypeController extends Controller
     }
 
     /**
-     * Whether the list still has one field for each role, on the field that
-     * holds it now.
+     * Whether each role is claimed by one field at most.
      *
-     * A role field is a field like any other in all the ways that matter to the
-     * person editing it: it can be renamed, dragged anywhere in the list and
-     * stop being obligatory. The two things it cannot do are leave and change
-     * hands — a category whose units have no name and no number cannot be read
-     * in a list, named in the journal, written about in a letter or found by a
-     * search, and the values already written in the field would go with it.
+     * A role field is a field like any other: it can be renamed, dragged
+     * anywhere in the list, stop being obligatory, be handed to another field
+     * and be deleted — and a category that deletes both leaves its units with
+     * no name and no number, which is what a category of cables is entitled to
+     * say. What cannot happen is two fields claiming one role: the list, the
+     * journal, the letters and the search read a unit's name off the field that
+     * carries the role, and two of them would make that question ambiguous.
      *
-     * A list that does either is refused with a sentence saying so, rather than
-     * quietly mended: that is how this dialog answers every other impossible
-     * field — two fields with one name and a list with nothing to choose from
-     * are both sent back — and silently restoring a field somebody believes
-     * they deleted is the one outcome they could not account for.
+     * A list that does it is refused with a sentence saying so, the way this
+     * dialog answers every other impossible field: two fields with one name
+     * and a list with nothing to choose from are both sent back.
      *
      * @param  list<array<string, mixed>>  $fields
      */
-    private function keepsRoles(array $fields, ?EquipmentType $type, Closure $fail): void
+    private function oneFieldPerRole(array $fields, ?EquipmentType $type, Closure $fail): void
     {
-        $sent = [];
+        $claims = [];
 
         foreach ($fields as $field) {
             if (($role = $field['role'] ?? null) !== null) {
-                $sent[$role][] = isset($field['id']) ? (int) $field['id'] : null;
+                $claims[$role] = ($claims[$role] ?? 0) + 1;
             }
         }
 
-        // Which field holds each role now; a category being created holds none
-        // yet, and one that somehow lost a role may be given it back here.
+        // What the category calls each role now, so a renamed field is not
+        // spoken of under words nobody in this dialog has seen.
         $held = $type === null
             ? collect()
             : $type->fields()->whereNotNull('role')->get(['id', 'role', 'name'])->keyBy('role');
 
         foreach (array_keys(EquipmentField::ROLES) as $role) {
-            // Named as the category itself names it, so a renamed field is not
-            // sent back under words nobody in this dialog has seen.
-            $title = $held->get($role)?->name ?? EquipmentField::ROLES[$role];
-            $ids = $sent[$role] ?? [];
+            if (($claims[$role] ?? 0) > 1) {
+                $title = $held->get($role)?->name ?? EquipmentField::ROLES[$role];
 
-            if ($ids === []) {
-                $fail("Поле «{$title}» нельзя удалить: по нему единицу находят в списке, в журнале и в поиске.");
-
-                continue;
-            }
-
-            if (count($ids) > 1) {
-                $fail("Поле «{$title}» в категории одно: его роль нельзя отдать сразу двум полям.");
-
-                continue;
-            }
-
-            if ($held->has($role) && $ids[0] !== $held->get($role)->id) {
-                $fail("Роль поля «{$title}» нельзя передать другому полю.");
+                $fail("Роль поля «{$title}» в категории одна: её нельзя отдать сразу двум полям.");
             }
         }
     }

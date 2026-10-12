@@ -32,7 +32,8 @@ export const moveLabel: Record<AskedMove, string> = {
 interface MoveUnit {
     id: number;
     name: string;
-    inventory_number: string;
+    /** Null where the category keeps no field for it; the line then leaves it out. */
+    inventory_number: string | null;
     /** What the card says about it now, which the write-off form opens on. */
     condition: string | null;
 }
@@ -88,7 +89,10 @@ export function EquipmentMoveDialog({
                     <DialogHeader>
                         <DialogTitle>{moveLabel[kind]}</DialogTitle>
                         <DialogDescription>
-                            {unit.name} · инв. № {unit.inventory_number}
+                            {/* A unit whose category keeps no number is said by its name alone,
+                                rather than by a line trailing off into «инв. № —». */}
+                            {unit.name}
+                            {unit.inventory_number && ` · инв. № ${unit.inventory_number}`}
                         </DialogDescription>
                     </DialogHeader>
 

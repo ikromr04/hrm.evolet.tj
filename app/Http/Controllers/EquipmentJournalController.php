@@ -8,6 +8,7 @@ use App\Models\EquipmentType;
 use App\Models\User;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
+use App\Support\EquipmentName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -97,8 +98,8 @@ class EquipmentJournalController extends Controller
             'at' => $event->created_at?->toIso8601String(),
             'unit' => $event->equipment === null ? null : [
                 'id' => $event->equipment->id,
-                'name' => $event->equipment->name,
-                'inventory_number' => $event->equipment->inventory_number,
+                'name' => EquipmentName::read($event->equipment->name),
+                'inventory_number' => EquipmentName::readNumber($event->equipment->inventory_number),
                 'type' => $event->equipment->type?->name,
                 'type_icon' => $event->equipment->type?->icon,
             ],

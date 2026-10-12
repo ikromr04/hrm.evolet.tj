@@ -30,9 +30,12 @@ class EquipmentField extends Model
     ];
 
     /**
-     * The two a unit cannot be without. A category may call them by its own
-     * words and put them where it likes, but one of each stays: the list, the
-     * journal, the letters and the search all name a unit by these two.
+     * What a field can be the one of, for the places that speak of a unit: the
+     * list, the journal, the letters and the search all read a unit's name and
+     * number off the fields carrying these. A category may call them by its own
+     * words, put them where it likes, hand a role to another field or keep
+     * neither — a unit then simply has no name and no number — but one role
+     * belongs to one field, or nothing could tell which field answers.
      *
      * @var array<string, string>
      */
@@ -62,7 +65,7 @@ class EquipmentField extends Model
         return $this->hasMany(EquipmentFieldValue::class);
     }
 
-    /** Whether this is one of the two every unit carries. */
+    /** Whether a unit is named or numbered by this one. */
     public function isRole(): bool
     {
         return $this->role !== null;

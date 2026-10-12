@@ -6,8 +6,11 @@ use App\Models\Equipment;
 use App\Models\EquipmentField;
 use App\Models\EquipmentFieldValue;
 use App\Models\EquipmentType;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Unique;
 
 /**
  * The fields a category gives its units, read off a form and written down.
@@ -15,9 +18,81 @@ use Illuminate\Validation\Rule;
  * A form sends them as "fields[<field id>]", so the rules are built for the
  * category the form was filled in for: a monitor is never asked for a processor,
  * and a required field is required only where it exists.
+ *
+ * The fields a unit is named by are the same story, told through the role they
+ * carry: a form asks for a name and a number by themselves, so the rules for
+ * those are built here too — and a category that keeps neither is asked for
+ * neither.
  */
 trait SavesEquipmentFields
 {
+    /**
+     * The fields the category names its units by, by the role each carries. A
+     * category may hold one, both or none of them.
+     *
+     * @return Collection<string, EquipmentField>
+     */
+    protected function identityFields(?EquipmentType $type): Collection
+    {
+        if ($type === null) {
+            return collect();
+        }
+
+        return EquipmentField::query()
+            ->where('equipment_type_id', $type->id)
+            ->whereNotNull('role')
+            ->get()
+            ->keyBy('role');
+    }
+
+    /**
+     * What a form may send for the field of that role.
+     *
+     * A category that has the field asks for its value as it always has, and
+     * insists on one where the field says it is obligatory. A category that has
+     * dropped it asks for nothing: the form draws no input, and a value from a
+     * page open since before the field went is taken no further than this —
+     * `writeIdentity` has nowhere to put it.
+     *
+     * Until a category is chosen there is no telling, and both are asked for:
+     * the request is going back over the category anyway, and a form that lost
+     * its name on the way should say so in the same breath.
+     *
+     * @param  Collection<string, EquipmentField>  $named
+     * @return list<mixed>
+     */
+    protected function identityRules(?EquipmentType $type, Collection $named, string $role, int $max): array
+    {
+        $field = $named->get($role);
+
+        if ($type !== null && $field === null) {
+            return ['nullable', 'string', "max:{$max}"];
+        }
+
+        return [$field === null || $field->required ? 'required' : 'nullable', 'string', "max:{$max}"];
+    }
+
+    /**
+     * One unit, one number. The column that used to see to that is gone with
+     * its unique index, so the number is checked against what the inventory
+     * fields themselves hold — all of them, whatever category the units holding
+     * them are filed under. Asked as a subquery rather than as a list of ids,
+     * so no caller can hand the rule an empty list and have it pass on nothing.
+     *
+     * A category with no inventory field asks for no number, and then this rule
+     * is not among the ones asked at all: there is nothing to be unique.
+     */
+    protected function freeNumber(?Equipment $unit = null): Unique
+    {
+        $rule = Rule::unique('equipment_field_values', 'value')
+            ->where(fn (QueryBuilder $query) => $query->whereIn(
+                'equipment_field_id',
+                EquipmentField::query()->where('role', 'inventory')->select('id'),
+            ));
+
+        return $unit === null ? $rule : $rule->ignore($unit->id, 'equipment_id');
+    }
+
     /**
      * Rules for the fields of one category, keyed the way the form sends them.
      *

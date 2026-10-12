@@ -23,6 +23,7 @@ use App\Support\Directories;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
+use App\Support\EquipmentName;
 use App\Support\Recipients;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -867,21 +868,23 @@ class EmployeeController extends Controller
      * Everything on the balance sheet that nobody holds, for the forms that hand
      * a unit over. What a unit is called and the number on its sticker are fields
      * of its category now, so the list loads them and reads them off the unit
-     * rather than off the row.
+     * rather than off the row — and either is missing where the category keeps
+     * no field for it, which the form that offers the choice says in its own
+     * words.
      *
-     * @return list<array{id: int, name: string, inventory_number: string}>
+     * @return list<array{id: int, name: ?string, inventory_number: ?string}>
      */
     private function freeUnits(): array
     {
         return Equipment::query()
             ->where('status', 'stock')
             ->withIdentity()
-            ->orderBy(Equipment::roleValueQuery('title'))
+            ->orderByRole('title')
             ->get(['id'])
             ->map(fn (Equipment $unit) => [
                 'id' => $unit->id,
-                'name' => $unit->name,
-                'inventory_number' => $unit->inventory_number,
+                'name' => EquipmentName::read($unit->name),
+                'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
             ])
             ->all();
     }
@@ -898,11 +901,11 @@ class EmployeeController extends Controller
     {
         return [
             'id' => $unit->id,
-            'name' => $unit->name,
+            'name' => EquipmentName::read($unit->name),
             // What its category says it is, as far as the line under the name
             // needs: the first couple of answers the unit has on file.
             'details' => $this->unitDetails($unit),
-            'inventory_number' => $unit->inventory_number,
+            'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
             'type' => $unit->type?->name,
             'issued_at' => $unit->issued_at?->toDateString(),
             // What the card says about it now, which the write-off form opens on.
@@ -983,8 +986,8 @@ class EmployeeController extends Controller
     {
         return $event->equipment === null ? null : [
             'id' => $event->equipment->id,
-            'name' => $event->equipment->name,
-            'inventory_number' => $event->equipment->inventory_number,
+            'name' => EquipmentName::read($event->equipment->name),
+            'inventory_number' => EquipmentName::readNumber($event->equipment->inventory_number),
             'type' => $event->equipment->type?->name,
             'open' => in_array($event->equipment->id, $this->openUnits, true),
         ];

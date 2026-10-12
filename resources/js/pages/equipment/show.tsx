@@ -30,16 +30,7 @@ import {
     type EventKind,
     type NameLookup,
 } from '@/lib/equipment';
-import {
-    blankValues,
-    ownFields,
-    readFieldValue,
-    roleField,
-    roleName,
-    type CategoryField,
-    type CategoryOption,
-    type FieldValues,
-} from '@/lib/equipment-fields';
+import { blankValues, ownFields, readFieldValue, roleName, type CategoryField, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
@@ -68,11 +59,12 @@ interface Holder {
 
 interface Unit {
     id: number;
-    name: string;
+    /** Null where the category keeps no field for it; the card says so in words. */
+    name: string | null;
     equipment_type_id: number;
     type: string | null;
     type_icon: string | null;
-    inventory_number: string;
+    inventory_number: string | null;
     /** What this category asks about, and what this unit answers. */
     fields: (CategoryField & { value: string | null })[];
     condition: string | null;
@@ -122,6 +114,12 @@ interface Props {
     can: EquipmentRights;
     /** Whether the journal of this very unit may be read; without it `events` is empty. */
     canReadJournal: boolean;
+    /**
+     * What stands where the name would be for a unit whose category keeps no
+     * field for one. It comes from the server so the words are written once,
+     * beside every other place that prints them.
+     */
+    nameless: string;
 }
 
 /** The unit before or after this one in the list; null at either end. */
@@ -451,6 +449,13 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
     const asked = types.find((type) => String(type.id) === form.data.equipment_type_id)?.fields ?? [];
     const fields = ownFields(asked);
 
+    /**
+     * The field the chosen category gives one of the two, or nothing where the
+     * category has dropped it. The dialog does not offer to edit what the
+     * category no longer keeps, and sends nothing for it.
+     */
+    const roleOf = (role: 'title' | 'inventory') => asked.find((field) => field.role === role);
+
     // Another category asks other things, so the answers start blank rather than
     // being written into fields nobody chose.
     const pickType = (id: string) => {
@@ -460,26 +465,46 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
-        form.transform((data) => ({ ...data, fields: values }));
+        form.transform((data) => ({
+            ...data,
+            fields: values,
+            // Nothing is sent for a role the chosen category does not keep:
+            // handed null, the server writes none and leaves what the unit
+            // already holds alone. What the box held before the category was
+            // changed is still in hand, and would otherwise be written into a
+            // category with nowhere to keep it.
+            name: roleOf('title') ? data.name : null,
+            inventory_number: roleOf('inventory') ? data.inventory_number : null,
+        }));
         form.put(route('equipment.specs', unit.id), { preserveScroll: true, onSuccess: onClose });
     };
 
     /** Every field here is a label over an input; only the value differs. */
-    // The two a unit is named by, each drawn by the type its category gave it.
-    const text = (key: 'name' | 'inventory_number', label: string, hint: string) => (
-        <div className="grid content-start gap-2">
-            <Label htmlFor={`specs-${key}`}>{label}</Label>
-            <FieldInput
-                field={roleField(asked, key === 'name' ? 'title' : 'inventory')}
-                id={`specs-${key}`}
-                value={form.data[key]}
-                onChange={(value) => form.setData(key, String(value))}
-                placeholder={hint}
-                invalid={!!form.errors[key]}
-            />
-            <InputError message={form.errors[key]} />
-        </div>
-    );
+    // One of the two a unit is named by, drawn by the type its category gave
+    // the field and labelled as the category calls it. A category that has
+    // dropped the field is not asked about it: a unit of it has no name, or no
+    // inventory number, and that is an answer rather than a box left empty.
+    const text = (key: 'name' | 'inventory_number', hint: string) => {
+        const role = key === 'name' ? 'title' : 'inventory';
+        const field = roleOf(role);
+
+        if (!field) return null;
+
+        return (
+            <div className="grid content-start gap-2">
+                <Label htmlFor={`specs-${key}`}>{roleName(asked, role)}</Label>
+                <FieldInput
+                    field={field}
+                    id={`specs-${key}`}
+                    value={form.data[key]}
+                    onChange={(value) => form.setData(key, String(value))}
+                    placeholder={hint}
+                    invalid={!!form.errors[key]}
+                />
+                <InputError message={form.errors[key]} />
+            </div>
+        );
+    };
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -492,8 +517,9 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                     </DialogHeader>
 
                     {/* Both are fields of the category, which names them as it
-                        likes; what is sent stays "name" and "inventory_number". */}
-                    {text('name', roleName(asked, 'title'), 'Ноутбук Dell Latitude 5440')}
+                        likes and may keep neither; what is sent stays "name"
+                        and "inventory_number". */}
+                    {text('name', 'Ноутбук Dell Latitude 5440')}
 
                     <div className="grid content-start gap-2">
                         <Label htmlFor="specs-type">Категория</Label>
@@ -510,7 +536,7 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                         <InputError message={form.errors.equipment_type_id} />
                     </div>
 
-                    {text('inventory_number', roleName(asked, 'inventory'), 'EV-0421')}
+                    {text('inventory_number', 'EV-0421')}
 
                     {/* Whatever this category asks about; nothing at all for a
                         category with no fields of its own. */}
@@ -523,6 +549,16 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                                 error={(key) => (form.errors as Record<string, string | undefined>)[key]}
                             />
                         </div>
+                    )}
+
+                    {/* A category may keep no fields at all, and then the
+                        category itself is the whole of what there is to
+                        change here — said plainly, so a dialog with one box
+                        in it does not look half drawn. */}
+                    {asked.length === 0 && (
+                        <p className="text-muted-foreground text-sm">
+                            Эта категория ничего не спрашивает о единице — здесь можно только перенести её в другую.
+                        </p>
                     )}
 
                     <DialogFooter className="gap-2">
@@ -999,7 +1035,10 @@ function narrowJournal(events: JournalEvent[], filters: JournalFilters): Journal
 
 /* ------------------------------------------------------------------------ page */
 
-export default function EquipmentShow({ unit, repairs, events, names, holders, types, neighbours, can, canReadJournal }: Props) {
+export default function EquipmentShow({ unit, repairs, events, names, holders, types, neighbours, can, canReadJournal, nameless }: Props) {
+    // What to call it on this page: its name, or the words for having none.
+    const called = unit.name ?? nameless;
+    const number = unit.inventory_number ?? '—';
     // The journal of this unit is a section of its own, and only for those who
     // may read it; the rest of the card stays as it was.
     const shownTabs = useMemo(() => tabs.filter((item) => item.key !== 'journal' || canReadJournal), [canReadJournal]);
@@ -1062,7 +1101,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Оборудование', href: '/equipment' },
-        { title: unit.name, href: route('equipment.show', unit.id) },
+        { title: called, href: route('equipment.show', unit.id) },
     ];
 
     /**
@@ -1085,7 +1124,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={unit.name} />
+            <Head title={called} />
 
             <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:px-5 md:py-4">
                 {/* Aligned along the bottom, so the title, the actions and the arrows sit on one line. */}
@@ -1102,9 +1141,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
 
                     <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:gap-1">
                         <div className="flex flex-wrap items-center gap-3">
-                            <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words max-md:text-lg max-md:leading-snug">
-                                {unit.name}
-                            </h1>
+                            <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words max-md:text-lg max-md:leading-snug">{called}</h1>
                             <StatusBadge tone={statusTone[unit.status]} className="max-md:hidden">
                                 {statusLabel[unit.status]}
                             </StatusBadge>
@@ -1118,7 +1155,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                             {/* The two things every unit has, whatever it is. What
                                 else it is made of depends on the category, and is
                                 read in "Характеристики" below. */}
-                            <span>Инв. № {unit.inventory_number}</span>
+                            <span>Инв. № {number}</span>
                             {unit.type && (
                                 <>
                                     <span aria-hidden="true">·</span>
@@ -1186,7 +1223,7 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                                         calls it; the rest follow in the category's
                                         own order, the name among them being the
                                         heading of the card. */}
-                                    <Field label={roleName(unit.fields, 'inventory')}>{unit.inventory_number}</Field>
+                                    <Field label={roleName(unit.fields, 'inventory')}>{number}</Field>
                                     {ownFields(unit.fields).map((field) => (
                                         <Field key={field.id} label={field.name}>
                                             {readFieldValue(field)}
@@ -1516,7 +1553,8 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                 )}
             </div>
 
-            {asking && <EquipmentMoveDialog unit={unit} kind={asking} holders={holders} onClose={() => setAsking(null)} />}
+            {/* The dialog names the unit in a sentence, so it is handed the words. */}
+            {asking && <EquipmentMoveDialog unit={{ ...unit, name: called }} kind={asking} holders={holders} onClose={() => setAsking(null)} />}
             {repairing && <RepairDialog unit={unit} onClose={() => setRepairing(false)} />}
             {correcting && <RepairDialog unit={unit} repair={correcting} onClose={() => setCorrecting(null)} />}
             {closing && <RepairDialog unit={unit} repair={closing} finishing onClose={() => setClosing(null)} />}

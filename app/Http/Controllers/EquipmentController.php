@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Observers\EquipmentObserver;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
+use App\Support\EquipmentName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -131,10 +132,13 @@ class EquipmentController extends Controller
             ->withQueryString()
             ->through(fn (Equipment $unit) => [
                 'id' => $unit->id,
-                'name' => $unit->name,
+                // Ready to be read: a unit whose category keeps no field for a
+                // name has none, and a row that printed nothing would read as
+                // an empty line rather than as a unit without a name.
+                'name' => EquipmentName::read($unit->name),
                 // "Dell · S/N 7K2L9P3" under the name.
                 'details' => self::details($unit),
-                'inventory_number' => $unit->inventory_number,
+                'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
                 'type' => $unit->type?->name,
                 'type_icon' => $unit->type?->icon,
                 'status' => $unit->status,
@@ -222,9 +226,14 @@ class EquipmentController extends Controller
         // The units of the whole page in one go rather than a query per
         // colleague, each category's in the order the list reads them: by name.
         $units = $held()
-            ->withIdentity()
+            // Every value a unit holds and the fields of its category: the two
+            // that name it, and the ones the line under the name is read off.
+            // They come with the units of the page rather than unit by unit, so
+            // the table costs the same few reads whatever the colleagues on it
+            // happen to hold.
+            ->with(['type.fields', 'fieldValues.field:id,role,name'])
             ->whereIn('holder_user_id', $holders->getCollection()->modelKeys())
-            ->orderBy(Equipment::roleValueQuery('title'))
+            ->orderByRole('title')
             ->orderBy('id')
             ->get(['id', 'equipment_type_id', 'holder_user_id'])
             ->groupBy('holder_user_id');
@@ -244,8 +253,13 @@ class EquipmentController extends Controller
                     ->groupBy('equipment_type_id')
                     ->map(fn ($ofCategory) => $ofCategory->map(fn (Equipment $unit) => [
                         'id' => $unit->id,
-                        'name' => $unit->name,
-                        'inventory_number' => $unit->inventory_number,
+                        // Named as the unit list names it, nameless units
+                        // included: one unit reads the same either way round.
+                        'name' => EquipmentName::read($unit->name),
+                        // The same line the unit list prints under a name, so a
+                        // unit says the same thing whichever way it is read.
+                        'details' => self::details($unit),
+                        'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
                     ])->values()),
             ]),
             'sortable' => ['holder'],
@@ -361,18 +375,22 @@ class EquipmentController extends Controller
         }
 
         // The fields the form sent by field id: the category's own, without the
-        // two it asks for by themselves below.
+        // ones it asks for by themselves below.
         $type = self::ownFields($request->integer('equipment_type_id'));
+        // And those: whichever of the two the category still names its units
+        // by. A category may have dropped either, and then the form never asked
+        // and the unit goes on the books without it.
+        $named = $this->identityFields($type);
 
         $data = $request->validate([
             'equipment_type_id' => ['required', 'integer', Rule::exists('equipment_types', 'id')],
-            'name' => ['required', 'string', 'max:150'],
-            // The number on the sticker: one unit, one number. The column that
-            // used to see to that is gone with its unique index, so the
-            // inventory field's own values are asked instead — all of them,
-            // whatever category the units holding them are filed under.
-            'inventory_number' => ['required', 'string', 'max:50', Rule::unique('equipment_field_values', 'value')
-                ->whereIn('equipment_field_id', EquipmentField::query()->where('role', 'inventory')->pluck('id')->all())],
+            'name' => $this->identityRules($type, $named, 'title', 150),
+            // The number on the sticker, where the category keeps one: one unit,
+            // one number, checked against what every inventory field holds.
+            'inventory_number' => [
+                ...$this->identityRules($type, $named, 'inventory', 50),
+                ...($named->has('inventory') ? [$this->freeNumber()] : []),
+            ],
 
             // Whatever the chosen category asks about: a processor for a laptop,
             // a diagonal for a monitor, an IMEI for a phone.
@@ -418,8 +436,9 @@ class EquipmentController extends Controller
 
         // What the unit is called and the number on its sticker are fields of
         // its category, which can only be written once the row they hang on
-        // exists — so they follow the row rather than going into it.
-        $equipment->writeIdentity($data['name'], $data['inventory_number']);
+        // exists — so they follow the row rather than going into it. Either may
+        // be missing: the category has no field for it, and nothing is written.
+        $equipment->writeIdentity($data['name'] ?? null, $data['inventory_number'] ?? null);
         // The arrival entry was written by the save above, a moment before the
         // unit had a number; it names it as it always has.
         EquipmentObserver::named($equipment);
@@ -520,10 +539,12 @@ class EquipmentController extends Controller
             ? back()
             : to_route('equipment.create', ['for' => $employee->id]);
 
+        // Named for the line the form puts up about what has just been filed,
+        // which is a line to read and nothing to fill a box with.
         return $form->with('equipment', [
             'id' => $equipment->id,
-            'name' => $equipment->name,
-            'inventory_number' => $equipment->inventory_number,
+            'name' => EquipmentName::read($equipment->name),
+            'inventory_number' => EquipmentName::readNumber($equipment->inventory_number),
         ]);
     }
 
@@ -549,6 +570,11 @@ class EquipmentController extends Controller
         return Inertia::render('equipment/show', [
             'unit' => [
                 'id' => $equipment->id,
+                // The one place these two travel as they are rather than as
+                // they read: the card's "Характеристики" form opens on what the
+                // card was given, and a form that opened on «Без наименования»
+                // would save those words as the unit's name. The heading says
+                // it in its own words instead, as it says every missing value.
                 'name' => $equipment->name,
                 'equipment_type_id' => $equipment->equipment_type_id,
                 'type' => $equipment->type?->name,
@@ -617,6 +643,12 @@ class EquipmentController extends Controller
             // What the card's forms offer; only an editor needs any of it.
             'types' => EquipmentAccess::edits($request->user()) ? EquipmentType::formOptions() : [],
             'neighbours' => $this->neighbours($equipment),
+            // What the heading calls a unit whose category keeps no name for
+            // it. Every other screen is handed the words already in place; the
+            // card is handed them apart from the unit, because its own forms
+            // open on the unit and would save them as a name. The words come
+            // from here all the same, so no screen can drift from the rest.
+            'nameless' => EquipmentName::NAMELESS,
             // Block by block and move by move, asked of this very unit.
             'can' => EquipmentAccess::allowed($request->user()),
             // What happened to this unit is a question of its own, asked of this
@@ -653,7 +685,7 @@ class EquipmentController extends Controller
 
     /**
      * One category with the fields it asks about by field id: its own, without
-     * the two a unit cannot be without. A form sends those two as "name" and
+     * the ones a unit is named by. A form sends those as "name" and
      * "inventory_number" rather than among the fields — the page leaves them
      * out of that list the same way — so the rules and the saving ask about
      * what is left. The page is given every field, roles and all.
@@ -707,18 +739,38 @@ class EquipmentController extends Controller
             ->withIdentity()
             ->where('status', $equipment->status)
             ->whereKeyNot($equipment->id)
+            ->tap(fn (Builder $q) => Equipment::putMissingLast($q, 'title', $direction))
             ->orderBy($name(), $direction)
             ->orderBy('id', $direction);
 
-        // "Before" means earlier in (name, id) order; a tie on the name falls back to the id.
-        $before = fn (Builder $q) => $q->where(fn (Builder $q) => $q
-            ->where($name(), '<', $equipment->name)
-            ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '<', $equipment->id)));
-        $after = fn (Builder $q) => $q->where(fn (Builder $q) => $q
-            ->where($name(), '>', $equipment->name)
-            ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '>', $equipment->id)));
+        // A unit of a category that keeps no name has none to be walked by, and
+        // walks among the others in the same position instead, in the order they
+        // were entered. The two walks never cross: a comparison against a name
+        // that is not there is true of nothing, which is exactly what keeps the
+        // named units out of this one.
+        if ($equipment->name === null) {
+            $nameless = fn (Builder $q) => $q->whereDoesntHave(
+                'fieldValues',
+                fn (Builder $values) => $values->whereRelation('field', 'role', 'title'),
+            );
 
-        $unit = fn (?Equipment $u) => $u ? ['id' => $u->id, 'name' => $u->name, 'inventory_number' => $u->inventory_number] : null;
+            $before = fn (Builder $q) => $q->tap($nameless)->where('id', '<', $equipment->id);
+            $after = fn (Builder $q) => $q->tap($nameless)->where('id', '>', $equipment->id);
+        } else {
+            // "Before" means earlier in (name, id) order; a tie on the name falls back to the id.
+            $before = fn (Builder $q) => $q->where(fn (Builder $q) => $q
+                ->where($name(), '<', $equipment->name)
+                ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '<', $equipment->id)));
+            $after = fn (Builder $q) => $q->where(fn (Builder $q) => $q
+                ->where($name(), '>', $equipment->name)
+                ->orWhere(fn (Builder $q) => $q->where($name(), $equipment->name)->where('id', '>', $equipment->id)));
+        }
+
+        $unit = fn (?Equipment $u) => $u ? [
+            'id' => $u->id,
+            'name' => EquipmentName::read($u->name),
+            'inventory_number' => EquipmentName::readNumber($u->inventory_number),
+        ] : null;
 
         return [
             'prev' => $unit($order('desc')->tap($before)->first(['id', 'equipment_type_id'])),
@@ -816,9 +868,11 @@ class EquipmentController extends Controller
             // same second keep the order they were entered in.
             'created' => $query->orderBy('created_at', $direction)->orderBy('id', $direction),
             // The two a unit is named by live in its category's fields, so the
-            // order is taken from the value each unit holds there.
-            'name' => $query->orderBy(Equipment::roleValueQuery('title'), $direction),
-            'inventory_number' => $query->orderBy(Equipment::roleValueQuery('inventory'), $direction),
+            // order is taken from the value each unit holds there — and a unit
+            // whose category keeps no such field holds nothing and reads last,
+            // whichever way the column is sorted.
+            'name' => $query->orderByRole('title', $direction),
+            'inventory_number' => $query->orderByRole('inventory', $direction),
             // Sorting by a related name, not by the foreign key behind it.
             'type' => $query->orderBy(EquipmentType::select('name')->whereColumn('equipment_types.id', 'equipment.equipment_type_id'), $direction),
             'holder' => $query->orderBy(User::select('surname')->whereColumn('users.id', 'equipment.holder_user_id'), $direction),
