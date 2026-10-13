@@ -129,6 +129,65 @@ class ErrorPagesTest extends TestCase
             ->assertInertia(fn (AssertableInertia $page) => $page->component('errors/503')->missing('auth'));
     }
 
+    public function test_the_update_page_asks_nothing_of_the_server_it_is_shown_from()
+    {
+        // The React page above is the better one, and it is only reachable while
+        // the application can boot. The update deletes `vendor` and `public/build`
+        // for a few minutes, so `artisan down --render` draws this one beforehand
+        // and `public/index.php` echoes it as a file. Whatever it asked the server
+        // for — a stylesheet, a script, a font, the Evolet mark as an image —
+        // would be asked of a server that cannot answer.
+        $html = view('maintenance')->render();
+
+        $this->assertStringContainsString('Идёт обновление системы', $html);
+        $this->assertStringContainsString('Все данные в сохранности', $html);
+
+        foreach (['/build/', '@vite', '<link', '<script src', 'http://', 'https://', 'url('] as $fetched) {
+            $this->assertStringNotContainsString($fetched, $html, "The update page reaches for [{$fetched}].");
+        }
+    }
+
+    public function test_closing_for_an_update_leaves_that_page_on_disk()
+    {
+        // What the deploy document tells whoever is updating to run. The page has
+        // to be sitting in the "down" file complete, because the request that
+        // serves it stops before Composer's autoloader is required.
+        // Into a storage of its own, never the project's. The file this writes is
+        // what every request in the process looks for before anything else, and
+        // the suite runs sixteen processes against one storage directory — so
+        // closing the real one here would answer 503 to whatever the other
+        // fifteen happened to be asking at that moment, in a different test each
+        // run. (It did: three unrelated files failed that way before this.)
+        $storage = $this->app->storagePath();
+        $isolated = sys_get_temp_dir().'/hrm-down-'.getmypid().'-'.uniqid();
+
+        mkdir($isolated.'/framework', 0777, true);
+        $this->app->useStoragePath($isolated);
+
+        try {
+            $this->artisan('down', ['--render' => 'maintenance', '--retry' => 60])->assertSuccessful();
+
+            $payload = json_decode(file_get_contents($isolated.'/framework/down'), true);
+
+            $this->assertStringContainsString('Идёт обновление системы', $payload['template']);
+            $this->assertSame(503, $payload['status']);
+            $this->assertSame(60, $payload['retry']);
+
+            // The other half of it: the file `public/index.php` looks for.
+            $this->assertFileExists($isolated.'/framework/maintenance.php');
+        } finally {
+            $this->artisan('up');
+            $this->app->useStoragePath($storage);
+
+            foreach ((glob($isolated.'/framework/*') ?: []) as $file) {
+                @unlink($file);
+            }
+
+            @rmdir($isolated.'/framework');
+            @rmdir($isolated);
+        }
+    }
+
     public function test_a_refusal_asked_for_in_json_stays_json()
     {
         $this->actingAs(User::factory()->create())

@@ -448,10 +448,14 @@ PHP artisan queue:flush         # удалить все неотправленн
 
    ```bash
    cd /home/USER/hrm
-   PHP artisan down --retry=60
+   PHP artisan down --render="maintenance" --retry=60
    ```
 
    Сотрудники увидят страницу «Идёт обновление системы».
+
+   `--render="maintenance"` обязателен. С ним страница рисуется **сейчас** и целиком сохраняется в `hrm/storage/framework/down`; дальше её отдаёт `index.php`, ещё не запуская систему. Без этого флага страницу рисует сама система — а на шаге 4 вы удаляете то, из чего она рисуется, и сотрудник увидит несколько минут пустое «Service Unavailable».
+
+   Поэтому **порядок важен**: сначала этот шаг, потом удаление папок. И в варианте А страница работает за счёт строки про `maintenance.php` в `public_html/index.php` (раздел 2) — её не удалять.
 
 4. В File Manager **удалить старый код** — папки:
    `app`, `bootstrap`, `config`, `database`, `lang`, `resources`, `routes`, `vendor`, `public/build`
@@ -477,13 +481,25 @@ PHP artisan queue:flush         # удалить все неотправленн
 
 ### Обновление без терминала
 
-Шаги 4–5 те же, а вместо команд — разовое задание cron (как в разделе 5.2), которое потом нужно удалить:
+Шаги 4–5 те же, а вместо команд — разовые задания cron (как в разделе 5.2). Их два, потому что между ними вы работаете руками в File Manager; **каждое после себя удалять**.
+
+**Задание 1 — закрыть систему** (вместо шага 3). cPanel → Cron Jobs → «Once Per Minute»:
 
 ```bash
-cd /home/USER/hrm && PHP artisan migrate --force > storage/logs/update.log 2>&1 ; PHP artisan db:seed --class=ProductionSeeder --force >> storage/logs/update.log 2>&1 ; PHP artisan config:cache >> storage/logs/update.log 2>&1 ; PHP artisan route:cache >> storage/logs/update.log 2>&1 ; PHP artisan view:cache >> storage/logs/update.log 2>&1
+cd /home/USER/hrm && PHP artisan down --render="maintenance" --retry=60
 ```
 
-Режим обслуживания в этом случае не включается — обновляйте в нерабочее время.
+Подождать минуту, открыть сайт и убедиться, что показана страница «Идёт обновление системы», **удалить задание** — и только потом делать шаги 4–5.
+
+**Задание 2 — обновить и открыть** (вместо шага 6):
+
+```bash
+cd /home/USER/hrm && PHP artisan migrate --force > storage/logs/update.log 2>&1 ; PHP artisan db:seed --class=ProductionSeeder --force >> storage/logs/update.log 2>&1 ; PHP artisan config:cache >> storage/logs/update.log 2>&1 ; PHP artisan route:cache >> storage/logs/update.log 2>&1 ; PHP artisan view:cache >> storage/logs/update.log 2>&1 ; PHP artisan up >> storage/logs/update.log 2>&1
+```
+
+Задание запускается каждую минуту, поэтому после первого раза система уже открыта — проверьте `update.log` и удалите задание. Если открывать систему страшно до проверки, уберите из строки последнее `PHP artisan up` и откройте её отдельным третьим заданием.
+
+Обновлять всё равно лучше в нерабочее время: между заданиями сайт закрыт столько, сколько занимают шаги 4–5.
 
 ### Изменили `.env`
 
@@ -596,7 +612,16 @@ mysqldump -u USER_hrm -p USER_hrm > ~/hrm-$(date +%F).sql
 PHP artisan up
 ```
 
-Без терминала — удалить файл `hrm/storage/framework/down`.
+Без терминала — удалить файл `hrm/storage/framework/down`. Этого достаточно: лежащий рядом `maintenance.php` без него ничего не делает.
+
+### Вместо «Идёт обновление системы» — пустое «Service Unavailable»
+
+| Причина | Что сделать |
+| --- | --- |
+| Закрывали без `--render="maintenance"` | открыть систему (`PHP artisan up`) и закрыть заново командой из раздела 9 |
+| Папки удалили **до** того, как закрыли систему | загрузить новый код (шаг 5) — страница появится вместе с ним |
+| В `.env` изменён `APP_MAINTENANCE_DRIVER` | вернуть `APP_MAINTENANCE_DRIVER=file`: заранее нарисованную страницу отдаёт только он |
+| Вариант А, из `public_html/index.php` пропала строка про `maintenance.php` | вернуть её по разделу 2 |
 
 ### Команда `migrate:fresh` пишет «This command is prohibited»
 
@@ -613,7 +638,7 @@ PHP artisan about                 # состояние: окружение, кэ
 PHP artisan schedule:list         # что и когда запускает cron
 PHP artisan queue:failed          # неотправленные письма
 PHP artisan queue:retry all       # отправить их повторно
-PHP artisan down --retry=60       # закрыть на обслуживание
+PHP artisan down --render="maintenance" --retry=60   # закрыть на обслуживание
 PHP artisan up                    # открыть
 PHP artisan migrate --force       # обновить таблицы
 PHP artisan db:seed --class=ProductionSeeder --force   # права и системный администратор
