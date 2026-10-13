@@ -4,8 +4,12 @@ namespace App\Http\Requests;
 
 use App\Http\Requests\Concerns\GuardsPrivilegedRoles;
 use App\Http\Requests\Concerns\ListsCitizenships;
+use App\Rules\LatinEmail;
+use App\Support\Placements;
+use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Putting a colleague on the books: the account they sign in with and the
@@ -44,17 +48,26 @@ class StoreEmployeeRequest extends FormRequest
 
             // The address they sign in with, so it belongs to one person only.
             // The password is not asked for: one is generated and mailed there.
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email' => ['required', 'string', 'lowercase', 'email', new LatinEmail, 'max:255', Rule::unique('users', 'email')],
 
             'hired_at' => ['nullable', 'date', 'before_or_equal:today'],
 
             'roles' => ['present', 'array'],
             'roles.*' => ['string', 'distinct', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
-            'positions' => ['present', 'array'],
-            'positions.*' => ['integer', 'distinct', Rule::exists('positions', 'id')],
-            'departments' => ['present', 'array'],
-            'departments.*' => ['integer', 'distinct', Rule::exists('departments', 'id')],
+
+            // Where they stand in the company: a department, a position of that
+            // department and the duties picked out of it, as many such chains as
+            // the person has.
+            ...Placements::rules(),
         ];
+    }
+
+    /**
+     * @return array<int, Closure>
+     */
+    public function after(): array
+    {
+        return [fn (Validator $validator) => Placements::check($validator)];
     }
 
     /**
@@ -76,8 +89,7 @@ class StoreEmployeeRequest extends FormRequest
             'email' => 'e-mail',
             'hired_at' => 'начало работы',
             'roles' => 'позиция',
-            'positions' => 'должность',
-            'departments' => 'отдел',
+            ...Placements::attributes(),
         ];
     }
 }

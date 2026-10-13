@@ -56,8 +56,7 @@ class SessionExpiryTest extends TestCase
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
             'roles' => [],
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
         ];
     }

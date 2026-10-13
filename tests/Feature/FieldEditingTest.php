@@ -64,8 +64,7 @@ class FieldEditingTest extends TestCase
             'sex' => $employee->sex,
             'home_address' => $employee->details?->home_address,
             'roles' => $employee->roles->pluck('name')->all(),
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
         ];
     }

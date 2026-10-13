@@ -10,6 +10,7 @@ use App\Models\Language;
 use App\Models\User;
 use App\Notifications\PlacementChanged;
 use App\Support\EmployeeFields;
+use App\Support\Placements;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
@@ -25,7 +26,8 @@ class EmployeeDetailsController extends Controller
     /** The name and sex live on the user, the rest of the plain fields on the details. */
     private const ON_USER = ['surname', 'name', 'patronymic', 'sex'];
 
-    private const RELATIONS = ['roles', 'positions', 'departments'];
+    /** What the card saves beside the details row: the roles, and where they stand. */
+    private const RELATIONS = ['roles', 'placements'];
 
     /**
      * What a line of these two blocks is called in the request, where that is not
@@ -48,8 +50,13 @@ class EmployeeDetailsController extends Controller
         'nationality' => ['nationality'],
         'home_address' => ['home_address'],
         'roles' => ['roles'],
-        'positions' => ['positions'],
-        'departments' => ['departments'],
+        // One answer behind two lines of the card: a department, a position of
+        // that department and the duties picked out of it. Changing where
+        // somebody stands means changing both lines at once, so a viewer who
+        // holds only one of them changes neither — half a placement would file
+        // a position in a department the save was not allowed to write.
+        'positions' => ['placements'],
+        'departments' => ['placements'],
         'email' => ['email'],
         'phone' => ['phone'],
         'sos_phone' => ['sos_phone', 'sos_contact'],
@@ -85,15 +92,16 @@ class EmployeeDetailsController extends Controller
                 $employee->details()->updateOrCreate([], $details);
             }
 
-            // A relation left out of the form is left as it is, rather than being
+            // A line left out of the form is left as it is, rather than being
             // emptied by a save that was never allowed to touch it.
-            foreach (['roles' => 'syncRoles', 'positions' => 'positions', 'departments' => 'departments'] as $key => $how) {
-                if (! array_key_exists($key, $data)) {
-                    continue;
-                }
+            if (array_key_exists('roles', $data)) {
+                $employee->syncRoles($data['roles']);
+            }
 
-                // Departments the employee stays in keep their head flag.
-                $how === 'syncRoles' ? $employee->syncRoles($data[$key]) : $employee->{$how}()->sync($data[$key]);
+            // Departments the employee stays in keep their head flag, and the
+            // duties of a position they no longer hold go with it.
+            if (array_key_exists('placements', $data)) {
+                Placements::save($employee, (array) $data['placements']);
             }
         });
 

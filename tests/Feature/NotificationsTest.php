@@ -10,6 +10,7 @@ use App\Notifications\EmployeeAdded;
 use App\Notifications\EquipmentMoved;
 use App\Notifications\InventoryDue;
 use App\Notifications\PlacementChanged;
+use App\Support\Placements;
 use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -80,8 +81,7 @@ class NotificationsTest extends TestCase
             'citizenship' => ['Таджикистан'],
             'hired_at' => '2026-03-02',
             'roles' => [],
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
         ];
     }
@@ -103,8 +103,11 @@ class NotificationsTest extends TestCase
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
             'roles' => $employee->roles()->pluck('name')->all(),
-            'positions' => [],
-            'departments' => $employee->departments()->pluck('departments.id')->all(),
+            // Where they stand, sent back as it stands: the card's dialog opens
+            // on this and a save that changed nothing must say nothing. Read off
+            // a fresh copy, since the one in hand was loaded before the save
+            // above it moved anybody.
+            'placements' => Placements::of($employee->fresh()),
             ...$overrides,
         ];
     }
@@ -313,7 +316,7 @@ class NotificationsTest extends TestCase
         $this->assertSame(2, $keeper->notifications()->count());
     }
 
-    // --- Смена позиции / должности / отдела ---
+    // --- Смена позиции / должности / отдела / обязанностей ---
 
     public function test_a_change_of_position_or_department_is_told_to_the_employee()
     {
@@ -324,7 +327,7 @@ class NotificationsTest extends TestCase
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
                 'roles' => ['specialist'],
-                'departments' => [$department->id],
+                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -344,10 +347,62 @@ class NotificationsTest extends TestCase
         // Taken out of the department: the line says what is left.
         $this->travel(1)->minutes();
         $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/personal", $this->personal($employee, ['departments' => []]))
+            ->put("/employees/{$employee->id}/personal", $this->personal($employee, ['placements' => []]))
             ->assertSessionHasNoErrors();
 
         $this->assertSame('Вам изменили отдел: не указан', $this->lines($employee)[0]);
+    }
+
+    public function test_a_position_is_named_with_its_department_and_the_duties_are_named_too()
+    {
+        $admin = $this->sysadmin();
+        $employee = $this->colleague();
+        $department = Department::create(['name' => 'Отдел аналитики портфеля', 'abbreviation' => 'ОАП']);
+        $position = $department->positions()->create(['name' => 'Администратор']);
+        $contracts = $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
+        $month = $position->duties()->create(['name' => 'Закрытие месяца', 'order' => 1]);
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
+                'placements' => [[
+                    'department_id' => $department->id,
+                    'position_id' => $position->id,
+                    'duty_ids' => [$contracts->id],
+                ]],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        // «Администратор» exists in more than one department, so the line names
+        // the department with it, the way the directory does everywhere else.
+        $this->assertSame(
+            ['Вам изменили должность: Администратор (ОАП); отдел: ОАП; обязанности: Ведение договоров'],
+            $this->lines($employee),
+        );
+
+        // Being handed another duty is a change nothing else here would mention:
+        // holding the position no longer means carrying its whole list.
+        $this->travel(1)->minutes();
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
+                'placements' => [[
+                    'department_id' => $department->id,
+                    'position_id' => $position->id,
+                    'duty_ids' => [$contracts->id, $month->id],
+                ]],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('Вам изменили обязанности: Ведение договоров, Закрытие месяца', $this->lines($employee)[0]);
+
+        // The position goes and the duties go with it, in one line.
+        $this->travel(1)->minutes();
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
+                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('Вам изменили должность: не указана; обязанности: не указаны', $this->lines($employee)[0]);
     }
 
     public function test_nobody_is_told_about_a_change_they_made_to_their_own_card()
@@ -356,7 +411,9 @@ class NotificationsTest extends TestCase
         $department = Department::create(['name' => 'Отдел продаж']);
 
         $this->actingAs($admin)
-            ->put("/employees/{$admin->id}/personal", $this->personal($admin, ['departments' => [$department->id]]))
+            ->put("/employees/{$admin->id}/personal", $this->personal($admin, [
+                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+            ]))
             ->assertSessionHasNoErrors();
 
         $this->assertSame([$department->id], $admin->departments()->pluck('departments.id')->all());

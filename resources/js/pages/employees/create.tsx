@@ -1,5 +1,6 @@
 import InputError from '@/components/input-error';
 import { MultiSelect } from '@/components/multi-select';
+import { blankPlacement, Placements, placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
 import { SearchableSelect } from '@/components/searchable-select';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -13,11 +14,9 @@ import { Head, router, useForm } from '@inertiajs/react';
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, Plus, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-interface Options {
+/** The departments, the positions of each and the duties of each position come with the page. */
+interface Options extends PlacementOptions {
     roles: { name: string; title: string }[];
-    positions: { id: number; name: string }[];
-    /** The department tree flattened, parents first. */
-    departments: { id: number; name: string; full_name: string; depth: number }[];
     languages: { id: number; name: string }[];
     nationalities: string[];
     citizenships: string[];
@@ -191,8 +190,11 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         email: '',
         hired_at: today,
         roles: [] as string[],
-        positions: [] as number[],
-        departments: [] as number[],
+        // Where they stand, chain by chain. One blank chain to begin with, so
+        // the department is the first thing the step asks for rather than
+        // something to go looking for behind a button; it costs nothing when
+        // nobody fills it in.
+        placements: [{ ...blankPlacement }] as Placement[],
         continue: true,
     });
 
@@ -287,8 +289,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     nationality: data.nationality,
                     home_address: data.home_address,
                     roles: data.roles,
-                    positions: data.positions,
-                    departments: data.departments,
+                    placements: placementsToSend(data.placements),
                 }));
                 main.put(route('employees.personal', employee.id), {
                     preserveScroll: true,
@@ -303,7 +304,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
             }
 
             // A plain send: an earlier correction may have left a transform behind.
-            main.transform((data) => data);
+            main.transform((data) => ({ ...data, placements: placementsToSend(data.placements) }));
             main.post(route('employees.store'), {
                 preserveScroll: true,
                 preserveState: true,
@@ -676,27 +677,27 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 onChange={(value) => main.setData('roles', value)}
                                             />
                                         </Field>
-                                        <Field label="Должность" error={at(main.errors, 'positions')}>
-                                            <MultiSelect
-                                                options={options.positions.map((position) => ({ value: position.id, label: position.name }))}
-                                                value={main.data.positions}
-                                                onChange={(value) => main.setData('positions', value)}
-                                            />
-                                        </Field>
-                                        <Field label="Отдел" error={at(main.errors, 'departments')}>
-                                            <MultiSelect
-                                                options={options.departments.map((department) => ({
-                                                    value: department.id,
-                                                    label: department.name,
-                                                    // A list one picks from is not a link one can
-                                                    // follow, so it says here what the short name is.
-                                                    hint: department.full_name === department.name ? undefined : department.full_name,
-                                                    depth: department.depth,
-                                                }))}
-                                                value={main.data.departments}
-                                                onChange={(value) => main.setData('departments', value)}
-                                            />
-                                        </Field>
+                                    </div>
+
+                                    {/* The three go together and are asked in that
+                                    order, so they get a block of their own rather
+                                    than a cell each in the grid above. */}
+                                    <div className="flex flex-col gap-3 border-t pt-6">
+                                        <Label>Отдел и должность</Label>
+                                        <p className="text-muted-foreground text-[13px]">
+                                            Сначала отдел, затем должность этого отдела и обязанности этой должности. Если сотрудник числится в
+                                            нескольких отделах, добавьте запись на каждый.
+                                        </p>
+                                        <Placements
+                                            value={main.data.placements}
+                                            onChange={(value) => main.setData('placements', value)}
+                                            options={options}
+                                            errors={main.errors}
+                                            // The keys come back from the server, which names a
+                                            // chain and a field of it; the form only knows the
+                                            // one key they hang under.
+                                            onAnswered={(keys) => main.clearErrors(...(keys as 'placements'[]))}
+                                        />
                                     </div>
                                 </div>
                             )}

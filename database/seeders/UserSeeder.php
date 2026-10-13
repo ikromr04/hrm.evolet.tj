@@ -13,6 +13,7 @@ use App\Models\UserDetail;
 use App\Models\UserEducation;
 use App\Models\UserWorkExperience;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
 
 class UserSeeder extends Seeder
@@ -81,6 +82,7 @@ class UserSeeder extends Seeder
         $this->assignRoles();
         $this->assignDepartments();
         $this->assignPositions();
+        $this->assignDuties();
         $this->assignDepartmentHeads();
         $this->assignLanguages();
         $this->addChildren();
@@ -409,14 +411,46 @@ class UserSeeder extends Seeder
             $head?->positions()->attach($titles[$title]);
         }
 
-        $regular = collect(PositionSeeder::OTHERS);
+        $regular = $titles->whereIn('name', array_keys(PositionSeeder::OTHERS))->values();
 
-        $everyone()->doesntHave('positions')->get()->each(function (User $user) use ($titles, $regular) {
-            $pool = $user->sex === 'female' ? $regular : $regular->reject(fn ($t) => $t === 'Уборщица');
-            $picked = $pool->random(fake()->boolean(12) ? 2 : 1);
+        $everyone()->doesntHave('positions')->with('departments')->get()->each(function (User $user) use ($regular) {
+            $allowed = fn (Collection $positions) => $user->sex === 'female'
+                ? $positions
+                : $positions->reject(fn (Position $position) => $position->name === 'Уборщица');
 
-            $user->positions()->attach($titles->whereIn('name', $picked->all())->pluck('id'));
+            // A position belongs to a department, so an employee is given one of
+            // their own department's. Somebody who sits in no department is
+            // given whatever title fits them: the position still belongs where
+            // it belongs, and the page says as much.
+            $pool = $allowed($regular->whereIn('department_id', $user->departments->pluck('id')));
+            $pool = $pool->isEmpty() ? $allowed($regular) : $pool;
+
+            $user->positions()->attach($pool->random(min($pool->count(), fake()->boolean(12) ? 2 : 1))->pluck('id'));
         });
+    }
+
+    /**
+     * What each employee answers for out of their positions' lists: a few duties
+     * rather than every one of them. The list is the work the position covers
+     * between its holders — six analysts in a department do not each do all of
+     * it — so the demo shares it out the way the pages let somebody share it out
+     * by hand.
+     */
+    private function assignDuties(): void
+    {
+        User::doesntHave('duties')
+            ->whereHas('positions')
+            ->with('positions.duties')
+            ->get()
+            ->each(function (User $user) {
+                $duties = $user->positions->flatMap(fn (Position $position) => $position->duties);
+
+                if ($duties->isEmpty()) {
+                    return;
+                }
+
+                $user->duties()->attach($duties->random(min($duties->count(), fake()->numberBetween(1, 3)))->pluck('id'));
+            });
     }
 
     /**

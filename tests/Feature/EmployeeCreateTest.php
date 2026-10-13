@@ -7,9 +7,11 @@ use App\Models\Equipment;
 use App\Models\EquipmentType;
 use App\Models\Language;
 use App\Models\Position;
+use App\Models\PositionDuty;
 use App\Models\User;
 use App\Notifications\AccountCreated;
 use App\Support\EmployeeFields;
+use App\Support\Placements;
 use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -17,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia;
+use PHPUnit\Framework\Attributes\DataProvider;
 use ReflectionClass;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -55,9 +58,27 @@ class EmployeeCreateTest extends TestCase
             'citizenship' => ['Таджикистан'],
             'hired_at' => '2026-03-02',
             'roles' => [],
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
+        ];
+    }
+
+    /**
+     * A department with a position in it and two duties on that position's list:
+     * the chain the form walks down, and the one it sends back.
+     *
+     * @return array{Department, Position, PositionDuty, PositionDuty}
+     */
+    private function chain(string $name = 'Отдел разработки'): array
+    {
+        $department = Department::create(['name' => $name]);
+        $position = $department->positions()->create(['name' => 'Аналитик']);
+
+        return [
+            $department,
+            $position,
+            $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]),
+            $position->duties()->create(['name' => 'Закрытие месяца', 'order' => 1]),
         ];
     }
 
@@ -87,13 +108,13 @@ class EmployeeCreateTest extends TestCase
     public function test_an_admin_adds_a_colleague_and_lands_on_their_profile()
     {
         Notification::fake();
-        $position = Position::query()->firstOrFail();
-        $department = Department::create(['name' => 'Отдел разработки']);
+        [$department, $position, $duty] = $this->chain();
 
         $response = $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
             'roles' => ['specialist'],
-            'positions' => [$position->id],
-            'departments' => [$department->id],
+            'placements' => [
+                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$duty->id]],
+            ],
         ]));
 
         $employee = User::firstWhere('email', 'nilufar@evolet.tj');
@@ -110,8 +131,102 @@ class EmployeeCreateTest extends TestCase
         $this->assertTrue($employee->hasRole('specialist'));
         $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
+        // One duty of the two the position answers for: holding it does not hand
+        // over the whole list.
+        $this->assertSame([$duty->id], $employee->duties->pluck('id')->all());
 
         Notification::assertSentTo($employee, AccountCreated::class);
+    }
+
+    public function test_a_placement_may_name_a_department_and_no_position()
+    {
+        Notification::fake();
+        [$department] = $this->chain();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasNoErrors();
+
+        // Belonging to a department without holding a position in it is an
+        // ordinary thing, and not the same as not belonging to it.
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+        $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
+        $this->assertSame([], $employee->positions->pluck('id')->all());
+    }
+
+    public function test_several_placements_are_saved_and_read_back_in_order()
+    {
+        Notification::fake();
+        [$first, $analyst, $contracts] = $this->chain('Отдел разработки');
+        [$second, $designer, $month] = $this->chain('Отдел дизайна');
+        $bare = Department::create(['name' => 'Научный отдел']);
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'placements' => [
+                ['department_id' => $first->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                ['department_id' => $second->id, 'position_id' => $designer->id, 'duty_ids' => [$month->id]],
+                ['department_id' => $bare->id, 'position_id' => null, 'duty_ids' => []],
+            ],
+        ]))->assertSessionHasNoErrors();
+
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+
+        // The card's dialog opens on what was saved, department by department in
+        // the order the card lists them, which is by name — not in the order the
+        // form happened to send them.
+        $this->assertSame([
+            ['department_id' => $bare->id, 'position_id' => null, 'duty_ids' => []],
+            ['department_id' => $second->id, 'position_id' => $designer->id, 'duty_ids' => [$month->id]],
+            ['department_id' => $first->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+        ], Placements::of($employee));
+    }
+
+    public function test_a_position_of_another_department_is_refused()
+    {
+        [$department] = $this->chain('Отдел разработки');
+        [, $elsewhere] = $this->chain('Отдел дизайна');
+
+        // The form narrows the field by the department above it; the server is
+        // what decides, so a list out of step with itself is not filed.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    public function test_a_duty_of_another_position_is_refused()
+    {
+        [$department, $position] = $this->chain('Отдел разработки');
+        [, , $elsewhere] = $this->chain('Отдел дизайна');
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$elsewhere->id]]],
+        ]))->assertSessionHasErrors('placements.0.duty_ids.0');
+
+        // And duties with no position to pick them from are no duties at all.
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => [$elsewhere->id]]],
+        ]))->assertSessionHasErrors('placements.0.duty_ids');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    public function test_the_same_department_and_position_twice_is_refused()
+    {
+        [$department, $position] = $this->chain();
+
+        // Written out twice it would be filed once, which is not what the second
+        // row says.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'placements' => [
+                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => []],
+                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => []],
+            ],
+        ]))->assertSessionHasErrors('placements.1.department_id');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
 
     public function test_the_password_is_generated_and_mailed_rather_than_typed()
@@ -156,6 +271,40 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame(2, User::count());
     }
 
+    #[DataProvider('addressesFromAnotherAlphabet')]
+    public function test_an_address_with_a_letter_from_another_alphabet_is_refused(string $typed)
+    {
+        $admin = $this->sysadmin();
+
+        // The password the account starts with is mailed to this address, so a
+        // letter that only looks Latin locks the colleague out on day one.
+        $this->actingAs($admin)->post('/employees', $this->payload(['email' => $typed]))
+            ->assertSessionHasErrors('email');
+
+        $this->assertNull(User::firstWhere('email', $typed));
+
+        // The address that really is Latin reads the same and goes through.
+        $this->actingAs($admin)->post('/employees', $this->payload(['email' => 'nilufar@evolet.tj']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertNotNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    /**
+     * Addresses nobody can tell from a Latin one by looking at them: the «а»
+     * and the «е» below are Cyrillic.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function addressesFromAnotherAlphabet(): array
+    {
+        return [
+            'a stray letter in the local part' => ['nilufаr@evolet.tj'],
+            'a stray letter in the domain' => ['nilufar@evolеt.tj'],
+            'the whole address' => ['нилуфар@почта.рф'],
+        ];
+    }
+
     public function test_the_wizard_keeps_the_new_colleague_on_the_list_to_carry_on()
     {
         Notification::fake();
@@ -191,8 +340,20 @@ class EmployeeCreateTest extends TestCase
         $admin = $this->sysadmin();
 
         $this->actingAs($admin)->post('/employees', $this->payload(['roles' => ['ceo']]))->assertSessionHasErrors('roles.0');
-        $this->actingAs($admin)->post('/employees', $this->payload(['positions' => [9999]]))->assertSessionHasErrors('positions.0');
-        $this->actingAs($admin)->post('/employees', $this->payload(['departments' => [9999]]))->assertSessionHasErrors('departments.0');
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => 9999, 'position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.department_id');
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => null, 'position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.department_id');
+
+        [$department] = $this->chain();
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => 9999, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => [9999]]],
+        ]))->assertSessionHasErrors('placements.0.duty_ids.0');
 
         $this->assertSame(1, User::count());
     }
@@ -262,22 +423,30 @@ class EmployeeCreateTest extends TestCase
         // Not one line of anybody's card is theirs to change, and still the whole
         // card of the person they are adding is.
         $creator = $this->withRights('employees.create');
-        $position = Position::query()->firstOrFail();
-        $department = Department::create(['name' => 'Отдел разработки']);
+        [$department, $position, $duty] = $this->chain();
         $language = Language::create(['name' => 'Английский']);
 
         // The first step offers everything it asks for, the one position nobody
-        // is handed excepted.
+        // is handed excepted. The three fields of a placement are narrowed one by
+        // the next in the browser, so the whole of each list travels with it.
         $this->actingAs($creator)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->contains('specialist') && ! collect($roles)->pluck('name')->contains('sysadmin'))
             ->has('options.positions', Position::count())
             ->has('options.departments', 1)
+            ->has('options.duties', PositionDuty::count())
+            ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $position->id) === [
+                'id' => $position->id,
+                'name' => 'Аналитик',
+                'display_name' => 'Аналитик (Отдел разработки)',
+                'department_id' => $department->id,
+            ])
         );
 
         $employee = $this->startWizard($creator, [
             'roles' => ['specialist'],
-            'positions' => [$position->id],
-            'departments' => [$department->id],
+            'placements' => [
+                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$duty->id]],
+            ],
         ]);
 
         $this->assertTrue($employee->hasRole('specialist'));
@@ -285,7 +454,13 @@ class EmployeeCreateTest extends TestCase
 
         // Stepping back to the first step corrects what it filed.
         $this->actingAs($creator)->put("/employees/{$employee->id}/personal", [
-            ...$this->payload(['surname' => 'Азимова-Каримова', 'roles' => ['translator'], 'positions' => [], 'departments' => [$department->id]]),
+            ...$this->payload([
+                'surname' => 'Азимова-Каримова',
+                'roles' => ['translator'],
+                // The department stays and the position under it goes, which
+                // takes the duty that hung off it with it.
+                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+            ]),
         ])->assertSessionHasNoErrors();
         $this->actingAs($creator)->put("/employees/{$employee->id}/employment", ['hired_at' => '2026-04-01'])->assertSessionHasNoErrors();
 
@@ -313,6 +488,8 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame('Азимова-Каримова', $employee->surname);
         $this->assertTrue($employee->hasRole('translator'));
         $this->assertSame([], $employee->positions->pluck('id')->all());
+        $this->assertSame([], $employee->duties->pluck('id')->all());
+        $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
         $this->assertSame('2026-04-01', $employee->details->hired_at->toDateString());
         $this->assertSame('nilufar.a@evolet.tj', $employee->email);
         $this->assertSame('+992901112233', $employee->details->phone);

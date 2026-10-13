@@ -163,6 +163,24 @@ class User extends Authenticatable
     }
 
     /**
+     * The duties this employee carries, picked from the lists of the positions
+     * they hold. Holding a position does not hand somebody its whole list — a
+     * department of six analysts shares the work out — so these are chosen one
+     * by one and there is no such thing as all of them by default.
+     *
+     * Read the way the lists read: position by position, and inside a position
+     * in the order its duties were written.
+     */
+    public function duties(): BelongsToMany
+    {
+        return $this->belongsToMany(PositionDuty::class)
+            ->withTimestamps()
+            ->orderBy('position_duties.position_id')
+            ->orderBy('position_duties.order')
+            ->orderBy('position_duties.id');
+    }
+
+    /**
      * None, one or several departments (public, like positions).
      */
     public function departments(): BelongsToMany

@@ -43,6 +43,25 @@ class Department extends Model
                 throw new InvalidArgumentException("Отдел «{$department->name}» не может быть подразделением самого себя или своего подразделения.");
             }
         });
+
+        // And keep it two deep: a department either heads a group of units or
+        // sits in one, never both. That is how the company is built, and it is
+        // what the rest of the directory counts on — a position belongs to one
+        // department, and a third level would leave it unclear which one a
+        // sub-sub-department's positions really answer to.
+        static::saving(function (Department $department) {
+            if ($department->parent_id === null) {
+                return;
+            }
+
+            if ($department->exists && static::where('parent_id', $department->id)->exists()) {
+                throw new InvalidArgumentException("Отдел «{$department->name}» не может входить в другой отдел: у него есть свои подразделения.");
+            }
+
+            if (static::whereKey($department->parent_id)->whereNotNull('parent_id')->exists()) {
+                throw new InvalidArgumentException("Отдел «{$department->name}» не может входить в подразделение: в структуре отделов только два уровня.");
+            }
+        });
     }
 
     public function parent(): BelongsTo
@@ -53,6 +72,16 @@ class Department extends Model
     public function children(): HasMany
     {
         return $this->hasMany(Department::class, 'parent_id')->orderBy('name');
+    }
+
+    /**
+     * The positions that belong to this department. A name may repeat across
+     * departments, so these are the department's own «Аналитик» and nobody
+     * else's.
+     */
+    public function positions(): HasMany
+    {
+        return $this->hasMany(Position::class)->orderBy('name');
     }
 
     public function users(): BelongsToMany

@@ -10,6 +10,7 @@ import {
     type Sort,
     type ViewState,
 } from '@/components/data-table';
+import { DepartmentName } from '@/components/department-name';
 import { searchBox } from '@/components/directory-manager';
 import InputError from '@/components/input-error';
 import { MobileFab } from '@/components/mobile-fab';
@@ -45,28 +46,21 @@ interface Department {
     id: number;
 }
 
-/**
- * The duties one department adds to the position, which nobody holding it
- * elsewhere has. An analyst in one department does not do an analyst's work in
- * another, and this is how far they differ.
- */
-interface DepartmentDuties {
-    department: Department;
-    duties: string[];
-}
-
 interface Position {
     id: number;
     name: string;
+    /** «Аналитик (ОПР)» — the name with the department after it, where one line is all there is. */
+    display_name: string;
+    /** Where the position sits; null for the few nobody has filed yet. */
+    department: Department | null;
     /** When somebody added it: what the list's own opening order reads, newest first. */
     created_at: string | null;
     /**
-     * What the job is wherever it is held, a short line per duty, in the order
-     * they were entered.
+     * What the job is, a short line per duty, in the order they were entered.
+     * One list: the position belongs to one department, so there is nothing
+     * inside it to tell apart.
      */
     duties: string[];
-    /** The same again per department, for the departments that add work of their own. */
-    department_duties: DepartmentDuties[];
     /** Working employees who hold the position. */
     employees_count: number;
     /**
@@ -79,7 +73,7 @@ interface Position {
 
 interface Props {
     positions: Position[];
-    /** The department tree flattened, parents first, for the editor to choose from. */
+    /** The department tree flattened, parents first, for the filter and the editor. */
     options: { departments: (Department & { depth?: number })[] };
     /**
      * Whether this list is this viewer's to change. Reading the section and
@@ -119,22 +113,30 @@ const DUTIES_SHOWN = 4;
 /** The same for the people in a position: a name takes a line's worth of room. */
 const EMPLOYEES_SHOWN = 3;
 
+/** Stands for "no department at all" where a department's id would stand. */
+const NONE = 'none';
+
 /**
- * Names need more room than the number they replaced, and the duties — which
- * wrap anyway — give it up more cheaply than a job title does. Three columns
- * and the row's menu come to the width a laptop leaves beside the sidebar, so
- * the people are on screen without scrolling the table sideways first.
+ * The department is a column rather than a decoration of the name, because it
+ * has a column's work to do: twenty names on this list are held in more than one
+ * department, and a filter and an order have to hang off something. A name on
+ * its own stopped answering "which «Аналитик» is this?", and only the header
+ * beside it can be sorted, narrowed, hidden or dragged elsewhere like the rest.
+ *
+ * It takes its room from the duties, which wrap anyway, so the people are still
+ * on screen without scrolling the table sideways first.
  */
 const columns: ColumnDef[] = [
-    { key: 'name', label: 'Должность', width: 300 },
-    { key: 'duties', label: 'Обязанности', width: 300 },
-    { key: 'employees_count', label: 'Сотрудники', width: 308 },
+    { key: 'name', label: 'Должность', width: 260 },
+    { key: 'department', label: 'Отдел', width: 180 },
+    { key: 'duties', label: 'Обязанности', width: 280 },
+    { key: 'employees_count', label: 'Сотрудники', width: 288 },
 ];
 
 const columnKeys = columns.map((column) => column.key);
 
-/** Duties are a list, not a scale: only the other two columns can be put in order. */
-const sortable = ['name', 'employees_count'];
+/** Duties are a list, not a scale: the other three columns can be put in order. */
+const sortable = ['name', 'department', 'employees_count'];
 
 const defaultView: ViewState = { hidden: [], pinned: { left: [], right: [] } };
 
@@ -143,47 +145,51 @@ const defaultView: ViewState = { hidden: [], pinned: { left: [], right: [] } };
  * once and the search, the order and the narrowing are all worked out here
  * rather than asked of the server.
  *
- * Only the duties carry a funnel of their own. A name or a colleague is what
- * the one box above reads, but "what is done in this department" is a question
- * about how a row's duties break down, and no word typed into a search box asks
- * it: a department's name in the box finds the positions that mention it, while
- * the filter answers with the work itself.
+ * The one funnel narrows the list to a department — the position's own, now that
+ * a position has one. «Без отдела» stands at the top of it on purpose: the few
+ * positions the data could not place have to be findable, and this is the one
+ * question that finds them all at once.
  */
 function buildColumns(departments: Props['options']['departments']): ColumnDef[] {
     const filter: FilterDef = {
         type: 'multi',
         param: 'department',
-        options: departments.map((department) => ({
-            value: department.id,
-            label: department.name,
-            // The list is named by abbreviations, and a filter is not a link one
-            // can follow to find out what an abbreviation stands for.
-            hint: department.full_name === department.name ? undefined : department.full_name,
-            // Indented by how deep it sits, as the employees list indents the same tree.
-            depth: department.depth,
-        })),
+        options: [
+            { value: NONE, label: 'Без отдела' },
+            ...departments.map((department) => ({
+                value: department.id,
+                label: department.name,
+                // The list is named by abbreviations, and a filter is not a link one
+                // can follow to find out what an abbreviation stands for.
+                hint: department.full_name === department.name ? undefined : department.full_name,
+                // Indented by how deep it sits, as the employees list indents the same tree.
+                depth: department.depth,
+            })),
+        ],
     };
 
-    return columns.map((column) => (column.key === 'duties' ? { ...column, filter } : column));
+    return columns.map((column) => (column.key === 'department' ? { ...column, filter } : column));
 }
 
-/** The departments a row adds work of its own for, among those asked about. */
-function chosenGroups(position: Position, chosen: number[]): DepartmentDuties[] {
-    if (chosen.length === 0) return position.department_duties;
+/** Which departments are being asked about; «Без отдела» is one of the answers. */
+type Chosen = (number | typeof NONE)[];
 
-    return position.department_duties.filter((group) => chosen.includes(group.department.id));
+/** Whether the row is in one of the departments asked about. */
+function inChosen(position: Position, chosen: Chosen): boolean {
+    return chosen.length === 0 || chosen.includes(position.department?.id ?? NONE);
 }
 
 /**
- * What an empty list says when a department, and not the search, emptied it.
- * The department is spelled out rather than abbreviated: a chip in a cell has
- * only room for "ОА", but a sentence standing alone in an empty table has to be
- * read without anything beside it to explain the letters.
+ * What an empty list says when the funnel, and not the search, emptied it.
+ * The department is spelled out rather than abbreviated: a cell has only room
+ * for "ОА", but a sentence standing alone in an empty table has to be read
+ * without anything beside it to explain the letters.
  */
-function emptyMessage(departments: Department[]): string {
-    if (departments.length === 1) return `${departments[0].full_name} — ни одна должность пока не добавляет сюда свои обязанности.`;
+function emptyMessage(chosen: Chosen, departments: Department[]): string {
+    if (chosen.length === 1 && chosen[0] === NONE) return 'Все должности закреплены за отделами.';
+    if (chosen.length === 1 && departments.length === 1) return `${departments[0].full_name} — должностей в этом отделе пока нет.`;
 
-    return 'Ни одна должность пока не добавляет свои обязанности в выбранных отделах.';
+    return 'В выбранных отделах должностей пока нет.';
 }
 
 const collator = new Intl.Collator('ru');
@@ -194,11 +200,17 @@ const addedAt = (position: Position) => (position.created_at ? Date.parse(positi
 function compare(a: Position, b: Position, sort: Sort): number {
     const sign = sort.direction === 'asc' ? 1 : -1;
 
-    // Positions that tie — the same number of people, or added in the same
-    // second as each other — read alphabetically rather than in whatever order
-    // they happened to arrive in.
+    // Positions that tie — the same number of people, the same department, or
+    // added in the same second as each other — read alphabetically rather than
+    // in whatever order they happened to arrive in.
     if (sort.key === 'employees_count') return sign * (a.employees_count - b.employees_count) || collator.compare(a.name, b.name);
     if (sort.key === 'created') return sign * (addedAt(a) - addedAt(b)) || collator.compare(a.name, b.name);
+    // A position nobody has filed reads as no department at all, which sorts
+    // before every name there is: one press on the header and the unplaced ones
+    // are at the top, where somebody can go and file them.
+    if (sort.key === 'department') {
+        return sign * collator.compare(a.department?.name ?? '', b.department?.name ?? '') || collator.compare(a.name, b.name);
+    }
 
     return sign * collator.compare(a.name, b.name);
 }
@@ -264,121 +276,31 @@ function Duties({ duties, limit }: { duties: string[]; limit?: number }) {
 }
 
 /**
- * The whole column: what the job is everywhere, and where it is more than that.
+ * Where the position sits, named the short way and leading to the department's
+ * own page, as an abbreviation does everywhere else on screen.
  *
- * The common duties read as they always have. The departments that add work of
- * their own have to be on screen too — that an analyst's duties differ by
- * department is the reason the column exists — but writing every department's
- * list out under them would turn one cell into a second table. So the row names
- * the departments instead, each with how many duties it adds, and pressing one
- * opens that department's list where it stands. Closed, a row says which
- * departments to ask about; open, it answers for the one that was asked, and
- * nothing is ever taller than what somebody asked for.
- *
- * Narrowed to a department, the cell answers a different question — not what
- * the position involves but what is done in that department — so it is laid out
- * the other way round. The department's own duties come first and already open,
- * since there is nothing left to ask it; the common ones follow under a label
- * naming them as common, because whoever holds the position there does both,
- * and a cell showing only the department's half would read as the whole job.
+ * One that nobody has filed says so in as many words, and in the colour of
+ * something to be dealt with rather than of something missing: a blank cell
+ * reads as a page that failed to load, and these rows are the ones somebody has
+ * to go and finish.
  */
-function DepartmentDutiesCell({ position, chosen }: { position: Position; chosen: number[] }) {
-    const [opened, setOpened] = useState<number[]>([]);
-
-    const groups = chosenGroups(position, chosen);
-
-    if (position.duties.length === 0 && groups.length === 0) return <span className="text-muted-foreground">—</span>;
-
-    const toggle = (id: number) => setOpened(opened.includes(id) ? opened.filter((other) => other !== id) : [...opened, id]);
-
-    // Nothing in common and everything by department: without the line the
-    // departments would read as an afterthought to a list that is missing.
-    const common =
-        position.duties.length > 0 ? (
-            <Duties duties={position.duties} limit={DUTIES_SHOWN} />
-        ) : (
-            <span className="text-muted-foreground">Общих обязанностей нет</span>
-        );
-
-    if (chosen.length > 0) {
+function DepartmentCell({ position }: { position: Position }) {
+    if (position.department === null) {
         return (
-            <div className="flex flex-col items-start gap-2 whitespace-normal">
-                {groups.map(({ department, duties }) => (
-                    <div key={department.id} className="flex flex-col items-start gap-1">
-                        <span className="text-xs font-medium" title={department.full_name === department.name ? undefined : department.full_name}>
-                            Добавляются в отделе: {department.name}
-                        </span>
-                        {/* A group of its own, so numbers of its own. */}
-                        <Duties duties={duties} limit={DUTIES_SHOWN} />
-                    </div>
-                ))}
-
-                <div className="flex w-full flex-col items-start gap-1 border-t pt-2">
-                    {position.duties.length > 0 ? (
-                        <>
-                            <span className="text-muted-foreground text-xs">Общие обязанности должности</span>
-                            <Duties duties={position.duties} limit={DUTIES_SHOWN} />
-                        </>
-                    ) : (
-                        // A heading over "there are none" would say the same thing twice.
-                        <span className="text-muted-foreground text-xs">Общих обязанностей у должности нет</span>
-                    )}
-                </div>
-            </div>
+            <StatusBadge tone="warning" title="Должность не закреплена за отделом">
+                Без отдела
+            </StatusBadge>
         );
     }
 
     return (
-        <div className="flex flex-col items-start gap-2 whitespace-normal">
-            {common}
-
-            {groups.length > 0 && (
-                <div className="flex flex-col items-start gap-1.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-muted-foreground text-xs">Ещё по отделам:</span>
-                        {groups.map(({ department, duties }) => {
-                            const open = opened.includes(department.id);
-
-                            return (
-                                <button
-                                    key={department.id}
-                                    type="button"
-                                    onClick={() => toggle(department.id)}
-                                    aria-expanded={open}
-                                    // The abbreviation is all the chip has room for.
-                                    title={department.full_name === department.name ? undefined : department.full_name}
-                                    aria-label={`${open ? 'Скрыть' : 'Показать'} обязанности отдела ${department.name}: ${duties.length} ${plural(
-                                        duties.length,
-                                        ['обязанность', 'обязанности', 'обязанностей'],
-                                    )}`}
-                                >
-                                    <StatusBadge tone={open ? 'success' : 'neutral'} className={cn(!open && 'text-muted-foreground hover:bg-accent')}>
-                                        {department.name} +{duties.length}
-                                    </StatusBadge>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {groups
-                        .filter(({ department }) => opened.includes(department.id))
-                        .map(({ department, duties }) => (
-                            <div key={department.id} className="flex flex-col items-start gap-1">
-                                <span
-                                    className="text-xs font-medium"
-                                    title={department.full_name === department.name ? undefined : department.full_name}
-                                >
-                                    {department.name}
-                                </span>
-                                {/* A group of its own, so numbers of its own: these are the
-                                    department's duties in the department's order, not lines
-                                    five and six of the common list. */}
-                                <Duties duties={duties} limit={DUTIES_SHOWN} />
-                            </div>
-                        ))}
-                </div>
-            )}
-        </div>
+        <Link
+            href={route('departments.show', position.department.id)}
+            className="hover:underline"
+            title={`Открыть отдел: ${position.department.full_name}`}
+        >
+            <DepartmentName name={position.department.name} full={position.department.full_name} tooltip={false} />
+        </Link>
     );
 }
 
@@ -392,7 +314,7 @@ function EmployeesCount({ position, canSeeEmployees }: { position: Position; can
         <Link
             href={route('employees.index', { position: [position.id] })}
             className="text-brand-strong tabular-nums hover:underline dark:text-[#C5E27A]"
-            title={`Сотрудники на должности: ${position.name}`}
+            title={`Сотрудники на должности: ${position.display_name}`}
         >
             {position.employees_count}
         </Link>
@@ -455,26 +377,7 @@ function holdersLine(position: Position): string {
 function dutiesLine(position: Position): string {
     if (position.duties.length > 0) return position.duties.join(' · ');
 
-    // A position whose work is written per department has duties; it is only that
-    // none of them are common, and a phone has room to say where they are rather
-    // than what they are. The page the row opens says the rest.
-    if (position.department_duties.length > 0) {
-        return `Обязанности по отделам: ${position.department_duties.map((group) => group.department.name).join(', ')}`;
-    }
-
     return 'Обязанности не заполнены';
-}
-
-/**
- * The same line while the list is narrowed to a department: what that
- * department adds, named by it. The row is on screen because of those duties,
- * so they are what the one line under the name is for; the common ones, and
- * everything else, wait on the page the row opens.
- */
-function departmentDutiesLine(position: Position, chosen: number[]): string {
-    return chosenGroups(position, chosen)
-        .map((group) => `${group.department.name}: ${group.duties.join(' · ')}`)
-        .join(' · ');
 }
 
 /** The "⋯" at the end of a row, for whoever keeps the list. */
@@ -486,7 +389,7 @@ function RowActions({ position, onEdit, onDelete }: { position: Position; onEdit
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground size-10 md:size-9 lg:size-8"
-                    aria-label={`Действия: ${position.name}`}
+                    aria-label={`Действия: ${position.display_name}`}
                 >
                     <Ellipsis className="size-5!" />
                 </Button>
@@ -508,63 +411,20 @@ function RowActions({ position, onEdit, onDelete }: { position: Position; onEdit
     );
 }
 
-/** One department and its own duties, as the editor holds them while it is open. */
-interface DutiesBlock {
-    /** Null in a block just added, before anybody has said which department it is for. */
-    department_id: number | null;
-    duties: string[];
-}
-
 interface EditorData {
+    /** The picker writes strings; nothing chosen yet is an empty one. */
+    department_id: string;
     name: string;
     duties: string[];
-    blocks: DutiesBlock[];
-}
-
-/** Stands for the common duties where a block's own index would otherwise stand. */
-const COMMON = -1;
-
-/**
- * The one flat list saving sends, and where each line of it came from.
- *
- * The server takes the common duties and every department's as a single array,
- * each line naming its department or nothing at all, and it reports a line that
- * is too long by its place in that array ("duties.7.name"). So the places are
- * worked out alongside it: that is what reads such an error back as the field
- * somebody typed the line into.
- */
-function flatten(data: EditorData) {
-    const duties: { name: string; department_id: number | null }[] = [];
-    const owners: number[] = [];
-
-    data.duties.forEach((name) => {
-        duties.push({ name, department_id: null });
-        owners.push(COMMON);
-    });
-
-    data.blocks.forEach((block, index) => {
-        // A department nobody has chosen yet, or one nobody wrote anything under,
-        // is nothing to save: the position just has no duties of its own there.
-        if (block.department_id === null) return;
-
-        block.duties.forEach((name) => {
-            duties.push({ name, department_id: block.department_id });
-            owners.push(index);
-        });
-    });
-
-    return { duties, owners };
 }
 
 /**
- * Adding a position or changing one. The duties are entered the way a person's
- * citizenships are — value by value, each its own chip — and what other
- * positions already say is offered as suggestions, so the same duty is written
- * the same way twice.
- *
- * There are two kinds of them, and the dialog has to say so rather than leave it
- * to be guessed: the common ones, which everybody holding the position does, and
- * a department's, which are *added* for whoever holds it there.
+ * Adding a position or changing one, asked in the order the answers depend on
+ * each other: the department first, because the same name means a different job
+ * in each of them and is only taken within one; then the name; then what the job
+ * involves. The duties are entered the way a person's citizenships are — value
+ * by value, each its own chip — and what other positions already say is offered
+ * as suggestions, so the same duty is written the same way twice.
  */
 function EditorDialog({
     position,
@@ -578,15 +438,19 @@ function EditorDialog({
     onClose: () => void;
 }) {
     const form = useForm<EditorData>({
+        department_id: position?.department === null || position === null ? '' : String(position.department.id),
         name: position?.name ?? '',
         duties: position?.duties ?? [],
-        blocks: position?.department_duties.map((group) => ({ department_id: group.department.id, duties: group.duties })) ?? [],
     });
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
 
-        form.transform((data) => ({ name: data.name.trim(), duties: flatten(data).duties }));
+        form.transform((data) => ({
+            department_id: data.department_id === '' ? null : Number(data.department_id),
+            name: data.name.trim(),
+            duties: data.duties.map((name) => ({ name })),
+        }));
         const options = { preserveScroll: true, onSuccess: onClose };
 
         if (position) form.put(route('positions.update', position.id), options);
@@ -594,28 +458,13 @@ function EditorDialog({
     };
 
     const errors = form.errors as Record<string, string | undefined>;
-    const { owners } = flatten(form.data);
 
-    /** What the server said about one line of the list, under the field that wrote it. */
-    const dutyError = (owner: number) =>
-        Object.entries(errors).find(([key, message]) => {
-            const line = /^duties\.(\d+)(\.|$)/.exec(key);
-
-            return line !== null && message !== undefined && owners[Number(line[1])] === owner;
-        })?.[1];
+    // The server reports a line of the list by its place in it
+    // ("duties.7.name"), and the list is one field here, so whichever line it
+    // is about is said under that field.
+    const dutyError = Object.entries(errors).find(([key, message]) => /^duties\.\d+(\.|$)/.test(key) && message !== undefined)?.[1];
 
     const dutyOptions = suggestions.map((duty) => ({ value: duty, label: duty }));
-
-    const taken = new Set(form.data.blocks.map((block) => block.department_id));
-    const setBlock = (index: number, next: DutiesBlock) =>
-        form.setData(
-            'blocks',
-            form.data.blocks.map((block, at) => (at === index ? next : block)),
-        );
-
-    // Nothing left to choose, or a block already standing empty: either way the
-    // next press would only add a block nobody can fill in.
-    const canAddBlock = form.data.blocks.length < departments.length && !form.data.blocks.some((block) => block.department_id === null);
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -625,6 +474,32 @@ function EditorDialog({
                         <DialogTitle>{position ? 'Изменить должность' : 'Новая должность'}</DialogTitle>
                         <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>
                     </DialogHeader>
+
+                    <div className="grid content-start gap-2">
+                        <Label htmlFor="position-department">Отдел</Label>
+                        <SearchableSelect
+                            id="position-department"
+                            className="max-md:h-11"
+                            value={form.data.department_id}
+                            onChange={(value) => form.setData('department_id', value)}
+                            options={departments.map((department) => ({
+                                value: String(department.id),
+                                label: department.name,
+                                hint: department.full_name === department.name ? undefined : department.full_name,
+                                // Indented by how deep it sits, as the employees list indents the same tree.
+                                depth: department.depth,
+                            }))}
+                            placeholder="Выберите отдел"
+                            searchPlaceholder="Отдел"
+                            empty="Отдел не найден"
+                            invalid={errors.department_id !== undefined}
+                        />
+                        <p className="text-muted-foreground text-[13px]">
+                            Должность принадлежит одному отделу. Одно и то же название в разных отделах — это разные должности со своими
+                            обязанностями.
+                        </p>
+                        <InputError message={errors.department_id} />
+                    </div>
 
                     <div className="grid content-start gap-2">
                         <Label htmlFor="position-name">Название</Label>
@@ -639,8 +514,9 @@ function EditorDialog({
                     </div>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="position-duties">Общие обязанности</Label>
+                        <Label htmlFor="position-duties">Обязанности</Label>
                         <MultiSelect
+                            numbered
                             id="position-duties"
                             creatable
                             options={dutyOptions}
@@ -650,118 +526,23 @@ function EditorDialog({
                             searchPlaceholder="Обязанность"
                         />
                         <p className="text-muted-foreground text-[13px]">
-                            Относятся ко всем, кто занимает должность, в любом отделе. По одной обязанности за раз: впишите её и нажмите Enter.
-                            Порядок строк здесь — это порядок на странице должности.
+                            Всё, за что отвечает должность. По одной обязанности за раз: впишите её и нажмите Enter. Порядок строк здесь — это порядок
+                            на странице должности. Кто из сотрудников что из этого ведёт, указывается в карточке сотрудника.
                         </p>
                         {/* The whole list can be complained about too ("duties"), and that
                             complaint is nobody's line in particular. */}
-                        <InputError message={errors.duties ?? dutyError(COMMON)} />
-                    </div>
-
-                    <div className="flex flex-col gap-3 border-t pt-4">
-                        <div className="grid content-start gap-1">
-                            <h3 className="text-sm font-medium">Обязанности по отделам</h3>
-                            <p className="text-muted-foreground text-[13px]">
-                                Добавляются к общим, а не заменяют их: у сотрудника этого отдела будут и общие обязанности, и эти. Один отдел можно
-                                добавить только один раз.
-                            </p>
-                        </div>
-
-                        {form.data.blocks.map((block, index) => {
-                            // Only one block at a time can be without a department, so
-                            // the department it names is a key that stays with it.
-                            const key = block.department_id ?? 'new';
-                            const chosen = departments.find((department) => department.id === block.department_id);
-
-                            return (
-                                <div key={key} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-3">
-                                    <div className="grid content-start gap-2">
-                                        <Label htmlFor={`position-department-${key}`}>Отдел</Label>
-                                        {/* The field and the button that drops it share a line, and
-                                            anything said below the field is said below both: a
-                                            complaint must not shift the button out from under the
-                                            cursor. */}
-                                        <div className="flex items-center gap-2">
-                                            <div className="min-w-0 flex-1">
-                                                <SearchableSelect
-                                                    id={`position-department-${key}`}
-                                                    className="max-md:h-11"
-                                                    value={block.department_id === null ? '' : String(block.department_id)}
-                                                    onChange={(value) => setBlock(index, { ...block, department_id: Number(value) })}
-                                                    options={departments
-                                                        // A department already spoken for is not
-                                                        // offered twice; this block's own stays, or
-                                                        // it could not show what it is set to.
-                                                        .filter((department) => department.id === block.department_id || !taken.has(department.id))
-                                                        .map((department) => ({
-                                                            value: String(department.id),
-                                                            label: department.name,
-                                                            hint: department.full_name === department.name ? undefined : department.full_name,
-                                                            // Indented by how deep it sits, as the employees list indents the same tree.
-                                                            depth: department.depth,
-                                                        }))}
-                                                    placeholder="Выберите отдел"
-                                                    searchPlaceholder="Отдел"
-                                                    empty="Отдел не найден"
-                                                />
-                                            </div>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="text-muted-foreground size-10 shrink-0 lg:size-9"
-                                                aria-label={chosen ? `Убрать отдел: ${chosen.name}` : 'Убрать отдел'}
-                                                onClick={() =>
-                                                    form.setData(
-                                                        'blocks',
-                                                        form.data.blocks.filter((_, at) => at !== index),
-                                                    )
-                                                }
-                                            >
-                                                <Trash2 />
-                                            </Button>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid content-start gap-2">
-                                        <Label htmlFor={`position-department-duties-${key}`}>Что добавляется в этом отделе</Label>
-                                        <MultiSelect
-                                            id={`position-department-duties-${key}`}
-                                            creatable
-                                            options={dutyOptions}
-                                            value={block.duties}
-                                            onChange={(duties) => setBlock(index, { ...block, duties })}
-                                            // Until the department is known there is nothing for a
-                                            // duty here to belong to.
-                                            disabled={block.department_id === null}
-                                            placeholder={block.department_id === null ? 'Сначала выберите отдел' : 'Не заполнены'}
-                                            searchPlaceholder="Обязанность"
-                                        />
-                                        <InputError message={dutyError(index)} />
-                                    </div>
-                                </div>
-                            );
-                        })}
-
-                        <div>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="max-md:h-11"
-                                disabled={!canAddBlock}
-                                onClick={() => form.setData('blocks', [...form.data.blocks, { department_id: null, duties: [] }])}
-                            >
-                                <Plus />
-                                Добавить отдел
-                            </Button>
-                        </div>
+                        <InputError message={errors.duties ?? dutyError} />
                     </div>
 
                     <DialogFooter className="gap-2">
                         <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
                             Отмена
                         </Button>
-                        <Button type="submit" className="max-md:h-11" disabled={form.processing || form.data.name.trim() === ''}>
+                        <Button
+                            type="submit"
+                            className="max-md:h-11"
+                            disabled={form.processing || form.data.department_id === '' || form.data.name.trim() === ''}
+                        >
                             {form.processing && <LoaderCircle className="animate-spin" />}
                             Сохранить
                         </Button>
@@ -779,7 +560,7 @@ function DeleteDialog({ position, onClose }: { position: Position; onClose: () =
         <Dialog open onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle className="break-words">Удалить должность «{position.name}»?</DialogTitle>
+                    <DialogTitle className="break-words">Удалить должность «{position.display_name}»?</DialogTitle>
                     <DialogDescription asChild>
                         <div className="flex flex-col gap-1.5">
                             {position.employees_count > 0 ? (
@@ -826,44 +607,32 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
     const { view, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
-    // The departments the duties are narrowed to, kept here beside the search
-    // and the order, which this page has never asked the server for either.
-    const [chosen, setChosen] = useState<number[]>([]);
+    // The departments the list is narrowed to, kept here beside the search and
+    // the order, which this page has never asked the server for either.
+    const [chosen, setChosen] = useState<Chosen>([]);
     const [editing, setEditing] = useState<Position | 'new' | null>(null);
     const [deleting, setDeleting] = useState<Position | null>(null);
 
     const tableColumns = useMemo(() => buildColumns(options.departments), [options.departments]);
     const filters: FilterValues = { department: chosen };
-    const applyFilter = (changes: FilterValues) => setChosen((changes.department as number[] | undefined) ?? []);
+    const applyFilter = (changes: FilterValues) => setChosen((changes.department as Chosen | undefined) ?? []);
 
-    // A position is searched for by what it is called, by what it does and by
-    // who does it: a duty, or a colleague, is often what somebody remembers of a
-    // job title they cannot name. A duty a single department adds is as much what
-    // the position does as a common one, and the department's own name is on
-    // screen beside it, so both answer the box. Names are read where they are on
-    // screen; where the staff are closed none arrived and there is nothing to
-    // search.
-    //
-    // A department chosen first: what it keeps are the positions that add work
-    // of their own there, which is what the column then shows. The box reads
-    // what is left on screen, so another department's duties no longer answer
-    // it — searching inside a narrowed list would otherwise bring back rows for
-    // words that are nowhere in them.
+    // A position is searched for by what it is called, by where it sits, by what
+    // it does and by who does it: a duty, or a colleague, is often what somebody
+    // remembers of a job title they cannot name, and the department is half of
+    // what a repeated name means. Names are read where they are on screen; where
+    // the staff are closed none arrived and there is nothing to search.
     const rows = useMemo(() => {
         const term = query.trim().toLowerCase();
-        const narrowed = chosen.length > 0 ? positions.filter((position) => chosenGroups(position, chosen).length > 0) : positions;
+        const narrowed = chosen.length > 0 ? positions.filter((position) => inChosen(position, chosen)) : positions;
 
         const found = term
             ? narrowed.filter(
                   (position) =>
                       position.name.toLowerCase().includes(term) ||
+                      position.department?.name.toLowerCase().includes(term) ||
+                      position.department?.full_name.toLowerCase().includes(term) ||
                       position.duties.some((duty) => duty.toLowerCase().includes(term)) ||
-                      chosenGroups(position, chosen).some(
-                          (group) =>
-                              group.duties.some((duty) => duty.toLowerCase().includes(term)) ||
-                              group.department.name.toLowerCase().includes(term) ||
-                              group.department.full_name.toLowerCase().includes(term),
-                      ) ||
                       position.employees.some((person) => person.name.toLowerCase().includes(term)),
               )
             : narrowed;
@@ -871,15 +640,9 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
         return [...found].sort((a, b) => compare(a, b, sort));
     }, [positions, query, sort, chosen]);
 
-    /**
-     * Every duty written anywhere, offered to the next position to be entered —
-     * a department's among them, since the same wording serves both kinds.
-     */
+    /** Every duty written anywhere, offered to the next position to be entered. */
     const suggestions = useMemo(
-        () =>
-            [...new Set(positions.flatMap((position) => [...position.duties, ...position.department_duties.flatMap((group) => group.duties)]))].sort(
-                (a, b) => collator.compare(a, b),
-            ),
+        () => [...new Set(positions.flatMap((position) => position.duties))].sort((a, b) => collator.compare(a, b)),
         [positions],
     );
 
@@ -891,32 +654,36 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                         href={route('positions.show', position.id)}
                         // Brand colour and an underline on hover: the app's mark of a
                         // link. A job title is the whole point of the row, so it wraps
-                        // rather than being cut at the edge of the column.
+                        // rather than being cut at the edge of the column. The hover
+                        // names the department too, for whoever hid that column.
                         className="text-brand-strong font-medium whitespace-normal hover:underline dark:text-[#C5E27A]"
-                        title={`Открыть должность: ${position.name}`}
+                        title={`Открыть должность: ${position.display_name}`}
                     >
                         {position.name}
                     </Link>
                 );
+            case 'department':
+                return <DepartmentCell position={position} />;
             case 'duties':
-                return <DepartmentDutiesCell position={position} chosen={chosen} />;
+                return <Duties duties={position.duties} limit={DUTIES_SHOWN} />;
             default:
                 return <Employees position={position} canSeeEmployees={canSeeEmployees} showsEmployees={showsEmployees} />;
         }
     };
 
     // The box reads whatever is on screen, and the names are not on every screen.
-    const searchHint = showsEmployees ? 'Поиск по названию, обязанностям и сотрудникам' : 'Поиск по названию и обязанностям';
+    const searchHint = showsEmployees ? 'Поиск по названию, отделу, обязанностям и сотрудникам' : 'Поиск по названию, отделу и обязанностям';
 
     /**
      * An empty list has to say which of the two reasons emptied it. A department
-     * that nobody writes duties for is the likelier one, and "nothing found"
-     * would leave somebody retyping a search that was never the trouble, so the
-     * department answers for itself — by name while there is one name to give.
+     * without a single position of its own is the likelier one, and "nothing
+     * found" would leave somebody retyping a search that was never the trouble,
+     * so the department answers for itself — by name while there is one name to
+     * give.
      */
     const chosenDepartments = options.departments.filter((department) => chosen.includes(department.id));
-    const noneHere = chosen.length > 0 && !positions.some((position) => chosenGroups(position, chosen).length > 0);
-    const empty = positions.length === 0 ? 'Должностей пока нет.' : noneHere ? emptyMessage(chosenDepartments) : 'Ничего не найдено.';
+    const noneHere = chosen.length > 0 && !positions.some((position) => inChosen(position, chosen));
+    const empty = positions.length === 0 ? 'Должностей пока нет.' : noneHere ? emptyMessage(chosen, chosenDepartments) : 'Ничего не найдено.';
 
     return (
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
@@ -979,7 +746,7 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                     filters={filters}
                     onFilter={applyFilter}
                     // A tree of departments needs more room than a short list.
-                    wideFilter={(column) => column.key === 'duties'}
+                    wideFilter={(column) => column.key === 'department'}
                     view={view}
                     onPin={pin}
                     reorderable
@@ -997,21 +764,30 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                         <MobileRow
                             href={route('positions.show', position.id)}
                             title={position.name}
-                            // A phone row has one line under the name, and the people
-                            // are what this column is for; the duties — which a phone
+                            // There are no columns on a phone, so the line under the
+                            // name opens with the department: twenty of these names
+                            // repeat, and a row saying «Аналитик» alone could be any of
+                            // them. It goes first because the line is cut at the edge
+                            // of the screen and an abbreviation is short — the people
+                            // after it are what gives way, and the page the row opens
+                            // names them in full. One nobody has filed says so here, in
+                            // the colour of something to be dealt with: that is how the
+                            // unplaced ones are found on a phone at all.
+                            //
+                            // After the department come the people, which is what the
+                            // column beside the name is for; the duties — which a phone
                             // could only ever show the first of — wait on the page the
                             // row opens, where the holders stand with them. With no
                             // holders to name, or none for this viewer to read, that
-                            // line stays the duties, as it has been. Narrowed to a
-                            // department, the duties take the line back whoever holds
-                            // them: the row is here because of them, and the names say
-                            // nothing about the department that was asked for.
+                            // part stays the duties, as it has been.
                             subtitle={
-                                chosen.length > 0
-                                    ? departmentDutiesLine(position, chosen)
-                                    : showsEmployees && position.employees.length > 0
-                                      ? holdersLine(position)
-                                      : dutiesLine(position)
+                                <>
+                                    <span className={cn(!position.department && 'text-[#9A4A06] dark:text-[#F8C471]')}>
+                                        {position.department ? position.department.name : 'без отдела'}
+                                    </span>
+                                    {' · '}
+                                    {showsEmployees && position.employees.length > 0 ? holdersLine(position) : dutiesLine(position)}
+                                </>
                             }
                             // Names take the room, so the number keeps to the edge.
                             meta={

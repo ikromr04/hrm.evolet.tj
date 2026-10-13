@@ -6,13 +6,15 @@ use App\Http\Requests\Concerns\GuardsPrivilegedRoles;
 use App\Http\Requests\Concerns\ListsCitizenships;
 use App\Models\User;
 use App\Support\EmployeeFields;
+use App\Support\Placements;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * The "Основные данные" card of the profile: the name and personal facts, plus
- * the three directories the employee is filed under.
+ * the roles the employee carries and where they stand in the company.
  */
 class UpdatePersonalDataRequest extends FormRequest
 {
@@ -60,11 +62,27 @@ class UpdatePersonalDataRequest extends FormRequest
 
             'roles' => ['present', 'array'],
             'roles.*' => ['string', 'distinct', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
-            'positions' => ['present', 'array'],
-            'positions.*' => ['integer', 'distinct', Rule::exists('positions', 'id')],
-            'departments' => ['present', 'array'],
-            'departments.*' => ['integer', 'distinct', Rule::exists('departments', 'id')],
+
+            ...($this->places() ? Placements::rules() : ['placements' => ['nullable']]),
         ];
+    }
+
+    /**
+     * Whether where this colleague stands is this viewer's to change.
+     *
+     * It is one answer and two lines of the card: a department with a position
+     * of that department in it, and the duties picked out of that position.
+     * Half a placement is nothing to save, so it is carried only when both
+     * lines are theirs; otherwise the form may send whatever it likes and the
+     * controller drops it, as it drops any line that is not.
+     */
+    private function places(): bool
+    {
+        /** @var User $employee */
+        $employee = $this->route('employee');
+        $editable = EmployeeFields::editableBy($this->user(), $employee);
+
+        return in_array('positions', $editable, true) && in_array('departments', $editable, true);
     }
 
     /**
@@ -75,7 +93,12 @@ class UpdatePersonalDataRequest extends FormRequest
         /** @var User $employee */
         $employee = $this->route('employee');
 
-        return [fn ($validator) => $this->guardPrivilegedChanges($validator, $employee)];
+        return [
+            fn (Validator $validator) => $this->guardPrivilegedChanges($validator, $employee),
+            // Nothing to say about a placement this viewer cannot change: it is
+            // dropped from the save rather than argued with.
+            fn (Validator $validator) => $this->places() ? Placements::check($validator) : null,
+        ];
     }
 
     /**
@@ -95,8 +118,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
             'roles' => 'позиция',
-            'positions' => 'должность',
-            'departments' => 'отдел',
+            ...Placements::attributes(),
         ];
     }
 }

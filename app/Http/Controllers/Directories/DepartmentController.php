@@ -86,8 +86,13 @@ class DepartmentController extends Controller
     }
 
     /**
-     * Sub-departments move up to the deleted department's parent, so the
-     * tree below it is kept. Employees simply lose this membership.
+     * A department goes and its sub-departments stay, each on the level above
+     * the one it was on — which, in a structure two levels deep, is the top:
+     * only a top-level department can have units under it, so what it headed
+     * now stands on its own. Deleting is not refused over them, because the
+     * units are real departments with their own people; losing the box they
+     * were grouped in is not a reason to lose them. Employees simply lose this
+     * membership.
      */
     public function destroy(Request $request, Department $department): RedirectResponse
     {
@@ -166,9 +171,31 @@ class DepartmentController extends Controller
                 'nullable',
                 'integer',
                 Rule::exists('departments', 'id'),
+                // The model refuses these placements outright, and an exception
+                // from a save is a 500 the dialog cannot show, so the form says
+                // the same thing where the person can read it.
                 function (string $attribute, mixed $value, Closure $fail) use ($department) {
-                    if ($department && $value !== null && $department->descendantIds(true)->contains((int) $value)) {
+                    if ($value === null) {
+                        return;
+                    }
+
+                    if ($department && $department->descendantIds(true)->contains((int) $value)) {
                         $fail('Отдел нельзя вложить в самого себя или в своё подразделение.');
+
+                        return;
+                    }
+
+                    // Two levels, and which of them a department is on follows
+                    // from what it has: one that heads units of its own stays on
+                    // top, and one that is itself a sub-department takes none.
+                    if ($department && Department::where('parent_id', $department->id)->exists()) {
+                        $fail('Отдел нельзя вложить в другой: у него есть свои подразделения.');
+
+                        return;
+                    }
+
+                    if (Department::whereKey($value)->whereNotNull('parent_id')->exists()) {
+                        $fail('Отдел нельзя вложить в подразделение: в структуре отделов только два уровня.');
                     }
                 },
             ],

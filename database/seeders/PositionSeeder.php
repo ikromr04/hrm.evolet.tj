@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use Illuminate\Database\Seeder;
@@ -28,32 +29,40 @@ class PositionSeeder extends Seeder
         'Руководитель Отдела Цифрового Маркетинга' => 'Отдел цифрового маркетинга',
     ];
 
+    /**
+     * Everybody else: position => the department it belongs to.
+     *
+     * A position belongs to one department, and the demo has to say which, so
+     * each title is filed where its own words put it. The same name may be filed
+     * in two departments — that is allowed now — and this list does not, because
+     * one «Аналитик» is enough to look at.
+     */
     public const OTHERS = [
-        'Научный аналитик',
-        'Менеджер по развитию бизнеса',
-        'Руководитель-менеджер по развитию бизнеса',
-        'КПГ',
-        'Ведущий специалист по регистрации товарных знаков',
-        'Тех аналитик-дизайнер',
-        'Переводчик',
-        'Графический дизайнер',
-        'Научный редактор',
-        'Дизайнер - научный редактор',
-        'Аналитик',
-        'Уборщица',
-        'Ведущий специалист отдела HR',
-        'Специалист по составлению регистрационного досье',
-        'Регистратор Досье',
-        'Веб-мастер',
-        'Копирайтер',
-        'СММ специалист',
-        'Проектный менеджер',
-        'Администратор',
-        'Видеомейкер',
-        'Младший специалист отдела финансов',
-        'Стажер',
-        'Специалист',
-        'Младший специалист',
+        'Научный аналитик' => 'Научный отдел',
+        'Менеджер по развитию бизнеса' => 'Отдел развития продуктового портфеля',
+        'Руководитель-менеджер по развитию бизнеса' => 'Департамент развития',
+        'КПГ' => 'Отдел контрактного производства Тдж',
+        'Ведущий специалист по регистрации товарных знаков' => 'Отдел Товарных Знаков',
+        'Тех аналитик-дизайнер' => 'Отдел Дизайна',
+        'Переводчик' => 'Научный отдел',
+        'Графический дизайнер' => 'Отдел Дизайна',
+        'Научный редактор' => 'Научный отдел',
+        'Дизайнер - научный редактор' => 'Отдел Дизайна',
+        'Аналитик' => 'Отдел аналитики',
+        'Уборщица' => 'Департамент управления человеческими ресурсами',
+        'Ведущий специалист отдела HR' => 'Департамент управления человеческими ресурсами',
+        'Специалист по составлению регистрационного досье' => 'Отдел составления досье',
+        'Регистратор Досье' => 'Отдел регистрации',
+        'Веб-мастер' => 'Отдел Веб-разработок',
+        'Копирайтер' => 'Отдел цифрового маркетинга',
+        'СММ специалист' => 'Отдел цифрового маркетинга',
+        'Проектный менеджер' => 'Отдел управления проектов',
+        'Администратор' => 'Департамент управления человеческими ресурсами',
+        'Видеомейкер' => 'Отдел цифрового маркетинга',
+        'Младший специалист отдела финансов' => 'Отдел платежной реконсиляции',
+        'Стажер' => 'Департамент управления человеческими ресурсами',
+        'Специалист' => 'Отдел мониторинга и оптимизации рабочих процессов',
+        'Младший специалист' => 'Отдел мониторинга и оптимизации рабочих процессов',
     ];
 
     /**
@@ -330,8 +339,18 @@ class PositionSeeder extends Seeder
 
     public function run(): void
     {
-        foreach ([...array_keys(self::HEADS), ...self::OTHERS] as $name) {
-            Position::firstOrCreate(['name' => $name]);
+        // Seeded on their own — which is what most of the tests do — the
+        // positions have no department to be filed in, and that is a state the
+        // directory knows: a position waiting to be placed.
+        $departments = Department::pluck('id', 'name');
+
+        foreach ([...self::HEADS, ...self::OTHERS] as $name => $department) {
+            $position = Position::firstOrNew(['name' => $name]);
+            // Filed where this list says, unless somebody has already moved it:
+            // by the time the demo is re-seeded the structure may have changed,
+            // and what is in the directory is worth more than what is here.
+            $position->department_id ??= $departments[$department] ?? null;
+            $position->save();
         }
 
         $this->writeDuties();

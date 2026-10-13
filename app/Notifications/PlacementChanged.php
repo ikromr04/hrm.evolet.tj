@@ -6,8 +6,8 @@ use App\Models\User;
 
 /**
  * Where somebody stands in the company was changed by somebody else: their
- * positions, their job titles or their departments. One line per save, naming
- * each of the three that moved and what it is now.
+ * access roles, their job titles, their departments or the duties they carry.
+ * One line per save, naming each of the four that moved and what it is now.
  *
  * Being transferred to another company or let go is not this: after either the
  * person no longer signs in, so there is nobody to read the line.
@@ -15,17 +15,27 @@ use App\Models\User;
 class PlacementChanged extends InAppNotification
 {
     /**
-     * The three lines of a card this is about: the relation that holds each,
-     * the attribute it is read by, what it is called after «Вам изменили» and
-     * what an empty one reads as.
+     * The lines of a card this is about: the relation that holds each, the
+     * attribute it is read by, what it is called after «Вам изменили» and what
+     * an empty one reads as.
      *
      * @var array<string, array{string, string, string}>
      */
     private const LINES = [
         'roles' => ['title', 'позицию', 'не указана'],
-        'positions' => ['name', 'должность', 'не указана'],
+        // With the department in brackets, as the directory names a position
+        // everywhere: «Администратор» exists in more than one department now,
+        // and a line naming one of them would not say which.
+        'positions' => ['display_name', 'должность', 'не указана'],
         // The line reads the way the card itself does: by the abbreviation.
         'departments' => ['display_name', 'отдел', 'не указан'],
+        // What they answer for. Holding a position no longer means carrying its
+        // whole list — the duties are picked out of it person by person — so a
+        // duty handed over or taken away is a move nothing else here would
+        // mention, and it is the one of the four a person acts on tomorrow
+        // morning. Being given work without being told is exactly what this
+        // letter exists to stop.
+        'duties' => ['name', 'обязанности', 'не указаны'],
     ];
 
     /**
@@ -34,7 +44,7 @@ class PlacementChanged extends InAppNotification
     public function __construct(private readonly User $employee, private readonly array $now) {}
 
     /**
-     * What the three lines hold right now, asked of the database rather than of
+     * What the lines hold right now, asked of the database rather than of
      * whatever the model has loaded: this is taken before a save and again
      * after it, and the two must not be the same cached list.
      *
@@ -44,7 +54,7 @@ class PlacementChanged extends InAppNotification
      * @param  list<string>  $lines
      * @return array<string, array<int, string>>
      */
-    public static function snapshot(User $employee, array $lines = ['roles', 'positions', 'departments']): array
+    public static function snapshot(User $employee, array $lines = ['roles', 'positions', 'departments', 'duties']): array
     {
         $snapshot = [];
 
@@ -106,7 +116,7 @@ class PlacementChanged extends InAppNotification
         return 'Вам изменили '.implode('; ', $parts);
     }
 
-    /** Their own card, which is where the three lines are shown. */
+    /** Their own card, which is where all four lines are shown. */
     protected function target(): array
     {
         return ['type' => 'employee', 'id' => $this->employee->id];

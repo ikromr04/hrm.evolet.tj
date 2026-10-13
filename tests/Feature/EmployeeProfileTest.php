@@ -36,7 +36,14 @@ class EmployeeProfileTest extends TestCase
     public function test_colleagues_see_only_the_public_profile()
     {
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
-        $employee->positions()->attach(Position::firstWhere('name', 'Переводчик'));
+        // A position reads as «Переводчик (НО)», by the department it belongs
+        // to: the same name may be filed in two of them, and the name alone no
+        // longer says which position it is. Seeded without the structure they
+        // are unplaced, so the card's line is read off one filed here.
+        $translator = Position::firstWhere('name', 'Переводчик');
+        $translator->department_id = Department::create(['name' => 'Научный отдел', 'abbreviation' => 'НО'])->id;
+        $translator->save();
+        $employee->positions()->attach($translator);
 
         $this->actingAs($this->colleague())
             ->get("/employees/{$employee->id}")
@@ -44,7 +51,7 @@ class EmployeeProfileTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('employees/show')
                 ->where('employee.surname', $employee->surname)
-                ->where('employee.positions', ['Переводчик'])
+                ->where('employee.positions', ['Переводчик (НО)'])
                 ->where('employee.private', null)
             );
     }

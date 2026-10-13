@@ -10,26 +10,28 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 /**
  * "Должности": a section of its own, after the equipment.
  *
- * The list reads like the staff and the fleet read — a table of positions, what
- * each answers for and how many people hold it — and a position's own page says
- * who holds it and what each of them is responsible for, this position's duties
- * picked out among the rest.
+ * The list reads like the staff and the fleet read — a table of positions, where
+ * each one sits, what it answers for and how many people hold it — and a
+ * position's own page says who holds it and what each of them is responsible
+ * for.
  *
  * Moving the list out of "Справочники" moved no rights: it is still read with
  * "directories.view.positions" and kept with "directories.edit.positions", and
- * both are still offered by the access table. Naming a department on a duty is
- * part of keeping the position and asks for nothing more.
+ * both are still offered by the access table. Filing a position in a department
+ * is part of keeping the position and asks for nothing more.
  *
- * A duty may name a department, because an analyst in one department does not
- * answer for what an analyst in another answers for: both pages read the duties
- * of a position in groups — the common ones first, then a group per department
- * that adds something of its own.
+ * A position belongs to one department, and its name is only taken within that
+ * one: «Аналитик» exists in several departments, and a name alone no longer says
+ * which job it is. The duties are one flat list per position, and which of that
+ * list a holder carries is kept on the holder — holding a position hands nobody
+ * the whole of it.
  */
 class PositionPagesTest extends TestCase
 {
@@ -59,14 +61,30 @@ class PositionPagesTest extends TestCase
         ));
     }
 
+    /**
+     * One row of the list, picked out by the position it is about.
+     *
+     * The server hands the list over in a settled order and the page reorders it
+     * anyway, and names on it repeat now, so counting to a row would be counting
+     * on an order nothing promises.
+     *
+     * @param  iterable<array<string, mixed>>  $rows
+     * @return array<string, mixed>
+     */
+    private function row(iterable $rows, Position $position): array
+    {
+        return collect($rows)->firstWhere('id', $position->id);
+    }
+
     public function test_the_list_names_every_position_with_its_duties_and_its_people()
     {
-        $lawyer = Position::create(['name' => 'Юрист']);
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+        $lawyer = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
         $lawyer->duties()->createMany([
             ['name' => 'Ведение договоров', 'order' => 0],
             ['name' => 'Арбитраж', 'order' => 1],
         ]);
-        Position::create(['name' => 'Курьер']);
+        Position::create(['name' => 'Курьер', 'department_id' => $department->id]);
 
         // Two who work here and one who does not: the holders and the count are
         // the staff list the number links to, and that list is of people who are
@@ -86,12 +104,12 @@ class PositionPagesTest extends TestCase
                 ->where('positions.0.duties', [])
                 ->where('positions.0.employees_count', 0)
                 ->where('positions.0.employees', [])
-                ->where('positions.0.department_duties', [])
                 ->where('positions.1.name', 'Юрист')
                 ->where('positions.1.duties', ['Ведение договоров', 'Арбитраж'])
-                // Nothing here belongs to one department rather than another,
-                // so there are no groups to head with one.
-                ->where('positions.1.department_duties', [])
+                // One list and nothing to group inside it: the position belongs
+                // to one department, and what the job is elsewhere is another
+                // position's business.
+                ->missing('positions.1.department_duties')
                 ->where('positions.1.employees_count', 2)
                 // The page opens the list newest first and puts it in order
                 // itself, so a row carries the moment it was added; by name is
@@ -109,7 +127,7 @@ class PositionPagesTest extends TestCase
             );
     }
 
-    public function test_the_list_keeps_what_a_position_answers_for_in_one_department_in_a_group_of_its_own()
+    public function test_the_list_carries_the_department_each_position_belongs_to()
     {
         $analytics = Department::create(['name' => 'Департамент аналитики и статистики', 'abbreviation' => 'ДАС']);
         $europe = Department::create([
@@ -122,68 +140,64 @@ class PositionPagesTest extends TestCase
             'abbreviation' => 'ОПР',
             'parent_id' => $analytics->id,
         ]);
-        // A department nobody holds the position in, with a duty of its own.
-        $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
 
-        $analyst = Position::create(['name' => 'Аналитик']);
-        $analyst->duties()->createMany([
-            ['name' => 'Ведёт закреплённые за ним препараты', 'order' => 0],
-            ['name' => 'Готовит отчёт по рынку', 'order' => 1],
-            ['name' => 'Готовит ответы регулятору', 'department_id' => $regulation->id, 'order' => 0],
-            ['name' => 'Проверяет документы на соответствие закону', 'department_id' => $regulation->id, 'order' => 1],
-            ['name' => 'Сверяет цены по Европе', 'department_id' => $europe->id, 'order' => 0],
-            ['name' => 'Рисует обложки отчётов', 'department_id' => $design->id, 'order' => 0],
-        ]);
+        // The same word and different work: two positions, not one position with
+        // two sets of duties.
+        $here = Position::create(['name' => 'Аналитик', 'department_id' => $regulation->id]);
+        $there = Position::create(['name' => 'Аналитик', 'department_id' => $europe->id]);
+        $here->duties()->create(['name' => 'Готовит ответы регулятору', 'order' => 0]);
+        $there->duties()->create(['name' => 'Сверяет цены по Европе', 'order' => 0]);
+        // And one the data could not place: three of them came out of the move
+        // that way, and the list is where somebody has to find them.
+        $loose = Position::create(['name' => 'Курьер']);
 
         $this->actingAs($this->mayLookAround($this->person(Directories::viewPermission('positions'))))
             ->get('/positions')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                // What the position answers for wherever it is held, and only
-                // that.
-                ->where('positions.0.duties', ['Ведёт закреплённые за ним препараты', 'Готовит отчёт по рынку'])
-                // Then a group per department, each named the way every screen
-                // but the directory names a department, in the order of that
-                // name, and each read from the top of its own list. A group is
-                // sent whether or not anybody holds the position there: somebody
-                // wrote it down for that department.
-                ->where('positions.0.department_duties', [
-                    [
-                        'department' => ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна'],
-                        'duties' => ['Рисует обложки отчётов'],
-                    ],
-                    [
-                        'department' => ['id' => $europe->id, 'name' => 'ОМФК Европа', 'full_name' => 'Отдел мониторинга Эволет Европы'],
-                        'duties' => ['Сверяет цены по Европе'],
-                    ],
-                    [
-                        'department' => ['id' => $regulation->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'],
-                        'duties' => ['Готовит ответы регулятору', 'Проверяет документы на соответствие закону'],
-                    ],
-                ])
-                // The editor picks the department from the whole tree, parents
-                // before their own, indented by the depth the staff list's
-                // filter is already indented by.
+                // Named the way every screen but the directory names a
+                // department, with the full name along for the hover.
+                ->where('positions', fn ($rows) => $this->row($rows, $here)['department']
+                    === ['id' => $regulation->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'])
+                ->where('positions', fn ($rows) => $this->row($rows, $there)['department']
+                    === ['id' => $europe->id, 'name' => 'ОМФК Европа', 'full_name' => 'Отдел мониторинга Эволет Европы'])
+                // The plain name is still the plain name — it is what a column of
+                // its own is beside — and the two spelled out together are what
+                // the places with one line to spare read.
+                ->where('positions', fn ($rows) => $this->row($rows, $here)['name'] === 'Аналитик')
+                ->where('positions', fn ($rows) => collect($rows)->pluck('display_name')->sort()->values()->all()
+                    === ['Аналитик (ОМФК Европа)', 'Аналитик (ОПР)', 'Курьер'])
+                // An unplaced position travels as one: nothing where its
+                // department would be, and no brackets after its name.
+                ->where('positions', fn ($rows) => $this->row($rows, $loose)['department'] === null)
+                ->where('positions', fn ($rows) => $this->row($rows, $loose)['display_name'] === 'Курьер')
+                // And each position's duties are its own one list.
+                ->where('positions', fn ($rows) => $this->row($rows, $here)['duties'] === ['Готовит ответы регулятору'])
+                // The picker and the filter read the whole tree, parents before
+                // their own, indented by the depth the staff list's filter is
+                // already indented by.
                 ->where('options.departments', [
                     ['id' => $analytics->id, 'name' => 'ДАС', 'full_name' => 'Департамент аналитики и статистики', 'depth' => 0],
                     ['id' => $europe->id, 'name' => 'ОМФК Европа', 'full_name' => 'Отдел мониторинга Эволет Европы', 'depth' => 1],
                     ['id' => $regulation->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования', 'depth' => 1],
-                    ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'depth' => 0],
                 ])
             );
     }
 
     public function test_a_positions_page_names_its_holders_with_the_duties_of_all_they_hold()
     {
-        $lawyer = Position::create(['name' => 'Юрист']);
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+        $lawyer = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
         $contracts = $lawyer->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
-        $translator = Position::create(['name' => 'Переводчик']);
+        $translator = Position::create(['name' => 'Переводчик', 'department_id' => $department->id]);
         $papers = $translator->duties()->create(['name' => 'Перевод документов', 'order' => 0]);
 
         $both = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
         $both->positions()->attach([$lawyer->id, $translator->id]);
+        $both->duties()->attach([$contracts->id, $papers->id]);
         $only = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
         $only->positions()->attach($lawyer);
+        $only->duties()->attach($contracts);
         $fired = User::factory()->create(['surname' => 'Ашуров', 'name' => 'Далер', 'status' => 'fired']);
         $fired->positions()->attach($lawyer);
 
@@ -193,27 +207,28 @@ class PositionPagesTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('positions/show')
                 ->where('position.name', 'Юрист')
+                ->where('position.display_name', 'Юрист (ОПР)')
+                ->where('position.department', ['id' => $department->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'])
                 ->where('position.duties', [['id' => $contracts->id, 'name' => 'Ведение договоров']])
-                ->where('position.department_duties', [])
+                ->missing('position.department_duties')
                 // Who still works here, by surname, named as every list names
                 // somebody: "Фамилия Имя".
                 ->where('employees', fn ($rows) => collect($rows)->pluck('name')->all() === ['Азимова Нигина', 'Бобоев Фаррух'])
                 // Everything the person is responsible for, whichever position it
-                // comes from — the positions as a card lists them, by name, and
-                // the duties with them; the page picks this position's out by the
-                // position a duty belongs to.
+                // comes from — the positions as a card lists them, by name, each
+                // with the department that tells it from a namesake; the page
+                // picks this position's duties out by the position they belong
+                // to.
                 ->where('employees.0.positions', [
-                    ['id' => $translator->id, 'name' => 'Переводчик'],
-                    ['id' => $lawyer->id, 'name' => 'Юрист'],
+                    ['id' => $translator->id, 'name' => 'Переводчик', 'display_name' => 'Переводчик (ОПР)'],
+                    ['id' => $lawyer->id, 'name' => 'Юрист', 'display_name' => 'Юрист (ОПР)'],
                 ])
-                // A duty that names no department is one the position carries
-                // everywhere, and the page is told as much.
                 ->where('employees.0.duties', [
-                    ['id' => $papers->id, 'name' => 'Перевод документов', 'position_id' => $translator->id, 'department_id' => null],
-                    ['id' => $contracts->id, 'name' => 'Ведение договоров', 'position_id' => $lawyer->id, 'department_id' => null],
+                    ['id' => $contracts->id, 'name' => 'Ведение договоров', 'position_id' => $lawyer->id],
+                    ['id' => $papers->id, 'name' => 'Перевод документов', 'position_id' => $translator->id],
                 ])
                 ->where('employees.1.duties', [
-                    ['id' => $contracts->id, 'name' => 'Ведение договоров', 'position_id' => $lawyer->id, 'department_id' => null],
+                    ['id' => $contracts->id, 'name' => 'Ведение договоров', 'position_id' => $lawyer->id],
                 ])
                 ->where('canOpenCards', true)
                 ->where('showsEmployees', true)
@@ -222,40 +237,30 @@ class PositionPagesTest extends TestCase
             );
     }
 
-    public function test_a_duty_of_a_department_is_carried_by_the_people_of_that_department_alone()
+    public function test_a_holder_carries_the_duties_picked_out_for_them_and_not_the_whole_list()
     {
         $regulation = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
-        $europe = Department::create(['name' => 'Отдел мониторинга Эволет Европы', 'abbreviation' => 'ОМФК Европа']);
-        // Nobody holds the position here, so what was written for this
-        // department is nobody's.
         $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
 
-        $analyst = Position::create(['name' => 'Аналитик']);
+        $analyst = Position::create(['name' => 'Аналитик', 'department_id' => $regulation->id]);
         $market = $analyst->duties()->create(['name' => 'Готовит отчёт по рынку', 'order' => 0]);
-        $answers = $analyst->duties()->create([
-            'name' => 'Готовит ответы регулятору',
-            'department_id' => $regulation->id,
-            'order' => 0,
-        ]);
-        $prices = $analyst->duties()->create([
-            'name' => 'Сверяет цены по Европе',
-            'department_id' => $europe->id,
-            'order' => 0,
-        ]);
-        $covers = $analyst->duties()->create([
-            'name' => 'Рисует обложки отчётов',
-            'department_id' => $design->id,
-            'order' => 0,
-        ]);
+        $answers = $analyst->duties()->create(['name' => 'Готовит ответы регулятору', 'order' => 1]);
+        // Nobody was given this one: the list is what the position answers for
+        // between its people, and a line of it can be waiting for somebody.
+        $prices = $analyst->duties()->create(['name' => 'Сверяет цены по Европе', 'order' => 2]);
 
-        // One in both of the departments the position is written for, one in a
-        // single one, and one in none at all.
+        $designer = Position::create(['name' => 'Дизайнер', 'department_id' => $design->id]);
+        $covers = $designer->duties()->create(['name' => 'Рисует обложки отчётов', 'order' => 0]);
+
+        // One carrying a line of each of two positions, one carrying a single
+        // line here, and one who holds the position and carries nothing of it
+        // yet.
         $both = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
-        $both->positions()->attach($analyst);
-        $both->departments()->attach([$regulation->id, $europe->id]);
+        $both->positions()->attach([$analyst->id, $designer->id]);
+        $both->duties()->attach([$market->id, $covers->id]);
         $one = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
         $one->positions()->attach($analyst);
-        $one->departments()->attach($regulation);
+        $one->duties()->attach($answers);
         $none = User::factory()->create(['surname' => 'Валиев', 'name' => 'Сухроб']);
         $none->positions()->attach($analyst);
 
@@ -263,66 +268,56 @@ class PositionPagesTest extends TestCase
             ->get("/positions/{$analyst->id}")
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('position.duties', [['id' => $market->id, 'name' => 'Готовит отчёт по рынку']])
-                ->where('position.department_duties', [
-                    [
-                        'department' => ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна'],
-                        'duties' => [['id' => $covers->id, 'name' => 'Рисует обложки отчётов']],
-                    ],
-                    [
-                        'department' => ['id' => $europe->id, 'name' => 'ОМФК Европа', 'full_name' => 'Отдел мониторинга Эволет Европы'],
-                        'duties' => [['id' => $prices->id, 'name' => 'Сверяет цены по Европе']],
-                    ],
-                    [
-                        'department' => ['id' => $regulation->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'],
-                        'duties' => [['id' => $answers->id, 'name' => 'Готовит ответы регулятору']],
-                    ],
+                // The whole list the position answers for, as the page heads
+                // itself with.
+                ->where('position.duties', [
+                    ['id' => $market->id, 'name' => 'Готовит отчёт по рынку'],
+                    ['id' => $answers->id, 'name' => 'Готовит ответы регулятору'],
+                    ['id' => $prices->id, 'name' => 'Сверяет цены по Европе'],
                 ])
-                // Somebody in two of the departments the position is written for
-                // carries both sets, on top of what it answers for everywhere.
+                // And beside each holder only what was picked out for them: the
+                // position's own first, then what they carry elsewhere, which
+                // names the position it came from.
                 ->where('employees.0.duties', [
-                    ['id' => $market->id, 'name' => 'Готовит отчёт по рынку', 'position_id' => $analyst->id, 'department_id' => null],
-                    ['id' => $answers->id, 'name' => 'Готовит ответы регулятору', 'position_id' => $analyst->id, 'department_id' => $regulation->id],
-                    ['id' => $prices->id, 'name' => 'Сверяет цены по Европе', 'position_id' => $analyst->id, 'department_id' => $europe->id],
+                    ['id' => $market->id, 'name' => 'Готовит отчёт по рынку', 'position_id' => $analyst->id],
+                    ['id' => $covers->id, 'name' => 'Рисует обложки отчётов', 'position_id' => $designer->id],
                 ])
                 ->where('employees.1.duties', [
-                    ['id' => $market->id, 'name' => 'Готовит отчёт по рынку', 'position_id' => $analyst->id, 'department_id' => null],
-                    ['id' => $answers->id, 'name' => 'Готовит ответы регулятору', 'position_id' => $analyst->id, 'department_id' => $regulation->id],
+                    ['id' => $answers->id, 'name' => 'Готовит ответы регулятору', 'position_id' => $analyst->id],
                 ])
-                // And whoever is in none of them answers for what the position
-                // answers for everywhere, and for nothing else.
-                ->where('employees.2.duties', [
-                    ['id' => $market->id, 'name' => 'Готовит отчёт по рынку', 'position_id' => $analyst->id, 'department_id' => null],
-                ])
-                // What was written for the design department reached nobody: no
-                // holder of the position sits there.
+                // Holding the position hands nobody the list: an empty one here
+                // is the sharing out not having reached this person, which the
+                // page tells from a position with nothing to share by the list
+                // above.
+                ->where('employees.2.duties', [])
+                // And a line nobody was given is nobody's.
                 ->where('employees', fn ($rows) => collect($rows)
                     ->pluck('duties')
                     ->flatten(1)
-                    ->doesntContain('id', $covers->id))
+                    ->doesntContain('id', $prices->id))
             );
     }
 
     public function test_the_holders_cost_the_same_few_queries_however_many_there_are()
     {
         $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
-        $position = Position::create(['name' => 'Юрист']);
-        $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
-        $position->duties()->create(['name' => 'Арбитраж', 'department_id' => $department->id, 'order' => 0]);
+        $position = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
+        $contracts = $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
+        $position->duties()->create(['name' => 'Арбитраж', 'order' => 1]);
         $reader = $this->mayLookAround($this->person(Directories::viewPermission('positions')));
 
-        $count = function (int $holders) use ($position, $department, $reader) {
-            User::factory($holders)->create()->each(function (User $u) use ($position, $department) {
+        $count = function (int $holders) use ($position, $contracts, $reader) {
+            User::factory($holders)->create()->each(function (User $u) use ($position, $contracts) {
                 $u->positions()->attach($position);
-                $u->departments()->attach($department);
+                $u->duties()->attach($contracts);
             });
 
             return $this->reads(fn () => $this->actingAs($reader)->get("/positions/{$position->id}")->assertOk());
         };
 
         // A page of people is read with the relations rather than with a query
-        // apiece, so five more holders — each with their own positions, duties
-        // and departments — cost nothing more than the first one.
+        // apiece, so five more holders — each with their own positions and the
+        // duties they carry — cost nothing more than the first one.
         $this->assertSame($count(1), $count(5));
     }
 
@@ -333,19 +328,19 @@ class PositionPagesTest extends TestCase
         $count = function (int $positions) use ($reader) {
             foreach (range(1, $positions) as $ignored) {
                 $department = Department::create(['name' => 'Отдел '.Department::count()]);
-                $position = Position::create(['name' => 'Должность '.Position::count()]);
+                $position = Position::create(['name' => 'Должность '.Position::count(), 'department_id' => $department->id]);
                 $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
-                $position->duties()->create(['name' => 'Арбитраж', 'department_id' => $department->id, 'order' => 0]);
+                $position->duties()->create(['name' => 'Арбитраж', 'order' => 1]);
                 User::factory(2)->create()->each(fn (User $u) => $u->positions()->attach($position));
             }
 
             return $this->reads(fn () => $this->actingAs($reader)->get('/positions')->assertOk());
         };
 
-        // The positions, their duties, the departments a duty may name and the
-        // people holding them are a query each for the whole table rather than
-        // per row, so a company with seven positions reads the list in as many
-        // queries as one with two.
+        // The positions, their departments, their duties and the people holding
+        // them are a query each for the whole table rather than per row, so a
+        // company with seven positions reads the list in as many queries as one
+        // with two.
         $this->assertSame($count(2), $count(5));
     }
 
@@ -370,11 +365,9 @@ class PositionPagesTest extends TestCase
             ->filter(fn (string $query) => str_contains($query, 'from users')
                 || str_contains($query, 'from positions')
                 || str_contains($query, 'from position_duties')
-                // Which departments somebody is in decides which duties are
-                // theirs, and a group of duties is headed with a department's
-                // name, so those tables are part of what a page costs.
-                || str_contains($query, 'from departments')
-                || str_contains($query, 'from department_user'))
+                // A position names a department and a row is read under that
+                // department's name, so the table is part of what a page costs.
+                || str_contains($query, 'from departments'))
             ->count();
         DB::disableQueryLog();
 
@@ -383,7 +376,9 @@ class PositionPagesTest extends TestCase
 
     public function test_reading_the_list_and_keeping_it_are_the_two_rights_it_has_always_had()
     {
-        $position = Position::create(['name' => 'Юрист']);
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+        $position = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
+        $courier = ['department_id' => $department->id, 'name' => 'Курьер'];
 
         // Nobody signed in reads it at all.
         $this->get('/positions')->assertRedirect('/login');
@@ -393,61 +388,61 @@ class PositionPagesTest extends TestCase
         $nobody = $this->person();
         $this->actingAs($nobody)->get('/positions')->assertForbidden();
         $this->actingAs($nobody)->get("/positions/{$position->id}")->assertForbidden();
-        $this->actingAs($nobody)->post('/positions', ['name' => 'Курьер'])->assertForbidden();
-        $this->actingAs($nobody)->put("/positions/{$position->id}", ['name' => 'Курьер'])->assertForbidden();
+        $this->actingAs($nobody)->post('/positions', $courier)->assertForbidden();
+        $this->actingAs($nobody)->put("/positions/{$position->id}", $courier)->assertForbidden();
         $this->actingAs($nobody)->delete("/positions/{$position->id}")->assertForbidden();
 
         // Reading it is not changing it.
         $reader = $this->person(Directories::viewPermission('positions'));
         $this->actingAs($reader)->get('/positions')->assertOk();
         $this->actingAs($reader)->get("/positions/{$position->id}")->assertOk();
-        $this->actingAs($reader)->post('/positions', ['name' => 'Курьер'])->assertForbidden();
+        $this->actingAs($reader)->post('/positions', $courier)->assertForbidden();
         $this->assertSame(1, Position::count());
 
         // And changing it takes reading it as well: a list one cannot open is not
         // a list one adds to.
         $editor = $this->person(Directories::editPermission('positions'));
         $this->actingAs($editor)->get('/positions')->assertForbidden();
-        $this->actingAs($editor)->post('/positions', ['name' => 'Курьер'])->assertForbidden();
+        $this->actingAs($editor)->post('/positions', $courier)->assertForbidden();
         $this->assertSame(1, Position::count());
 
         $keeper = $this->keeper();
         $this->actingAs($keeper)->get('/positions')->assertInertia(fn (Assert $page) => $page->where('canEdit', true));
-        $this->actingAs($keeper)->post('/positions', ['name' => 'Курьер'])->assertRedirect();
+        $this->actingAs($keeper)->post('/positions', $courier)->assertRedirect();
         $this->assertSame(2, Position::count());
 
-        // Naming a department on a duty is part of keeping the position and asks
-        // for nothing else: whoever keeps the list writes one, and whoever only
-        // reads the list writes nothing at all.
-        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
-        $duty = ['name' => 'Готовит ответы регулятору', 'department_id' => $department->id];
+        // Filing a position in a department is part of keeping the position and
+        // asks for nothing else: whoever keeps the list moves one, and whoever
+        // only reads the list moves nothing at all.
+        $europe = Department::create(['name' => 'Отдел мониторинга Эволет Европы', 'abbreviation' => 'ОМФК Европа']);
+        $moved = ['department_id' => $europe->id, 'name' => 'Юрист', 'duties' => [['name' => 'Ведение договоров']]];
 
-        $this->actingAs($reader)->put("/positions/{$position->id}", ['name' => 'Юрист', 'duties' => [$duty]])
-            ->assertForbidden();
-        $this->actingAs($keeper)->put("/positions/{$position->id}", ['name' => 'Юрист', 'duties' => [$duty]])
-            ->assertRedirect();
-        $this->assertSame($department->id, $position->fresh()->duties->first()->department_id);
+        $this->actingAs($reader)->put("/positions/{$position->id}", $moved)->assertForbidden();
+        $this->actingAs($keeper)->put("/positions/{$position->id}", $moved)->assertRedirect();
+        $this->assertSame($europe->id, $position->fresh()->department_id);
+        $this->assertSame(['Ведение договоров'], $position->fresh()->duties->pluck('name')->all());
     }
 
     public function test_a_position_is_added_renamed_and_deleted_with_its_duties()
     {
         $this->actingAs($this->keeper());
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
 
         // Trimmed, the blank lines dropped, and the order kept as sent.
-        $this->post('/positions', ['name' => 'Юрист', 'duties' => [
-            ['name' => '  Ведение договоров ', 'department_id' => null],
-            ['name' => '', 'department_id' => null],
-            ['name' => 'Арбитраж', 'department_id' => null],
+        $this->post('/positions', ['department_id' => $department->id, 'name' => 'Юрист', 'duties' => [
+            ['name' => '  Ведение договоров '],
+            ['name' => ''],
+            ['name' => 'Арбитраж'],
         ]])->assertSessionHasNoErrors();
         $position = Position::firstWhere('name', 'Юрист');
+        $this->assertSame($department->id, $position->department_id);
         $this->assertSame(['Ведение договоров', 'Арбитраж'], $position->duties->pluck('name')->all());
         $this->assertSame([0, 1], $position->duties->pluck('order')->all());
-        $this->assertSame([null, null], $position->duties->pluck('department_id')->all());
 
         // Saved again, the list replaces what was there rather than adding to it.
-        $this->put("/positions/{$position->id}", ['name' => 'Юрисконсульт', 'duties' => [
-            ['name' => 'Арбитраж', 'department_id' => null],
-            ['name' => 'Претензии', 'department_id' => null],
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Юрисконсульт', 'duties' => [
+            ['name' => 'Арбитраж'],
+            ['name' => 'Претензии'],
         ]])->assertSessionHasNoErrors();
         $this->assertSame('Юрисконсульт', $position->fresh()->name);
         $this->assertSame(['Арбитраж', 'Претензии'], $position->fresh()->duties->pluck('name')->all());
@@ -455,27 +450,25 @@ class PositionPagesTest extends TestCase
 
         // A rename that says nothing about them leaves them be; an empty list is
         // what clears them.
-        $this->put("/positions/{$position->id}", ['name' => 'Юрист'])->assertSessionHasNoErrors();
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Юрист'])->assertSessionHasNoErrors();
         $this->assertCount(2, $position->fresh()->duties);
-        $this->put("/positions/{$position->id}", ['name' => 'Юрист', 'duties' => []])->assertSessionHasNoErrors();
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Юрист', 'duties' => []])
+            ->assertSessionHasNoErrors();
         $this->assertCount(0, $position->fresh()->duties);
 
-        $this->post('/positions', ['name' => 'Юрист'])->assertSessionHasErrors('name');
-        $this->post('/positions', ['name' => ''])->assertSessionHasErrors('name');
-        $this->post('/positions', ['name' => 'Курьер', 'duties' => [['name' => str_repeat('а', 301)]]])
+        $this->post('/positions', ['department_id' => $department->id, 'name' => 'Юрист'])->assertSessionHasErrors('name');
+        $this->post('/positions', ['department_id' => $department->id, 'name' => ''])->assertSessionHasErrors('name');
+        $this->post('/positions', ['department_id' => $department->id, 'name' => 'Курьер', 'duties' => [['name' => str_repeat('а', 301)]]])
             ->assertSessionHasErrors('duties.0.name');
         // Not a duty as the form writes one.
-        $this->post('/positions', ['name' => 'Курьер', 'duties' => ['Ведение договоров']])
+        $this->post('/positions', ['department_id' => $department->id, 'name' => 'Курьер', 'duties' => ['Ведение договоров']])
             ->assertSessionHasErrors('duties.0');
-        // And a department that is not on file is not one a duty may name.
-        $this->post('/positions', ['name' => 'Курьер', 'duties' => [['name' => 'Арбитраж', 'department_id' => 9999]]])
-            ->assertSessionHasErrors('duties.0.department_id');
         $this->assertNull(Position::firstWhere('name', 'Курьер'));
 
         // The duties go with the position, and its holders keep their others.
         $employee = User::factory()->create();
         $employee->positions()->attach($position);
-        $this->put("/positions/{$position->id}", ['name' => 'Юрист', 'duties' => [['name' => 'Арбитраж']]])
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Юрист', 'duties' => [['name' => 'Арбитраж']]])
             ->assertSessionHasNoErrors();
 
         $this->delete("/positions/{$position->id}")->assertSessionHasNoErrors();
@@ -484,58 +477,126 @@ class PositionPagesTest extends TestCase
         $this->assertCount(0, $employee->fresh()->positions);
     }
 
-    public function test_the_duties_of_a_department_are_saved_in_the_one_list_and_numbered_group_by_group()
+    public function test_the_duties_are_saved_as_one_list_numbered_from_the_top()
     {
         $this->actingAs($this->keeper());
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
 
+        // A duty used to name the department it was done in, because one
+        // position served every department that held it. The position names one
+        // itself now, so the column is gone and with it the groups a list was
+        // numbered in.
+        $this->assertFalse(Schema::hasColumn('position_duties', 'department_id'));
+
+        $this->post('/positions', ['department_id' => $department->id, 'name' => 'Аналитик', 'duties' => [
+            ['name' => 'Готовит отчёт по рынку'],
+            ['name' => '  Готовит ответы регулятору '],
+            ['name' => ''],
+            ['name' => 'Проверяет документы на соответствие закону'],
+            ['name' => 'Сверяет цены по Европе'],
+        ]])->assertSessionHasNoErrors();
+
+        // One list, numbered from the top, in the order it was typed: no two
+        // lines share a place in it.
+        $position = Position::firstWhere('name', 'Аналитик');
+        $this->assertSame([
+            ['Готовит отчёт по рынку', 0],
+            ['Готовит ответы регулятору', 1],
+            ['Проверяет документы на соответствие закону', 2],
+            ['Сверяет цены по Европе', 3],
+        ], $position->duties->map(fn ($duty) => [$duty->name, $duty->order])->all());
+
+        // Saved again, the list replaces the lot: a line the form no longer
+        // shows is one somebody deleted, and the rest are renumbered from the
+        // top of what is left.
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Аналитик', 'duties' => [
+            ['name' => 'Сверяет цены по Европе'],
+            ['name' => 'Готовит отчёт по рынку'],
+        ]])->assertSessionHasNoErrors();
+
+        $this->assertSame([
+            ['Сверяет цены по Европе', 0],
+            ['Готовит отчёт по рынку', 1],
+        ], $position->fresh()->duties->map(fn ($duty) => [$duty->name, $duty->order])->all());
+
+        // And an empty list clears it.
+        $this->put("/positions/{$position->id}", ['department_id' => $department->id, 'name' => 'Аналитик', 'duties' => []])
+            ->assertSessionHasNoErrors();
+        $this->assertCount(0, $position->fresh()->duties);
+    }
+
+    public function test_a_name_is_taken_within_a_department_and_free_outside_it()
+    {
+        $this->actingAs($this->keeper());
         $regulation = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
         $europe = Department::create(['name' => 'Отдел мониторинга Эволет Европы', 'abbreviation' => 'ОМФК Европа']);
 
-        // The form hands back one flat list, mixed as somebody typed it, and a
-        // <select> writes its choice as a string — "во всех отделах" as nothing
-        // at all.
-        $this->post('/positions', ['name' => 'Аналитик', 'duties' => [
-            ['name' => 'Готовит отчёт по рынку', 'department_id' => null],
-            ['name' => '  Готовит ответы регулятору ', 'department_id' => (string) $regulation->id],
-            ['name' => 'Ведёт закреплённые за ним препараты', 'department_id' => ''],
-            ['name' => 'Проверяет документы на соответствие закону', 'department_id' => $regulation->id],
-            ['name' => 'Сверяет цены по Европе', 'department_id' => $europe->id],
-        ]])->assertSessionHasNoErrors();
+        $this->post('/positions', ['department_id' => $regulation->id, 'name' => 'Аналитик'])->assertSessionHasNoErrors();
+        // The same name in another department is the whole point of the move:
+        // the two are the same word and different work.
+        $this->post('/positions', ['department_id' => $europe->id, 'name' => 'Аналитик'])->assertSessionHasNoErrors();
+        $this->assertSame(2, Position::where('name', 'Аналитик')->count());
 
-        // Each group is numbered from the top — the common duties are a group
-        // and so is every department — and each is read in the order it was
-        // typed in.
-        $position = Position::firstWhere('name', 'Аналитик');
-        $this->assertSame([
-            ['Готовит отчёт по рынку', null, 0],
-            ['Ведёт закреплённые за ним препараты', null, 1],
-            ['Готовит ответы регулятору', $regulation->id, 0],
-            ['Проверяет документы на соответствие закону', $regulation->id, 1],
-            ['Сверяет цены по Европе', $europe->id, 0],
-        ], $position->duties->map(fn ($duty) => [$duty->name, $duty->department_id, $duty->order])->all());
+        // Twice in one department is one job written down twice, and the form
+        // says so instead of letting the model throw.
+        $this->post('/positions', ['department_id' => $regulation->id, 'name' => 'Аналитик'])->assertSessionHasErrors('name');
+        $this->assertSame(2, Position::where('name', 'Аналитик')->count());
 
-        // Saved again, the list replaces the lot: a group the form no longer
-        // shows is one somebody emptied.
-        $this->put("/positions/{$position->id}", ['name' => 'Аналитик', 'duties' => [
-            ['name' => 'Сверяет цены по Европе', 'department_id' => $europe->id],
-            ['name' => 'Готовит отчёт по рынку', 'department_id' => null],
-        ]])->assertSessionHasNoErrors();
+        // A position nobody has placed is not one the form adds: the column
+        // allows it only for the few the move could not place, and those are
+        // there to be filed rather than added to.
+        $this->post('/positions', ['name' => 'Курьер'])->assertSessionHasErrors('department_id');
+        $this->post('/positions', ['department_id' => 9999, 'name' => 'Курьер'])->assertSessionHasErrors('department_id');
+        $this->assertNull(Position::firstWhere('name', 'Курьер'));
 
-        $this->assertSame([
-            ['Готовит отчёт по рынку', null, 0],
-            ['Сверяет цены по Европе', $europe->id, 0],
-        ], $position->fresh()->duties->map(fn ($duty) => [$duty->name, $duty->department_id, $duty->order])->all());
+        $analyst = Position::where(['name' => 'Аналитик', 'department_id' => $regulation->id])->firstOrFail();
 
-        // And an empty list clears both kinds together.
-        $this->put("/positions/{$position->id}", ['name' => 'Аналитик', 'duties' => []])->assertSessionHasNoErrors();
-        $this->assertCount(0, $position->fresh()->duties);
+        // A position keeps its own name where it stands.
+        $this->put("/positions/{$analyst->id}", ['department_id' => $regulation->id, 'name' => 'Аналитик'])->assertSessionHasNoErrors();
+        // Moved into a department that already has the name, it is refused.
+        $this->put("/positions/{$analyst->id}", ['department_id' => $europe->id, 'name' => 'Аналитик'])->assertSessionHasErrors('name');
+        $this->assertSame($regulation->id, $analyst->fresh()->department_id);
+        // Moved where the name is free, it goes, and reads under the new
+        // department from then on.
+        $this->put("/positions/{$analyst->id}", ['department_id' => $europe->id, 'name' => 'Юрист'])->assertSessionHasNoErrors();
+        $this->assertSame($europe->id, $analyst->fresh()->department_id);
+        $this->assertSame('Юрист (ОМФК Европа)', $analyst->fresh()->display_name);
+    }
+
+    public function test_an_unplaced_position_reads_as_unplaced_on_both_pages()
+    {
+        // Three came out of the move with nowhere to sit, so both pages have to
+        // say so rather than leave a blank where a department goes.
+        $loose = Position::create(['name' => 'Курьер']);
+        $loose->duties()->create(['name' => 'Доставляет документы', 'order' => 0]);
+
+        $reader = $this->mayLookAround($this->person(Directories::viewPermission('positions')));
+
+        $this->actingAs($reader)
+            ->get('/positions')
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('positions.0.department', null)
+                // No empty brackets: the name is all there is to read.
+                ->where('positions.0.display_name', 'Курьер')
+            );
+
+        $this->actingAs($reader)
+            ->get("/positions/{$loose->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('position.department', null)
+                ->where('position.display_name', 'Курьер')
+                ->has('position.duties', 1)
+            );
     }
 
     public function test_the_holders_are_a_line_of_a_card_and_are_shown_as_such()
     {
-        $position = Position::create(['name' => 'Юрист']);
-        $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
-        User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина'])->positions()->attach($position);
+        $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
+        $position = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
+        $contracts = $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]);
+        $holder = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
+        $holder->positions()->attach($position);
+        $holder->duties()->attach($contracts);
 
         // Whoever may not read the staff list reads the position and nobody in it.
         $this->actingAs($this->person(Directories::viewPermission('positions')))

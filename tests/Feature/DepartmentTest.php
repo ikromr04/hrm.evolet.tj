@@ -39,14 +39,36 @@ class DepartmentTest extends TestCase
         $this->assertSame(26, Department::count());
     }
 
-    public function test_any_department_can_be_nested_at_any_depth()
+    public function test_the_structure_is_two_levels_and_no_more()
     {
-        $root = Department::create(['name' => 'Корень']);
-        $middle = Department::create(['name' => 'Середина', 'parent_id' => $root->id]);
-        $leaf = Department::create(['name' => 'Лист', 'parent_id' => $middle->id]);
+        $department = Department::create(['name' => 'Департамент', 'abbreviation' => 'Д']);
+        $unit = Department::create(['name' => 'Отдел', 'parent_id' => $department->id, 'abbreviation' => 'О']);
 
-        $this->assertEqualsCanonicalizing([$middle->id, $leaf->id], $root->descendantIds()->all());
-        $this->assertSame('Корень › Середина › Лист', $leaf->path());
+        $this->assertSame([$unit->id], $department->descendantIds()->all());
+        $this->assertSame('Д › О', $unit->path());
+    }
+
+    public function test_a_department_with_sub_departments_cannot_be_put_under_another()
+    {
+        $department = Department::create(['name' => 'Департамент маркетинга']);
+        Department::create(['name' => 'Отдел Дизайна', 'parent_id' => $department->id]);
+        $other = Department::create(['name' => 'Департамент развития']);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Отдел «Департамент маркетинга» не может входить в другой отдел: у него есть свои подразделения.');
+
+        $department->update(['parent_id' => $other->id]);
+    }
+
+    public function test_a_sub_department_cannot_take_sub_departments_of_its_own()
+    {
+        $department = Department::create(['name' => 'Департамент маркетинга']);
+        $unit = Department::create(['name' => 'Отдел Дизайна', 'parent_id' => $department->id]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Отдел «Группа вёрстки» не может входить в подразделение: в структуре отделов только два уровня.');
+
+        Department::create(['name' => 'Группа вёрстки', 'parent_id' => $unit->id]);
     }
 
     public function test_a_department_with_no_short_name_goes_on_reading_by_its_full_one()

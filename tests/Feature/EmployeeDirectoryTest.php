@@ -37,6 +37,21 @@ class EmployeeDirectoryTest extends TestCase
         return Position::firstWhere('name', $name)->id;
     }
 
+    /**
+     * A position reads as «Переводчик (НО)», by the department it belongs to —
+     * the same name may be filed in two of them, and the name alone no longer
+     * says which position it is. Seeded without the structure the positions are
+     * unplaced, so a test that reads one off a row files it somewhere first.
+     */
+    private function fileUnder(string $position, string $department, string $abbreviation): Position
+    {
+        $filed = Position::firstWhere('name', $position);
+        $filed->department_id = Department::create(['name' => $department, 'abbreviation' => $abbreviation])->id;
+        $filed->save();
+
+        return $filed;
+    }
+
     public function test_guests_are_redirected_to_the_login_page()
     {
         $this->get('/employees')->assertRedirect('/login');
@@ -65,6 +80,7 @@ class EmployeeDirectoryTest extends TestCase
     public function test_colleagues_see_public_fields_only()
     {
         $colleague = User::factory()->has(UserDetail::factory(), 'details')->create(['surname' => 'Азимова']);
+        $this->fileUnder('Переводчик', 'Научный отдел', 'НО');
         $this->giveTitles($colleague, 'Переводчик');
         UserChild::factory()->for($colleague)->create();
         $viewer = $this->colleague(['surname' => 'Шарипов']);
@@ -73,7 +89,8 @@ class EmployeeDirectoryTest extends TestCase
             ->get('/employees?sort=name')
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.surname', 'Азимова')
-                ->where('employees.data.0.positions', ['Переводчик'])
+                // The column names the department behind the position.
+                ->where('employees.data.0.positions', ['Переводчик (НО)'])
                 ->where('employees.data.0.private', null)
                 ->has('employees.data.0', fn (Assert $row) => $row
                     ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'sex', 'email', 'roles', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
@@ -210,13 +227,14 @@ class EmployeeDirectoryTest extends TestCase
     {
         User::factory(3)->create()->each(fn (User $u) => $this->giveTitles($u, 'Стажер'));
         User::factory(2)->create()->each(fn (User $u) => $this->giveTitles($u, 'Аналитик'));
+        $this->fileUnder('Стажер', 'Департамент управления человеческими ресурсами', 'ДУЧР');
         $this->actingAs($this->mayLookAround(User::first()));
         [$intern, $analyst] = [$this->titleId('Стажер'), $this->titleId('Аналитик')];
 
         $this->get('/employees?position[]='.$intern)
             ->assertInertia(fn (Assert $page) => $page
                 ->has('employees.data', 3)
-                ->where('employees.data.0.positions', ['Стажер'])
+                ->where('employees.data.0.positions', ['Стажер (ДУЧР)'])
                 ->where('filters.position', [$intern])
             );
 
@@ -228,11 +246,13 @@ class EmployeeDirectoryTest extends TestCase
     {
         $viewer = $this->colleague(['surname' => 'Бобоев']);
         $both = User::factory()->create(['surname' => 'Азимов']);
+        $this->fileUnder('Переводчик', 'Научный отдел', 'НО');
+        $this->fileUnder('Копирайтер', 'Отдел цифрового маркетинга', 'ОЦМ');
         $this->giveTitles($both, 'Переводчик', 'Копирайтер');
         $this->actingAs($viewer);
 
         $this->get('/employees')
-            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.positions', ['Копирайтер', 'Переводчик']));
+            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.positions', ['Копирайтер (ОЦМ)', 'Переводчик (НО)']));
 
         foreach (['Переводчик', 'Копирайтер'] as $title) {
             $this->get('/employees?position[]='.$this->titleId($title))
@@ -377,6 +397,8 @@ class EmployeeDirectoryTest extends TestCase
     public function test_directory_sorts_by_public_columns()
     {
         $viewer = $this->colleague(['surname' => 'Бобоев']);
+        $this->fileUnder('Переводчик', 'Научный отдел', 'НО');
+        $this->fileUnder('Аналитик', 'Отдел аналитики', 'ОА');
         $this->giveTitles(User::factory()->create(['surname' => 'Азимов']), 'Переводчик');
         $this->giveTitles(User::factory()->create(['surname' => 'Юсупов']), 'Аналитик');
         $this->actingAs($viewer);
@@ -391,11 +413,12 @@ class EmployeeDirectoryTest extends TestCase
         $this->get('/employees?sort=name&direction=desc')
             ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.surname', 'Юсупов'));
 
-        // Аналитик < Переводчик; the viewer without a position sorts first.
+        // Аналитик < Переводчик — sorted by the plain name, shown with the
+        // department; the viewer without a position sorts first.
         $this->get('/employees?sort=position')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('employees.data.1.positions', ['Аналитик'])
-                ->where('employees.data.2.positions', ['Переводчик'])
+                ->where('employees.data.1.positions', ['Аналитик (ОА)'])
+                ->where('employees.data.2.positions', ['Переводчик (НО)'])
             );
     }
 

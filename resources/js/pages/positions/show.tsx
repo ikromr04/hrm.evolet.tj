@@ -1,4 +1,4 @@
-import { DepartmentName } from '@/components/department-name';
+import { departmentTitle } from '@/components/department-name';
 import { type EmploymentStatus } from '@/components/employee-actions';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -9,12 +9,14 @@ import { peopleLabel, type Sex } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
-import { ClipboardList, Users } from 'lucide-react';
+import { Building2, ClipboardList, Users } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 interface PositionRef {
     id: number;
     name: string;
+    /** «Аналитик (ОПР)»: what tells one of two positions sharing a name from the other. */
+    display_name: string;
 }
 
 /** A department as every screen but the directory names it: short, full within reach. */
@@ -30,17 +32,15 @@ interface DutyRef {
 }
 
 interface Duty extends DutyRef {
-    /** Which position asks for the duty — how this page tells its own from the rest. */
+    /** Which position the duty comes from — how this page tells its own from the rest. */
     position_id: number;
-    /** Null where the position asks for it everywhere; otherwise the department it came with. */
-    department_id: number | null;
 }
 
 interface Position extends PositionRef {
-    /** What the position answers for wherever it is held. */
+    /** Where the position sits; null for the few nobody has filed yet. */
+    department: DepartmentRef | null;
+    /** What the position answers for, one list in the order it was written. */
     duties: DutyRef[];
-    /** The departments that ask something of this position on top of that. */
-    department_duties: { department: DepartmentRef; duties: DutyRef[] }[];
 }
 
 interface Holder {
@@ -53,7 +53,7 @@ interface Holder {
     sex: Sex | null;
     /** Every position the person holds, this one among them. */
     positions: PositionRef[];
-    /** The duties of all those positions together. */
+    /** The duties picked out for them, from the lists of all those positions. */
     duties: Duty[];
 }
 
@@ -63,8 +63,24 @@ interface Holder {
  */
 const chip = 'h-auto min-h-[22px] max-w-full py-0.5 whitespace-normal';
 
-/** A label over a list of duties, there only once there is more than one list. */
-const listLabel = 'text-[13px] font-medium';
+/**
+ * Duties numbered down a column, in their own order: the order somebody entered
+ * them, which is the order the server sends them in. A duty is a sentence more
+ * often than a word, so each takes a line and wraps within it; the number keeps
+ * its column.
+ */
+function DutyList({ duties }: { duties: DutyRef[] }) {
+    return (
+        <ol className="flex flex-col gap-1 text-sm">
+            {duties.map((duty, index) => (
+                <li key={duty.id} className="flex gap-2">
+                    <span className="text-muted-foreground shrink-0 tabular-nums">{index + 1}.</span>
+                    <span className="min-w-0 break-words">{duty.name}</span>
+                </li>
+            ))}
+        </ol>
+    );
+}
 
 /**
  * Somebody who has left still held the position, so the list says so, in the
@@ -93,46 +109,43 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 }
 
 /**
- * Duties numbered down a column, in their own order: the order somebody entered
- * them, which is the order the server sends them in. A duty is a sentence more
- * often than a word, so each takes a line and wraps within it; the number keeps
- * its column. A department's list counts from one again, because it is a list of
- * its own rather than the tail of the one above it.
+ * Where the position sits, under its name, with both names at once: this page is
+ * one of the two with room to say what an abbreviation stands for, and it leads
+ * to the department's own page as every abbreviation on screen does.
+ *
+ * One that nobody has filed says so outright, in the colour of something to be
+ * dealt with: the name alone is what the rest of the app has to tell two
+ * positions apart by, so an unplaced one is unfinished rather than ordinary, and
+ * whoever may keep the list is told where it is finished.
  */
-function DutyList({ duties }: { duties: DutyRef[] }) {
+function Placement({ department, canEdit }: { department: DepartmentRef | null; canEdit: boolean }) {
+    if (department === null) {
+        return (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Building2 className="text-muted-foreground size-4" aria-hidden="true" />
+                <StatusBadge tone="warning">Без отдела</StatusBadge>
+                <span className="text-muted-foreground">
+                    Должность не закреплена за отделом
+                    {canEdit && <>. Укажите отдел в списке должностей</>}.
+                </span>
+            </div>
+        );
+    }
+
     return (
-        <ol className="flex flex-col gap-1 text-sm">
-            {duties.map((duty, index) => (
-                <li key={duty.id} className="flex gap-2">
-                    <span className="text-muted-foreground shrink-0 tabular-nums">{index + 1}.</span>
-                    <span className="min-w-0 break-words">{duty.name}</span>
-                </li>
-            ))}
-        </ol>
+        <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
+            <Building2 className="size-4" aria-hidden="true" />
+            <Link href={route('departments.show', department.id)} className="hover:text-foreground hover:underline">
+                {departmentTitle(department.full_name, department.name)}
+            </Link>
+        </p>
     );
 }
 
-/**
- * One duty a person carries.
- *
- * A chip that came with a department names it, because two people on the same
- * position no longer carry the same duties, and without the abbreviation the two
- * rows would read as if the page had quietly left something out of one of them.
- * The abbreviation goes unemphasised in front of the duty and leaves the full
- * name to the chip's hover, which also names the position a duty from elsewhere
- * belongs to.
- */
-function DutyChip({ duty, tone, position, department }: { duty: Duty; tone: StatusTone; position?: string; department?: DepartmentRef }) {
-    const hover = [position, department?.full_name].filter(Boolean).join(' · ');
-
+/** One duty a person carries, and — for one carried elsewhere — where from. */
+function DutyChip({ duty, tone, position }: { duty: Duty; tone: StatusTone; position?: string }) {
     return (
-        <StatusBadge tone={tone} className={cn(chip, tone === 'success' && 'font-semibold')} title={hover || undefined}>
-            {department && (
-                <span className="mr-1 font-normal whitespace-nowrap opacity-80">
-                    <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
-                    <span aria-hidden="true"> ·</span>
-                </span>
-            )}
+        <StatusBadge tone={tone} className={cn(chip, tone === 'success' && 'font-semibold')} title={position}>
             <span className="min-w-0 break-words">{duty.name}</span>
         </StatusBadge>
     );
@@ -146,42 +159,36 @@ function DutyChip({ duty, tone, position, department }: { duty: Duty; tone: Stat
  * among everything the person carries, the green is what says "this is what the
  * page is about". The others are responsibilities they carry elsewhere; they stay
  * plain and name, on hover, the position they come from.
+ *
+ * Carrying nothing of this position is not the same as the position asking for
+ * nothing, and the two read differently: holding a position hands nobody its
+ * whole list — six analysts share one list out between them — so an empty green
+ * row means the sharing out has not reached this person yet, while a position
+ * with no list at all has nothing to share.
  */
-function Duties({ person, positionId, departments }: { person: Holder; positionId: number; departments: Map<number, DepartmentRef> }) {
-    if (person.duties.length === 0) {
-        return <p className="text-muted-foreground text-[13px]">Обязанности не указаны</p>;
-    }
-
-    const here = person.duties.filter((duty) => duty.position_id === positionId);
-    const elsewhere = person.duties.filter((duty) => duty.position_id !== positionId);
-    const positionNames = new Map(person.positions.map((position) => [position.id, position.name]));
-    // Only a department the page was told the name of can be named on a chip,
-    // and every duty of this position is covered, since a department that asks
-    // anything of it is one the block above lists. A duty from another position
-    // can come from a department the page never heard of; that chip says nothing
-    // extra rather than an id.
-    const departmentOf = (duty: Duty) => (duty.department_id === null ? undefined : departments.get(duty.department_id));
+function Duties({ person, position }: { person: Holder; position: Position }) {
+    const here = person.duties.filter((duty) => duty.position_id === position.id);
+    const elsewhere = person.duties.filter((duty) => duty.position_id !== position.id);
+    const positionNames = new Map(person.positions.map((held) => [held.id, held.display_name]));
 
     return (
         <div className="flex flex-col gap-1.5">
-            {here.length > 0 && (
+            {here.length > 0 ? (
                 <div role="group" aria-label="Обязанности этой должности" className="flex flex-wrap gap-1">
                     {here.map((duty) => (
-                        <DutyChip key={duty.id} duty={duty} tone="success" department={departmentOf(duty)} />
+                        <DutyChip key={duty.id} duty={duty} tone="success" />
                     ))}
                 </div>
+            ) : (
+                <p className="text-muted-foreground text-[13px]">
+                    {position.duties.length > 0 ? 'Обязанности должности пока не закреплены' : 'У должности не указаны обязанности'}
+                </p>
             )}
             {elsewhere.length > 0 && (
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                     <span className="text-muted-foreground text-[13px]">Другие обязанности:</span>
                     {elsewhere.map((duty) => (
-                        <DutyChip
-                            key={duty.id}
-                            duty={duty}
-                            tone="neutral"
-                            position={positionNames.get(duty.position_id)}
-                            department={departmentOf(duty)}
-                        />
+                        <DutyChip key={duty.id} duty={duty} tone="neutral" position={positionNames.get(duty.position_id)} />
                     ))}
                 </div>
             )}
@@ -192,18 +199,16 @@ function Duties({ person, positionId, departments }: { person: Holder; positionI
 /** One holder: the face, the name, and the duties they carry. */
 function HolderRow({
     person,
-    positionId,
-    departments,
+    position,
     canOpenCards,
     showsPositions,
 }: {
     person: Holder;
-    positionId: number;
-    departments: Map<number, DepartmentRef>;
+    position: Position;
     canOpenCards: boolean;
     showsPositions: boolean;
 }) {
-    const others = person.positions.filter((position) => position.id !== positionId);
+    const others = person.positions.filter((held) => held.id !== position.id);
     const left = leftLabel(person.status, person.sex);
 
     return (
@@ -235,20 +240,20 @@ function HolderRow({
                         {others.length > 0 && (
                             <p className="text-muted-foreground flex flex-wrap items-baseline gap-x-1 text-[13px]">
                                 <span>Другие должности:</span>
-                                {others.map((position, index) => (
-                                    <span key={position.id}>
+                                {others.map((held, index) => (
+                                    <span key={held.id}>
                                         <Link
-                                            href={route('positions.show', position.id)}
+                                            href={route('positions.show', held.id)}
                                             className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                         >
-                                            {position.name}
+                                            {held.display_name}
                                         </Link>
                                         {index < others.length - 1 && ','}
                                     </span>
                                 ))}
                             </p>
                         )}
-                        <Duties person={person} positionId={positionId} departments={departments} />
+                        <Duties person={person} position={position} />
                     </>
                 )}
             </div>
@@ -259,13 +264,14 @@ function HolderRow({
 export default function PositionPage({
     position,
     employees,
+    canEdit,
     canOpenCards,
     showsEmployees,
     showsPositions,
 }: {
     position: Position;
     employees: Holder[];
-    /** Renaming the position and changing its duties stays on the directory page. */
+    /** Renaming the position, re-filing it and changing its duties stays on the directory page. */
     canEdit: boolean;
     canOpenCards: boolean;
     /**
@@ -278,19 +284,14 @@ export default function PositionPage({
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Должности', href: route('positions.index') },
-        { title: position.name, href: route('positions.show', position.id) },
+        // The crumb is the one line that has to stand on its own among the
+        // crumbs of every other position, so it carries the department.
+        { title: position.display_name, href: route('positions.show', position.id) },
     ];
-
-    const byDepartment = position.department_duties;
-    // A chip below names a department by its abbreviation, and the names of the
-    // departments that ask anything of this position all arrived with the block
-    // above.
-    const departments = new Map(byDepartment.map(({ department }) => [department.id, department]));
-    const hasDuties = position.duties.length > 0 || byDepartment.length > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title={position.name} />
+            <Head title={position.display_name} />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
                 <Card className="flex flex-col gap-4 rounded-xl p-4 max-md:rounded-2xl md:p-6">
@@ -298,6 +299,7 @@ export default function PositionPage({
                         {/* A phone's top bar already names the position, so the heading is
                             there for screen readers alone. */}
                         <h1 className="text-xl font-semibold tracking-tight break-words max-md:sr-only">{position.name}</h1>
+                        <Placement department={position.department} canEdit={canEdit} />
                         {/* Counting nobody would be a small lie where the list is closed. */}
                         {showsEmployees && (
                             <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
@@ -312,36 +314,13 @@ export default function PositionPage({
                             <ClipboardList className="size-4" />
                             Обязанности
                         </h2>
-                        {!hasDuties ? (
-                            <p className="text-muted-foreground text-sm">Обязанности не указаны</p>
+                        {/* One list, because the position belongs to one department: what
+                            an analyst does here is written here, and what an analyst
+                            does elsewhere belongs to that department's own position. */}
+                        {position.duties.length > 0 ? (
+                            <DutyList duties={position.duties} />
                         ) : (
-                            <div className="flex flex-col gap-3">
-                                <div className="flex flex-col gap-1">
-                                    {/* The position asked the same of everybody until a
-                                        department asked for more, and only then is there
-                                        a second list for a label to tell this one from. */}
-                                    {byDepartment.length > 0 && <h3 className={listLabel}>Общие</h3>}
-                                    {position.duties.length > 0 ? (
-                                        <DutyList duties={position.duties} />
-                                    ) : (
-                                        <p className="text-muted-foreground text-sm">Не указаны</p>
-                                    )}
-                                </div>
-                                {/* What a department asks comes on top of the common
-                                    duties rather than instead of them, which the heading
-                                    has to say outright: on its own, a list under a
-                                    department's name reads as the whole of the job
-                                    there. */}
-                                {byDepartment.map(({ department, duties }) => (
-                                    <div key={department.id} className="flex flex-col gap-1">
-                                        <h3 className={listLabel}>
-                                            <DepartmentName name={department.name} full={department.full_name} />
-                                            <span className="text-muted-foreground font-normal"> — дополнительно к общим</span>
-                                        </h3>
-                                        <DutyList duties={duties} />
-                                    </div>
-                                ))}
-                            </div>
+                            <p className="text-muted-foreground text-sm">Обязанности не указаны</p>
                         )}
                     </div>
                 </Card>
@@ -357,8 +336,7 @@ export default function PositionPage({
                                 <HolderRow
                                     key={person.id}
                                     person={person}
-                                    positionId={position.id}
-                                    departments={departments}
+                                    position={position}
                                     canOpenCards={canOpenCards}
                                     showsPositions={showsPositions}
                                 />

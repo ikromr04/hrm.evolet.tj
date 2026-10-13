@@ -10,7 +10,6 @@ use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
 use App\Models\EquipmentType;
 use App\Models\Language;
-use App\Models\Position;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
@@ -24,6 +23,7 @@ use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
 use App\Support\EquipmentName;
+use App\Support\Placements;
 use App\Support\Recipients;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -155,7 +155,10 @@ class EmployeeController extends Controller
         $perPage = (int) ($input['per_page'] ?? self::PER_PAGE_OPTIONS[0]);
         $status = $input['status'] ?? 'active';
 
-        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name', 'departments:id,name,abbreviation,parent_id', 'languages:id,name'])
+        // A position is named by the department behind it, so the department
+        // comes along: read off the position row by row it would be a query per
+        // person on a page of a hundred.
+        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages:id,name'])
             ->where('status', $status);
         $this->applySearch($query, $filters['q'], $visible);
         $this->applyFilters($query, $filters);
@@ -210,7 +213,10 @@ class EmployeeController extends Controller
             'sortable' => $sortable,
             'options' => [
                 'roles' => Access::offeredRoles()->get(['name', 'title']),
-                'positions' => Position::query()->orderBy('name')->get(['id', 'name']),
+                // With the department each belongs to: the same name may now be
+                // filed in two of them, and a filter offering «Аналитик» twice
+                // over would be asking somebody to guess which is which.
+                'positions' => Placements::options()['positions'],
                 'departments' => $this->departmentOptions(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
@@ -251,8 +257,12 @@ class EmployeeController extends Controller
             'canIssue' => $canIssue,
             'options' => [
                 'roles' => Access::offeredRoles()->get(['name', 'title']),
-                'positions' => Position::query()->orderBy('name')->get(['id', 'name']),
+                // The departments, and behind them every position with the
+                // department it belongs to and every duty with its position: the
+                // step asks for a department first and narrows the two fields
+                // under it as the answers come in, without a round trip each time.
                 'departments' => $this->departmentOptions(),
+                ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $this->distinctDetail('nationality'),
                 'citizenships' => $this->citizenships(),
@@ -290,8 +300,10 @@ class EmployeeController extends Controller
             $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
 
             $employee->syncRoles($data['roles']);
-            $employee->positions()->sync($data['positions']);
-            $employee->departments()->sync($data['departments']);
+            // Where they stand: the departments, the positions held in each and
+            // the duties picked out of those, all from the one list the form
+            // builds a chain at a time.
+            Placements::save($employee, $data['placements']);
 
             return $employee;
         });
@@ -358,7 +370,9 @@ class EmployeeController extends Controller
      */
     private function card(Request $request, User $employee, bool $neighbours): Response
     {
-        $employee->load(['roles:id,name,title', 'positions:id,name', 'departments:id,name,abbreviation,parent_id', 'languages:id,name']);
+        // The department of each position travels with it: that is what tells
+        // one «Аналитик» from another on the line that prints them.
+        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages:id,name']);
         // Which fields of this card the viewer reads. Their own card is whole;
         // anybody else's is what their position and their exceptions allow.
         $visible = EmployeeFields::visibleTo($request->user(), $employee);
@@ -465,8 +479,10 @@ class EmployeeController extends Controller
                 'roles' => Access::offeredRoles()
                     ->orWhereIn('name', $employee->roles->pluck('name'))
                     ->get(['name', 'title']),
-                'positions' => Position::query()->orderBy('name')->get(['id', 'name']),
+                // As the intake wizard is given them: a department, then the
+                // positions of that department, then the duties of that position.
                 'departments' => $this->departmentOptions(),
+                ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 // Countries already on file, as suggestions for a previous job.
                 'countries' => UserWorkExperience::query()->distinct()->orderBy('country')->pluck('country'),
@@ -474,8 +490,10 @@ class EmployeeController extends Controller
             // The dialog edits these by id or name, not by the labels shown above.
             'assigned' => $canEdit ? [
                 'roles' => $employee->roles->pluck('name'),
-                'positions' => $employee->positions->pluck('id'),
-                'departments' => $employee->departments->pluck('id'),
+                // Where they stand, chain by chain, as the dialog shows it: a
+                // department, the position held there and the duties carried in
+                // it. A department with no position is one of these too.
+                'placements' => Placements::of($employee),
             ] : null,
             // What this colleague may do, and why. Only a system administrator
             // is shown it, because only they can change any of it.
@@ -843,11 +861,16 @@ class EmployeeController extends Controller
     /**
      * An employee can hold several positions; names in alphabetical order.
      *
+     * Each reads as «Администратор (ОАП)», its name with the department it
+     * belongs to: the same name may now be filed in two departments, and two
+     * «Аналитик» on a card or in a column would be the same word for different
+     * work with nothing to tell them apart.
+     *
      * @return list<string>
      */
     private function positionNames(User $user): array
     {
-        return $user->positions->pluck('name')->sort()->values()->all();
+        return $user->positions->pluck('display_name')->sort()->values()->all();
     }
 
     /**

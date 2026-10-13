@@ -205,18 +205,6 @@ function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
     return walk(null, 0, new Set());
 }
 
-function descendantIds(items: DirectoryItem[], id: number): Set<number> {
-    const result = new Set([id]);
-    let level = [id];
-
-    while (level.length) {
-        level = items.filter((item) => item.parent_id != null && level.includes(item.parent_id) && !result.has(item.id)).map((item) => item.id);
-        level.forEach((child) => result.add(child));
-    }
-
-    return result;
-}
-
 export function DirectoryManager({
     items,
     canEdit,
@@ -705,9 +693,16 @@ function EditorDialog({
     };
     const members = useMemo(() => people?.filter((person) => !form.data.head_ids.includes(person.id)) ?? [], [people, form.data.head_ids]);
 
-    // A department cannot move under itself or its own sub-departments.
-    const blocked = useMemo(() => (item && tree ? descendantIds(items, item.id) : new Set<number>()), [item, items, tree]);
-    const parents = useMemo(() => orderRows(items, true).filter((row) => !blocked.has(row.id)), [items, blocked]);
+    /**
+     * The structure is two levels deep, so the only placement worth offering is
+     * under a department that is itself on the top level — never under a
+     * sub-department, and never under itself.
+     */
+    const hasChildren = Boolean(item) && tree && items.some((other) => other.parent_id === item?.id);
+    const parents = useMemo(
+        () => (hasChildren ? [] : items.filter((row) => (row.parent_id ?? null) === null && row.id !== item?.id)),
+        [items, item, hasChildren],
+    );
 
     /**
      * The right to the employee section, put in or left out by the card lines
@@ -1003,6 +998,7 @@ function EditorDialog({
                             <Select
                                 value={form.data.parent_id === null ? 'root' : String(form.data.parent_id)}
                                 onValueChange={(value) => form.setData('parent_id', value === 'root' ? null : Number(value))}
+                                disabled={hasChildren}
                             >
                                 <SelectTrigger id="directory-parent" className="max-md:h-11">
                                     <SelectValue />
@@ -1011,12 +1007,17 @@ function EditorDialog({
                                     <SelectItem value="root">— Верхний уровень —</SelectItem>
                                     {parents.map((row) => (
                                         <SelectItem key={row.id} value={String(row.id)}>
-                                            <span style={{ paddingLeft: row.depth * 16 }}>{rowLabel(row)}</span>
+                                            {rowLabel(row)}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <InputError message={errors.parent_id} />
+                            {hasChildren && (
+                                <p className="text-muted-foreground text-[13px]">
+                                    У отдела есть свои подразделения, поэтому он остаётся на верхнем уровне.
+                                </p>
+                            )}
                         </div>
                     )}
 
@@ -1116,7 +1117,7 @@ function DeleteDialog({
                             ) : (
                                 <p>Сотрудников с этой записью нет.</p>
                             )}
-                            {children > 0 && <p>Вложенные отделы ({children}) переместятся на уровень выше.</p>}
+                            {children > 0 && <p>Вложенные отделы ({children}) останутся и станут отделами верхнего уровня.</p>}
                             <p>Отменить удаление нельзя.</p>
                         </div>
                     </DialogDescription>

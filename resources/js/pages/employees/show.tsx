@@ -10,6 +10,7 @@ import { MultiSelect } from '@/components/multi-select';
 import { PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
+import { Placements, placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
 import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -217,14 +218,12 @@ function Tabs({ tabs, active, onChange }: { tabs: readonly { key: TabKey; title:
     );
 }
 
-interface EditOptions {
+/** The dialog narrows a department into its positions and a position into its duties, so all three travel. */
+interface EditOptions extends PlacementOptions {
     nationalities: string[];
     citizenships: string[];
     /** Access roles, chosen by name. */
     roles: { name: string; title: string }[];
-    positions: { id: number; name: string }[];
-    /** Flattened tree; `depth` indents the children. */
-    departments: { id: number; name: string; full_name: string; depth: number }[];
     languages: { id: number; name: string }[];
     /** Countries already on file, as suggestions for a previous job. */
     countries: string[];
@@ -234,8 +233,12 @@ interface EditOptions {
 /** What the employee currently holds, as the dialog addresses it. */
 interface Assigned {
     roles: string[];
-    positions: number[];
-    departments: number[];
+    /**
+     * Where they stand, chain by chain: a department, the position held there
+     * and the duties carried in it. A department with no position is one of
+     * these too, and somebody placed nowhere has none.
+     */
+    placements: Placement[];
 }
 
 /**
@@ -411,8 +414,9 @@ function PersonalDialog({
         nationality: details?.nationality ?? '',
         home_address: details?.home_address ?? '',
         roles: assigned.roles,
-        positions: assigned.positions,
-        departments: assigned.departments,
+        // Exactly what is on file, so a person placed nowhere opens on nothing
+        // rather than on a chain they never had.
+        placements: assigned.placements,
     });
 
     /** The first error for a list and its items ("roles", "roles.0", ...). */
@@ -424,6 +428,7 @@ function PersonalDialog({
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
+        form.transform((data) => ({ ...data, placements: placementsToSend(data.placements) }));
         form.put(route('employees.personal', employee.id), { preserveScroll: true, onSuccess: onClose });
     };
 
@@ -600,34 +605,28 @@ function PersonalDialog({
                             </div>
                         )}
 
-                        {canEdit('positions') && (
+                        {/* Where they stand is one answer behind two lines of the
+                        card, so it is offered only to a viewer who holds both:
+                        half a placement would file a position in a department
+                        the save is not allowed to write, and the server drops it
+                        for the same reason. */}
+                        {canEdit('positions') && canEdit('departments') && (
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="personal-positions">Должность</Label>
-                                <MultiSelect
-                                    id="personal-positions"
-                                    options={options.positions.map((position) => ({ value: position.id, label: position.name }))}
-                                    value={form.data.positions}
-                                    onChange={(value) => form.setData('positions', value)}
+                                <Label>Отдел и должность</Label>
+                                <p className="text-muted-foreground text-[13px]">
+                                    Сначала отдел, затем должность этого отдела и обязанности этой должности. Если сотрудник числится в нескольких
+                                    отделах, добавьте запись на каждый.
+                                </p>
+                                <Placements
+                                    value={form.data.placements}
+                                    onChange={(value) => form.setData('placements', value)}
+                                    options={options}
+                                    errors={form.errors}
+                                    // The keys come back from the server, which
+                                    // names a chain and a field of it; the form
+                                    // only knows the one key they hang under.
+                                    onAnswered={(keys) => form.clearErrors(...(keys as 'placements'[]))}
                                 />
-                                <InputError message={listError('positions')} />
-                            </div>
-                        )}
-
-                        {canEdit('departments') && (
-                            <div className="grid content-start gap-2">
-                                <Label htmlFor="personal-departments">Отдел</Label>
-                                <MultiSelect
-                                    id="personal-departments"
-                                    options={options.departments.map((department) => ({
-                                        value: department.id,
-                                        label: department.name,
-                                        hint: department.full_name === department.name ? undefined : department.full_name,
-                                        depth: department.depth,
-                                    }))}
-                                    value={form.data.departments}
-                                    onChange={(value) => form.setData('departments', value)}
-                                />
-                                <InputError message={listError('departments')} />
                             </div>
                         )}
                     </div>

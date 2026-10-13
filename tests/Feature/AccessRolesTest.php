@@ -52,8 +52,7 @@ class AccessRolesTest extends TestCase
             'name' => $employee->name,
             'sex' => $employee->sex,
             'roles' => $employee->roles->pluck('name')->all(),
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
         ];
     }
@@ -275,8 +274,7 @@ class AccessRolesTest extends TestCase
                 'name' => 'Далер',
                 'sex' => 'male',
                 'roles' => ['sysadmin'],
-                'positions' => [],
-                'departments' => [],
+                'placements' => [],
             ])
             ->assertSessionHasErrors('roles.0');
     }

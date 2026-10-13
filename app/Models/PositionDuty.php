@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 /**
  * One thing a position answers for: "Ведение договоров" for a lawyer, "Закрытие
@@ -14,10 +15,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * that come from this position — so each is a row of its own rather than a line
  * of one block of text.
  *
- * A duty may name a department as well, because an analyst in one department
- * does not answer for what an analyst in another answers for. Named, it belongs
- * only to the people holding the position in that department; unnamed, it
- * belongs to everybody holding the position, wherever they sit.
+ * The list is what the position answers for; a duty on it is what one of the
+ * holders answers for. Which of them, the duty knows: holding the position does
+ * not hand somebody the whole list, the duties they carry are picked from it.
  */
 class PositionDuty extends Model
 {
@@ -28,7 +28,6 @@ class PositionDuty extends Model
      */
     protected $fillable = [
         'position_id',
-        'department_id',
         'name',
         'order',
     ];
@@ -39,11 +38,11 @@ class PositionDuty extends Model
     }
 
     /**
-     * The department the duty is done in, and nothing at all when it is one of
-     * the duties the position carries everywhere.
+     * The employees who carry this duty — none of them until somebody picks it
+     * for them, and several of them where a department shares the work out.
      */
-    public function department(): BelongsTo
+    public function users(): BelongsToMany
     {
-        return $this->belongsTo(Department::class);
+        return $this->belongsToMany(User::class)->withTimestamps();
     }
 }

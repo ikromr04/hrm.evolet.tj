@@ -45,8 +45,7 @@ class DepartmentPagesTest extends TestCase
 
     public function test_a_department_page_shows_public_data_of_working_people()
     {
-        $top = Department::create(['name' => 'Департамент']);
-        $unit = Department::create(['name' => 'Отдел', 'parent_id' => $top->id]);
+        $unit = Department::create(['name' => 'Отдел']);
         $sub = Department::create(['name' => 'Группа', 'parent_id' => $unit->id]);
         $head = User::factory()->create();
         $member = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
@@ -58,11 +57,12 @@ class DepartmentPagesTest extends TestCase
 
         $this->actingAs($this->colleague())->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/show')
-            // Its own branch for the chart: itself and what is below, not its parent.
+            // Its own branch for the chart: itself and what is below.
             ->where('chart', fn ($chart) => collect($chart)->pluck('id')->all() === [$sub->id, $unit->id])
             ->where('chart', fn ($chart) => collect($chart)->firstWhere('id', $unit->id)['members'] === [['id' => $member->id, 'name' => 'Бобоев Фаррух', 'avatar' => null]])
             ->where('department.name', 'Отдел')
-            ->where('department.parents', [['id' => $top->id, 'name' => 'Департамент', 'full_name' => 'Департамент']])
+            // A department with units under it is on the top level: nothing above it.
+            ->where('department.parents', [])
             ->where('department.total_count', 2)
             ->where('department.heads.0.id', $head->id)
             ->where('department.children', [['id' => $sub->id, 'name' => 'Группа', 'full_name' => 'Группа', 'total_count' => 0, 'heads' => []]])
@@ -82,7 +82,7 @@ class DepartmentPagesTest extends TestCase
         $top = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
         $unit = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $top->id]);
         // Nothing short to call this one by yet, so it reads by its full name.
-        $sub = Department::create(['name' => 'Группа вёрстки', 'parent_id' => $unit->id]);
+        $sub = Department::create(['name' => 'Группа вёрстки', 'parent_id' => $top->id]);
         $named = fn ($chart, int $id) => collect($chart)->firstWhere('id', $id)['name'];
 
         $this->actingAs($this->colleague());
@@ -94,8 +94,8 @@ class DepartmentPagesTest extends TestCase
             ->where('departments', fn ($chart) => $named($chart, $sub->id) === 'Группа вёрстки')
         );
 
-        // Its own page, the chain above it and the units under it: every box of
-        // the structure is named the one way.
+        // Its own page and the department above it: every box of the structure
+        // is named the one way.
         $this->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/show')
             ->where('chart', fn ($chart) => $named($chart, $unit->id) === 'ОД')
@@ -103,7 +103,17 @@ class DepartmentPagesTest extends TestCase
             // Short on screen, spelled out for the hover and the screen reader.
             ->where('department.parents', [['id' => $top->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга']])
             ->where('department.full_name', 'Отдел Дизайна')
-            ->where('department.children', [['id' => $sub->id, 'name' => 'Группа вёрстки', 'full_name' => 'Группа вёрстки', 'total_count' => 0, 'heads' => []]])
+        );
+
+        // And the units under a department, read from the page of the one they
+        // are under, since that is the only place they are listed.
+        $this->get("/departments/{$top->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('departments/show')
+            ->where('department.name', 'ДМ')
+            ->where('department.children', [
+                ['id' => $sub->id, 'name' => 'Группа вёрстки', 'full_name' => 'Группа вёрстки', 'total_count' => 0, 'heads' => []],
+                ['id' => $unit->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'total_count' => 0, 'heads' => []],
+            ])
         );
     }
 }

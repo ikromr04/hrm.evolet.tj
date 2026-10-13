@@ -124,6 +124,34 @@ class DirectoriesTest extends TestCase
         $this->assertSame('Отдел продаж', $child->fresh()->name);
     }
 
+    /**
+     * The model refuses a third level by throwing, which would reach the person
+     * as a broken page, so the form answers first — in words the dialog shows
+     * under the «Входит в» field.
+     */
+    public function test_the_structure_of_departments_is_only_two_levels_deep()
+    {
+        $this->actingAs($this->admin);
+        $top = Department::create(['name' => 'Департамент']);
+        $unit = Department::create(['name' => 'Отдел', 'parent_id' => $top->id]);
+        $other = Department::create(['name' => 'Другой департамент']);
+
+        // A department that heads units of its own stays where it is.
+        $this->put("/directories/departments/{$top->id}", ['name' => 'Департамент', 'parent_id' => $other->id])
+            ->assertSessionHasErrors(['parent_id' => 'Отдел нельзя вложить в другой: у него есть свои подразделения.']);
+        $this->assertNull($top->fresh()->parent_id);
+
+        // And a department that is itself in one takes nothing under it, neither
+        // a new department nor one moved there.
+        $this->post('/directories/departments', ['name' => 'Группа', 'parent_id' => $unit->id])
+            ->assertSessionHasErrors(['parent_id' => 'Отдел нельзя вложить в подразделение: в структуре отделов только два уровня.']);
+        $this->assertNull(Department::firstWhere('name', 'Группа'));
+
+        $this->put("/directories/departments/{$other->id}", ['name' => 'Другой департамент', 'parent_id' => $unit->id])
+            ->assertSessionHasErrors('parent_id');
+        $this->assertNull($other->fresh()->parent_id);
+    }
+
     public function test_a_department_is_given_the_short_name_it_is_known_by()
     {
         $this->actingAs($this->admin);
@@ -331,19 +359,24 @@ class DirectoriesTest extends TestCase
         $this->assertFalse($department->heads()->exists());
     }
 
-    public function test_deleting_a_department_moves_its_sub_departments_up()
+    /**
+     * Deleting the department a group of units was gathered under is allowed:
+     * the units are departments with their own people, and the only level left
+     * for them is the top one.
+     */
+    public function test_deleting_a_department_leaves_its_sub_departments_on_the_top_level()
     {
         $this->actingAs($this->admin);
-        $root = Department::create(['name' => 'Корень']);
-        $middle = Department::create(['name' => 'Середина', 'parent_id' => $root->id]);
-        $leaf = Department::create(['name' => 'Лист', 'parent_id' => $middle->id]);
+        $top = Department::create(['name' => 'Департамент']);
+        $unit = Department::create(['name' => 'Отдел', 'parent_id' => $top->id]);
         $employee = $this->colleague();
-        $employee->departments()->attach($middle);
+        $employee->departments()->attach($top);
 
-        $this->delete("/directories/departments/{$middle->id}")->assertSessionHasNoErrors();
+        $this->delete("/directories/departments/{$top->id}")->assertSessionHasNoErrors();
 
-        $this->assertNull(Department::find($middle->id));
-        $this->assertSame($root->id, $leaf->fresh()->parent_id);
+        $this->assertNull(Department::find($top->id));
+        $this->assertTrue($unit->fresh()->exists);
+        $this->assertNull($unit->fresh()->parent_id);
         $this->assertCount(0, $employee->fresh()->departments);
     }
 }

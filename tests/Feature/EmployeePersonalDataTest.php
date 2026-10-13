@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Position;
+use App\Models\PositionDuty;
 use App\Models\User;
 use App\Models\UserDetail;
 use Database\Seeders\PositionSeeder;
@@ -40,8 +41,7 @@ class EmployeePersonalDataTest extends TestCase
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
             'roles' => [],
-            'positions' => [],
-            'departments' => [],
+            'placements' => [],
             ...$overrides,
         ];
     }
@@ -120,8 +120,7 @@ class EmployeePersonalDataTest extends TestCase
                 'nationality' => '',
                 'home_address' => '',
                 'roles' => [],
-                'positions' => [],
-                'departments' => [],
+                'placements' => [],
             ])
             ->assertSessionHasNoErrors();
 
@@ -145,18 +144,38 @@ class EmployeePersonalDataTest extends TestCase
             ->assertSessionHasErrors(['surname', 'sex', 'birth_date']);
     }
 
-    public function test_an_admin_files_the_employee_under_a_role_position_and_department()
+    /**
+     * A department with a position in it and two duties on that position's list.
+     *
+     * @return array{Department, Position, PositionDuty, PositionDuty}
+     */
+    private function chain(string $name = 'Отдел продаж'): array
+    {
+        $department = Department::create(['name' => $name]);
+        $position = $department->positions()->create(['name' => 'Аналитик']);
+
+        return [
+            $department,
+            $position,
+            $position->duties()->create(['name' => 'Ведение договоров', 'order' => 0]),
+            $position->duties()->create(['name' => 'Закрытие месяца', 'order' => 1]),
+        ];
+    }
+
+    public function test_an_admin_files_the_employee_under_a_role_department_position_and_duties()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
-        $position = Position::firstOrFail();
-        $department = Department::create(['name' => 'Отдел продаж']);
+        [$department, $position, $contracts, $month] = $this->chain();
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
                 'roles' => ['specialist'],
-                'positions' => [$position->id],
-                'departments' => [$department->id],
+                'placements' => [[
+                    'department_id' => $department->id,
+                    'position_id' => $position->id,
+                    'duty_ids' => [$contracts->id, $month->id],
+                ]],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -164,6 +183,87 @@ class EmployeePersonalDataTest extends TestCase
         $this->assertSame(['specialist'], $employee->roles->pluck('name')->all());
         $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
+        $this->assertSame([$contracts->id, $month->id], $employee->duties->pluck('id')->all());
+    }
+
+    public function test_changing_the_department_clears_the_position_and_the_duties_under_it()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        [$was, $position, $contracts] = $this->chain('Отдел продаж');
+        [$now] = $this->chain('Отдел закупок');
+
+        $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
+            'placements' => [['department_id' => $was->id, 'position_id' => $position->id, 'duty_ids' => [$contracts->id]]],
+        ]))->assertSessionHasNoErrors();
+
+        // The form empties the two fields under the department when it changes,
+        // and the save is the whole of where somebody stands: nothing of the old
+        // department is left hanging off them.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
+            'placements' => [['department_id' => $now->id, 'position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame([$now->id], $employee->departments->pluck('id')->all());
+        $this->assertSame([], $employee->positions->pluck('id')->all());
+        $this->assertSame([], $employee->duties->pluck('id')->all());
+    }
+
+    public function test_a_position_or_a_duty_from_elsewhere_is_refused()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        [$department, $position] = $this->chain('Отдел продаж');
+        [, $elsewhere, $theirs] = $this->chain('Отдел закупок');
+        $this->actingAs($admin);
+
+        $this->put("/employees/{$employee->id}/personal", $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+
+        $this->put("/employees/{$employee->id}/personal", $this->payload([
+            'placements' => [['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$theirs->id]]],
+        ]))->assertSessionHasErrors('placements.0.duty_ids.0');
+
+        $this->assertSame([], $employee->refresh()->departments->pluck('id')->all());
+    }
+
+    public function test_the_card_opens_on_the_placements_on_file()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        [$sales, $analyst, $contracts] = $this->chain('Отдел продаж');
+        [$buying, $buyer, , $month] = $this->chain('Отдел закупок');
+
+        $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
+            'placements' => [
+                ['department_id' => $sales->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                ['department_id' => $buying->id, 'position_id' => $buyer->id, 'duty_ids' => [$month->id]],
+            ],
+        ]))->assertSessionHasNoErrors();
+
+        // What the dialog is handed back: the chains in the order the card lists
+        // the departments, and the lists it narrows each field by.
+        $this->actingAs($admin)->get("/employees/{$employee->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('assigned.placements', [
+                    ['department_id' => $buying->id, 'position_id' => $buyer->id, 'duty_ids' => [$month->id]],
+                    ['department_id' => $sales->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                ])
+                ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $analyst->id) === [
+                    'id' => $analyst->id,
+                    'name' => 'Аналитик',
+                    'display_name' => 'Аналитик (Отдел продаж)',
+                    'department_id' => $sales->id,
+                ])
+                ->where('options.duties', fn ($duties) => collect($duties)->firstWhere('id', $contracts->id) === [
+                    'id' => $contracts->id,
+                    'name' => 'Ведение договоров',
+                    'position_id' => $analyst->id,
+                ])
+                ->etc()
+            );
     }
 
     public function test_a_department_head_keeps_the_flag_when_the_card_is_saved_again()
@@ -171,13 +271,30 @@ class EmployeePersonalDataTest extends TestCase
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         $department = Department::create(['name' => 'Отдел продаж']);
+        $other = Department::create(['name' => 'Отдел закупок']);
         $employee->departments()->attach($department, ['is_head' => true]);
 
+        // Leading a department is recorded on the row that says they belong to
+        // it, so a save that rewrites those rows must not demote them.
         $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/personal", $this->payload(['departments' => [$department->id]]))
+            ->put("/employees/{$employee->id}/personal", $this->payload([
+                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+            ]))
             ->assertSessionHasNoErrors();
 
         $this->assertTrue((bool) $employee->refresh()->departments->first()->pivot->is_head);
+
+        // Moved out of it, they do not lead it any more — and do not arrive at
+        // the next department as its head.
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/personal", $this->payload([
+                'placements' => [['department_id' => $other->id, 'position_id' => null, 'duty_ids' => []]],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame([$other->id], $employee->departments->pluck('id')->all());
+        $this->assertFalse((bool) $employee->departments->first()->pivot->is_head);
     }
 
     public function test_the_one_position_cannot_be_dropped_from_its_own_card()
