@@ -17,10 +17,10 @@ use Tests\TestCase;
 /**
  * "Должности": a section of its own, after the equipment.
  *
- * The list reads like the staff and the fleet read — a table of positions, where
- * each one sits, what it answers for and how many people hold it — and a
- * position's own page says who holds it and what each of them is responsible
- * for.
+ * The list reads like the staff and the fleet read — a table of positions and
+ * where each one sits, read along the structure: the department, the unit inside
+ * it, the position and what it answers for. Who holds it is a page of its own,
+ * which says what each holder is responsible for besides.
  *
  * Moving the list out of "Справочники" moved no rights: it is still read with
  * "directories.view.positions" and kept with "directories.edit.positions", and
@@ -76,7 +76,7 @@ class PositionPagesTest extends TestCase
         return collect($rows)->firstWhere('id', $position->id);
     }
 
-    public function test_the_list_names_every_position_with_its_duties_and_its_people()
+    public function test_the_list_names_every_position_with_its_duties_and_counts_its_people()
     {
         $department = Department::create(['name' => 'Отдел правового регулирования', 'abbreviation' => 'ОПР']);
         $lawyer = Position::create(['name' => 'Юрист', 'department_id' => $department->id]);
@@ -86,9 +86,8 @@ class PositionPagesTest extends TestCase
         ]);
         Position::create(['name' => 'Курьер', 'department_id' => $department->id]);
 
-        // Two who work here and one who does not: the holders and the count are
-        // the staff list the number links to, and that list is of people who are
-        // still here.
+        // Two who work here and one who does not: the count is the staff list as
+        // the staff list counts itself, of people who are still here.
         User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух'])->positions()->attach($lawyer);
         User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина'])->positions()->attach($lawyer);
         User::factory()->create(['surname' => 'Ашуров', 'name' => 'Далер', 'status' => 'fired'])
@@ -103,31 +102,30 @@ class PositionPagesTest extends TestCase
                 ->where('positions.0.name', 'Курьер')
                 ->where('positions.0.duties', [])
                 ->where('positions.0.employees_count', 0)
-                ->where('positions.0.employees', [])
                 ->where('positions.1.name', 'Юрист')
                 ->where('positions.1.duties', ['Ведение договоров', 'Арбитраж'])
                 // One list and nothing to group inside it: the position belongs
                 // to one department, and what the job is elsewhere is another
                 // position's business.
                 ->missing('positions.1.department_duties')
+                // The number the warning before a deletion counts. Who those two
+                // are is the position's own page: the list stopped naming them,
+                // so none of them travels to it any more, and neither do the
+                // rights that decided whether they could be named.
                 ->where('positions.1.employees_count', 2)
+                ->missing('positions.1.employees')
+                ->missing('showsEmployees')
+                ->missing('canSeeEmployees')
                 // The page opens the list newest first and puts it in order
                 // itself, so a row carries the moment it was added; by name is
                 // only the settled order the server hands it over in.
                 ->where('positions.1.created_at', $lawyer->created_at->toIso8601String())
-                // The holders themselves, by surname and named "Фамилия Имя", the
-                // same people the position's own page lists.
-                ->where('positions.1.employees', fn ($rows) => collect($rows)->pluck('name')->all()
-                    === ['Азимова Нигина', 'Бобоев Фаррух'])
-                ->where('positions.1.employees.0.id', User::firstWhere('surname', 'Азимова')->id)
-                ->where('showsEmployees', true)
                 // Reading the list is not keeping it.
                 ->where('canEdit', false)
-                ->where('canSeeEmployees', true)
             );
     }
 
-    public function test_the_list_carries_the_department_each_position_belongs_to()
+    public function test_the_list_carries_the_department_a_position_sits_in_and_the_one_above_it()
     {
         $analytics = Department::create(['name' => 'Департамент аналитики и статистики', 'abbreviation' => 'ДАС']);
         $europe = Department::create([
@@ -147,26 +145,38 @@ class PositionPagesTest extends TestCase
         $there = Position::create(['name' => 'Аналитик', 'department_id' => $europe->id]);
         $here->duties()->create(['name' => 'Готовит ответы регулятору', 'order' => 0]);
         $there->duties()->create(['name' => 'Сверяет цены по Европе', 'order' => 0]);
+        // One that hangs off the department itself with no unit between: several
+        // departments are filed that way, and one of them has no units at all.
+        $above = Position::create(['name' => 'Руководитель', 'department_id' => $analytics->id]);
         // And one the data could not place: three of them came out of the move
         // that way, and the list is where somebody has to find them.
         $loose = Position::create(['name' => 'Курьер']);
+
+        $department = fn (Department $d) => ['id' => $d->id, 'name' => $d->abbreviation, 'full_name' => $d->name];
 
         $this->actingAs($this->mayLookAround($this->person(Directories::viewPermission('positions'))))
             ->get('/positions')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 // Named the way every screen but the directory names a
-                // department, with the full name along for the hover.
+                // department, with the full name along for the hover — and with
+                // the department above it, which the list reads in a column of
+                // its own: the page has no tree to walk up, and the structure is
+                // two deep, so the pair is the whole of where a position sits.
                 ->where('positions', fn ($rows) => $this->row($rows, $here)['department']
-                    === ['id' => $regulation->id, 'name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'])
+                    === [...$department($regulation), 'parent' => $department($analytics)])
                 ->where('positions', fn ($rows) => $this->row($rows, $there)['department']
-                    === ['id' => $europe->id, 'name' => 'ОМФК Европа', 'full_name' => 'Отдел мониторинга Эволет Европы'])
+                    === [...$department($europe), 'parent' => $department($analytics)])
+                // A position of the department itself has nothing above it, which
+                // is how the «Отдел» column knows to stay empty.
+                ->where('positions', fn ($rows) => $this->row($rows, $above)['department']
+                    === [...$department($analytics), 'parent' => null])
                 // The plain name is still the plain name — it is what a column of
                 // its own is beside — and the two spelled out together are what
                 // the places with one line to spare read.
                 ->where('positions', fn ($rows) => $this->row($rows, $here)['name'] === 'Аналитик')
                 ->where('positions', fn ($rows) => collect($rows)->pluck('display_name')->sort()->values()->all()
-                    === ['Аналитик (ОМФК Европа)', 'Аналитик (ОПР)', 'Курьер'])
+                    === ['Аналитик (ОМФК Европа)', 'Аналитик (ОПР)', 'Курьер', 'Руководитель (ДАС)'])
                 // An unplaced position travels as one: nothing where its
                 // department would be, and no brackets after its name.
                 ->where('positions', fn ($rows) => $this->row($rows, $loose)['department'] === null)
@@ -621,43 +631,25 @@ class PositionPagesTest extends TestCase
                 ->where('employees.0.duties', [])
             );
 
-        // The list names the holders of a row on the same right, and whoever may
-        // not read the staff list is left the count: the number is the one thing
-        // everybody who reads the section is told.
-        $this->actingAs($this->person(Directories::viewPermission('positions')))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page
-                ->where('showsEmployees', false)
-                ->where('positions.0.employees', [])
-                ->where('positions.0.employees_count', 1)
-            );
-
-        $this->actingAs($this->person(Directories::viewPermission('positions'), 'employees.view'))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page
-                ->where('showsEmployees', true)
-                ->where('positions.0.employees.0.name', 'Азимова Нигина')
-                ->where('positions.0.employees_count', 1)
-            );
-
-        // The count on the list leads to the staff list narrowed by the position,
-        // so the link takes the list and that line of a card together: with one of
-        // the two the number is a link into a refusal.
-        $this->actingAs($this->person(Directories::viewPermission('positions')))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page->where('canSeeEmployees', false));
-
-        $this->actingAs($this->person(Directories::viewPermission('positions'), 'employees.field.positions'))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page->where('canSeeEmployees', false));
-
-        $this->actingAs($this->person(Directories::viewPermission('positions'), 'employees.view'))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page->where('canSeeEmployees', false));
-
-        $this->actingAs($this->person(Directories::viewPermission('positions'), 'employees.view', 'employees.field.positions'))
-            ->get('/positions')
-            ->assertInertia(fn (Assert $page) => $page->where('canSeeEmployees', true));
+        // The list of positions is about the positions: it named the holders of
+        // every row and no longer does, so nobody travels to it — not even to
+        // whoever may read the whole staff list — and the rights that used to
+        // decide whether a row could name them are not asked there at all. The
+        // count stays, because the warning before a deletion counts it.
+        foreach ([
+            $this->person(Directories::viewPermission('positions')),
+            $this->person(Directories::viewPermission('positions'), 'employees.view'),
+            $this->person(Directories::viewPermission('positions'), 'employees.view', 'employees.field.positions'),
+        ] as $viewer) {
+            $this->actingAs($viewer)
+                ->get('/positions')
+                ->assertInertia(fn (Assert $page) => $page
+                    ->where('positions.0.employees_count', 1)
+                    ->missing('positions.0.employees')
+                    ->missing('showsEmployees')
+                    ->missing('canSeeEmployees')
+                );
+        }
     }
 
     public function test_the_reference_lists_no_longer_offer_the_job_titles_but_the_rights_stay()

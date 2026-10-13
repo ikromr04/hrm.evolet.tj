@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, EllipsisVertical, EyeOff, GripVertical, Pin, PinOff } from 'lucide-react';
-import { Fragment, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { ColumnFilter, isFilterActive } from './filters';
 import { HeaderHint } from './hint';
 import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type ViewState } from './types';
@@ -52,6 +52,42 @@ interface DataTableProps<Row> {
     /** The column that carries the row's identity and so cannot be hidden. */
     lockedKey: string;
 
+    /**
+     * Whether the boundaries between columns are drawn as lines, turning the
+     * table into a grid.
+     *
+     * Off everywhere else, and asked for by the one page whose cells cover
+     * blocks of rows: a cell standing over twelve rows has nothing to say where
+     * it ends sideways, and the lines are what make the block read as a block
+     * rather than as text that happens to line up. The rest of the tables in the
+     * app are lists of rows and read as lists, with a line between rows and
+     * nothing between columns.
+     *
+     * The lines belong to the cells, so they are pinned, dragged and scrolled
+     * sideways along with them, and they are the same line the rows are divided
+     * by — the one border colour, one pixel of it.
+     */
+    gridlines?: boolean;
+
+    /**
+     * How far down a cell reaches, where a page's rows come in blocks that share
+     * a value: the number of rows the cell covers, or 0 for a column whose cell
+     * a row above has already covered, which is then not drawn at all.
+     *
+     * Left out, every cell covers its own row and the table is the flat grid it
+     * has always been — which is what the pages that do not pass this get, down
+     * to the markup. A page that does pass it owes the table a consistent
+     * answer: a cell of n rows has to be followed by n-1 rows answering 0 in
+     * that column, or the browser is handed a table whose rows are not the same
+     * width.
+     *
+     * Only the page can say where a block begins, since only the page knows what
+     * its rows mean and what order they are in — and a block is only a block
+     * while the order keeps its rows together, so a page that groups has to stop
+     * when the order changes under it.
+     */
+    rowSpan?: (column: ColumnDef, row: Row) => number;
+
     /** The right-hand sticky cell, when the viewer may act on a row. */
     actions?: (row: Row) => ReactNode;
     empty: ReactNode;
@@ -88,6 +124,8 @@ export function DataTable<Row>({
     onReorder,
     onHide,
     lockedKey,
+    gridlines,
+    rowSpan,
     actions,
     empty,
     footer,
@@ -107,6 +145,35 @@ export function DataTable<Row>({
         .map(byKey)
         .filter((column) => !isHidden(column.key) && !pinSide(column.key));
     const visible = [...left, ...center, ...right];
+
+    /**
+     * How tall the header strip is, published to everything inside the table as
+     * `--table-head`.
+     *
+     * A page whose cells cover several rows keeps the label of such a cell in
+     * view while its rows go past, and that label has to come to rest under the
+     * header rather than behind it. The height is measured rather than written
+     * down: it is a header's font, its padding and whatever a column's menu and
+     * funnel put in it, and all three have changed before.
+     *
+     * Nothing is measured for a table that has no cells covering several rows,
+     * which is every other table in the app.
+     */
+    const head = useRef<HTMLTableSectionElement>(null);
+    const [headHeight, setHeadHeight] = useState(0);
+    const spanning = Boolean(rowSpan);
+
+    useEffect(() => {
+        const element = head.current;
+
+        if (!spanning || !element) return;
+
+        const observer = new ResizeObserver(([entry]) => setHeadHeight(entry.contentRect.height));
+
+        observer.observe(element);
+
+        return () => observer.disconnect();
+    }, [spanning]);
 
     /* The column being dragged, and the gap the table is offering it. */
     const [dragged, setDragged] = useState<string | null>(null);
@@ -204,6 +271,25 @@ export function DataTable<Row>({
         );
     };
 
+    /**
+     * The line down a cell's right edge, where the page asked for a grid.
+     *
+     * Every column but the last: the last one ends at the card's own edge, or at
+     * the row's actions, which draw the line between themselves and it already.
+     * Where a pin draws that line too — the shadow that marks the edge the
+     * columns scroll under — the border stands down from the desktop up and the
+     * shadow has it, so the boundary is one line wide and not two. Below that
+     * the pins do not hold and the border is the only line there is.
+     */
+    const gridline = (column: ColumnDef, index: number) => {
+        if (!gridlines || index === visible.length - 1) return '';
+
+        const side = pinSide(column.key);
+        const pinDraws = (side === 'left' && column === left[left.length - 1]) || (side === null && right[0] === visible[index + 1]);
+
+        return cn('border-r', pinDraws && 'lg:border-r-0');
+    };
+
     return (
         <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1">
             {/* relative: absolutely placed things inside the table — screen-reader
@@ -217,9 +303,14 @@ export function DataTable<Row>({
                     {rows.length === 0 && <li className="text-muted-foreground px-6 py-16 text-center text-sm">{empty}</li>}
                 </ul>
             )}
-            <div className={cn('scroll-soft relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}>
+            <div
+                className={cn('scroll-soft relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}
+                // This box is the one that scrolls, so this is where a cell inside
+                // it reads how far down the header reaches.
+                style={{ '--table-head': `${headHeight}px` } as CSSProperties}
+            >
                 <table className="min-w-full table-fixed border-collapse text-sm" style={{ width: tableWidth }}>
-                    <thead className="bg-sidebar sticky top-0 z-30">
+                    <thead ref={head} className="bg-sidebar sticky top-0 z-30">
                         <tr className="text-muted-foreground text-left text-[13px] whitespace-nowrap">
                             {visible.map((column, index) => {
                                 const active = sort.key === column.key;
@@ -252,6 +343,7 @@ export function DataTable<Row>({
                                             index === 0 && 'pl-6',
                                             index === visible.length - 1 && !actions && 'pr-6',
                                             stickyClass(column, true),
+                                            gridline(column, index),
                                             dragged === column.key && 'opacity-40',
                                             dropLine(column),
                                         )}
@@ -411,22 +503,45 @@ export function DataTable<Row>({
                     <tbody>
                         {rows.map((row) => (
                             <tr key={rowKey(row)} className="border-t align-top">
-                                {visible.map((column, index) => (
-                                    <td
-                                        key={column.key}
-                                        style={stickyStyle(column)}
-                                        className={cn(
-                                            'truncate px-4 py-3',
-                                            index === 0 && 'pl-6',
-                                            index === visible.length - 1 && !actions && 'pr-6',
-                                            stickyClass(column, false),
-                                            dragged === column.key && 'opacity-40',
-                                            dropLine(column),
-                                        )}
-                                    >
-                                        {renderCell(column, row)}
-                                    </td>
-                                ))}
+                                {visible.map((column, index) => {
+                                    const span = rowSpan ? rowSpan(column, row) : 1;
+
+                                    // Covered by a cell further up the column, so
+                                    // there is no cell of this row to draw. The row's
+                                    // own top border is not drawn across it either —
+                                    // the borders are collapsed, and a row border is
+                                    // only laid along the cells that begin in that
+                                    // row — which is what makes a block of rows read
+                                    // as one cell rather than as a run of empty ones.
+                                    if (span < 1) return null;
+
+                                    return (
+                                        <td
+                                            key={column.key}
+                                            rowSpan={span > 1 ? span : undefined}
+                                            style={stickyStyle(column)}
+                                            className={cn(
+                                                'px-4 py-3',
+                                                // A cell of one row is cut off at its own
+                                                // edge. One that covers several is not:
+                                                // hiding what overflows would make the cell
+                                                // a scrolling box of its own, and a label
+                                                // kept in view inside it would have nothing
+                                                // left to move against and would never
+                                                // budge.
+                                                span > 1 ? 'whitespace-nowrap' : 'truncate',
+                                                index === 0 && 'pl-6',
+                                                index === visible.length - 1 && !actions && 'pr-6',
+                                                stickyClass(column, false),
+                                                gridline(column, index),
+                                                dragged === column.key && 'opacity-40',
+                                                dropLine(column),
+                                            )}
+                                        >
+                                            {renderCell(column, row)}
+                                        </td>
+                                    );
+                                })}
                                 {actions && (
                                     <td className="bg-card sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">{actions(row)}</td>
                                 )}

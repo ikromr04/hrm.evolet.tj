@@ -38,32 +38,18 @@ class PositionController extends Controller
     public function index(Request $request): Response
     {
         $user = $request->user();
-        // The holders named on a row are the staff list read a position at a
-        // time, so a row asks the same right a position's own page asks. The
-        // page is told outright, or "nobody holds this position" and "the
-        // holders are not yours to read" would be the same empty list; told, it
-        // falls back to the count.
-        $showsEmployees = $this->showsEmployees($user);
 
         return Inertia::render('positions/index', [
             'positions' => Position::query()
-                // The department is read with the rows and not per row: every
-                // position names one, and twenty of the names on this list
-                // repeat, so the department is what tells two rows apart.
-                ->with(['department:id,name,abbreviation', 'duties'])
-                // Counts match the employee list the number links to: working
-                // staff only.
+                // The department is read with the rows and not per row, and the
+                // department above it along with it: every position names one,
+                // twenty of the names on this list repeat, and the list reads a
+                // position under both steps of the structure at once.
+                ->with(['department:id,name,abbreviation,parent_id', 'department.parent:id,name,abbreviation', 'duties'])
+                // Working staff only, as the staff list counts them. The table
+                // stopped naming the holders — that is a position's own page —
+                // and the number is what the warning before a deletion counts.
                 ->withCount(['users' => fn (Builder $query) => $query->active()])
-                // The holders of every position in one query rather than one per
-                // row, and in the order a position's own page lists them, so the
-                // two pages never disagree about who holds what.
-                ->when($showsEmployees, fn (Builder $query) => $query->with([
-                    'users' => fn ($holders) => $holders
-                        ->active()
-                        ->orderBy('surname')
-                        ->orderBy('name')
-                        ->select(['users.id', 'users.name', 'users.surname']),
-                ]))
                 // The page opens the list newest first and reorders it there
                 // itself, so this is only a settled order to hand it over in: a
                 // list the server leaves alone comes out differently run to run.
@@ -77,33 +63,21 @@ class PositionController extends Controller
                     'display_name' => $position->display_name,
                     // Null for the few the data could not place, which the list
                     // says out loud rather than leaving a blank cell.
-                    'department' => $position->department === null ? null : $this->departmentRef($position->department),
+                    'department' => $position->department === null ? null : $this->filing($position->department),
                     // What "newest first" is read from — the order the list opens in.
                     'created_at' => $position->created_at?->toIso8601String(),
                     'duties' => $position->duties->pluck('name')->all(),
                     'employees_count' => $position->users_count,
-                    'employees' => $showsEmployees
-                        ? $position->users->map(fn (User $employee) => [
-                            'id' => $employee->id,
-                            // "Фамилия Имя", as every other list spells it.
-                            'name' => "{$employee->surname} {$employee->name}",
-                        ])->values()
-                        : [],
                 ]),
             // Reading a list and keeping it are two rights, so the page says
             // which one it is looking at.
             'canEdit' => Directories::canEdit($user, 'positions'),
-            // The count leads to the staff list narrowed by this position, so it
-            // takes both the list and the line it is narrowed by: that list is
-            // not open to everybody, and it refuses to be narrowed by a line the
-            // viewer may not read. A link into a refusal is worse than no link.
-            'canSeeEmployees' => $user->can('employees.view') && $user->can(EmployeeFields::permission('positions')),
-            'showsEmployees' => $showsEmployees,
-            // The whole tree, for the column that narrows the list to one
-            // department and for the picker that places a new position in one.
-            // Which department a position belongs to is part of keeping the
-            // position and asks no right of its own; the picker is sent to
-            // everybody, and the form behind it is what is gated.
+            // The whole tree, for the two columns that narrow the list — to a
+            // department, or to one unit inside it — and for the picker that
+            // places a new position. Which department a position belongs to is
+            // part of keeping the position and asks no right of its own; the
+            // picker is sent to everybody, and the form behind it is what is
+            // gated.
             'options' => [
                 'departments' => $this->departmentOptions($this->departments()),
             ],
@@ -117,10 +91,8 @@ class PositionController extends Controller
         // has a right of its own: without it the page names the holders and says
         // nothing about what each of them is carrying besides.
         $showsPositions = $user->can(EmployeeFields::permission('positions'));
-        // A list of colleagues is not open to everybody. The page is told so
-        // rather than working it out from the rights itself, or "nobody holds
-        // this position" and "the holders are not yours to read" would be the
-        // same empty list.
+        // A list of colleagues is not open to everybody, and this is the page
+        // that names them.
         $showsEmployees = $this->showsEmployees($user);
 
         $position->load(['department', 'duties']);
@@ -190,9 +162,11 @@ class PositionController extends Controller
     /**
      * Whether a list of colleagues is this viewer's to read at all.
      *
-     * The list names the holders of every position and a position's own page
-     * names its own, so both ask the question here: written out twice, one of
-     * the two would sooner or later name somebody the other hides.
+     * A position's own page is where the holders are named — the list of
+     * positions is about the positions — and the page is told outright rather
+     * than working it out from the rights itself, or "nobody holds this
+     * position" and "the holders are not yours to read" would be the same empty
+     * list.
      */
     private function showsEmployees(User $viewer): bool
     {
@@ -212,6 +186,25 @@ class PositionController extends Controller
             'id' => $department->id,
             'name' => $department->display_name,
             'full_name' => $department->name,
+        ];
+    }
+
+    /**
+     * Where a position sits, as the list reads it: the department it belongs to,
+     * with the department above that one where there is one.
+     *
+     * Both travel because the page has no tree to walk: the table reads a row
+     * under the department in one column and under the unit inside it in the
+     * next, and the structure is exactly two deep, so a department and its
+     * parent are all there ever is to send.
+     *
+     * @return array{id: int, name: string, full_name: string, parent: array{id: int, name: string, full_name: string}|null}
+     */
+    private function filing(Department $department): array
+    {
+        return [
+            ...$this->departmentRef($department),
+            'parent' => $department->parent === null ? null : $this->departmentRef($department->parent),
         ];
     }
 

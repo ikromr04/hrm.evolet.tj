@@ -1,6 +1,7 @@
 import {
     cycleSort,
     DataTable,
+    isSorted,
     MobileListTools,
     MobileRow,
     useTableView,
@@ -15,7 +16,6 @@ import { searchBox } from '@/components/directory-manager';
 import InputError from '@/components/input-error';
 import { MobileFab } from '@/components/mobile-fab';
 import { MultiSelect } from '@/components/multi-select';
-import { PersonLink } from '@/components/person-link';
 import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -24,19 +24,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
-import { peopleLabel } from '@/lib/employee';
 import { plural } from '@/lib/plural';
-import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { useMemo, useState, type FormEventHandler } from 'react';
-
-interface Person {
-    id: number;
-    /** "Фамилия Имя" */
-    name: string;
-}
+import { useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
 
 interface Department {
     /** The abbreviation where the department has one, the full name otherwise. */
@@ -46,29 +38,37 @@ interface Department {
     id: number;
 }
 
+/**
+ * The department a position belongs to, with the one above it.
+ *
+ * The structure is two levels and no more, so this pair is the whole of where a
+ * position sits: a department with a parent is a unit inside that parent, and
+ * one without is a department of the company. The page is handed both because
+ * it has no tree of its own to walk up.
+ */
+interface Filing extends Department {
+    parent: Department | null;
+}
+
 interface Position {
     id: number;
     name: string;
     /** «Аналитик (ОПР)» — the name with the department after it, where one line is all there is. */
     display_name: string;
     /** Where the position sits; null for the few nobody has filed yet. */
-    department: Department | null;
-    /** When somebody added it: what the list's own opening order reads, newest first. */
-    created_at: string | null;
+    department: Filing | null;
     /**
      * What the job is, a short line per duty, in the order they were entered.
      * One list: the position belongs to one department, so there is nothing
      * inside it to tell apart.
      */
     duties: string[];
-    /** Working employees who hold the position. */
-    employees_count: number;
     /**
-     * Those same employees by name, by surname and then name. Empty where the
-     * staff are closed to the viewer, which is what `showsEmployees` tells
-     * apart from a position nobody holds.
+     * How many working employees hold the position. The table does not show it:
+     * who holds a position is read on the position's own page, and this is what
+     * the warning before a deletion counts.
      */
-    employees: Person[];
+    employees_count: number;
 }
 
 interface Props {
@@ -81,138 +81,276 @@ interface Props {
      * table simply has no controls.
      */
     canEdit: boolean;
-    /**
-     * Whether the count may lead into the staff list narrowed to the position.
-     * Nobody narrows a list by what they may not read, so for everybody else the
-     * number is a number rather than a way into a refusal.
-     */
-    canSeeEmployees: boolean;
-    /**
-     * Whether the names of the staff are this viewer's to read at all. Without
-     * that right nobody travelled, and the column falls back to counting them —
-     * the same number the page has always shown.
-     */
-    showsEmployees: boolean;
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Должности', href: '/positions' }];
 
-const STORAGE_KEY = 'positions.table.view.v1';
+const STORAGE_KEY = 'positions.table.view.v2';
 
 /**
  * The order the list opens in, and the one a third press on a header and "reset"
- * both bring back: the newest position first, as the staff list opens. It reads
- * the moment a row was added rather than a column of the table, so no header
- * carries it and the phone's sheet has to name it.
+ * both bring back: the structure itself, read down — the department, the
+ * positions filed on the department itself, then its units and the positions in
+ * each.
+ *
+ * That is what the «Департамент» column ascending already does, so the column
+ * carries the opening order and the phone's sheet names it by its own label; a
+ * third press on that header lands on ascending again, because ascending is
+ * where the list came from.
+ *
+ * The list used to open newest first, as the staff list does. That order told a
+ * reader nothing here: the names repeat — twenty of them — and «Аналитик» above
+ * «Дизайнер» above «Аналитик» in the order somebody happened to type them is a
+ * list one can only search. The structure is what the four columns are for, and
+ * it is the only order in which a department can be named once over the rows it
+ * holds instead of seventeen times down them.
  */
-const DEFAULT_SORT: Sort = { key: 'created', direction: 'desc' };
+const DEFAULT_SORT: Sort = { key: 'department', direction: 'asc' };
 
 /** How many duties a row shows before the rest are counted off at the end. */
 const DUTIES_SHOWN = 4;
 
-/** The same for the people in a position: a name takes a line's worth of room. */
-const EMPLOYEES_SHOWN = 3;
-
-/** Stands for "no department at all" where a department's id would stand. */
+/** Stands for "nothing there at all" where a department's id would stand. */
 const NONE = 'none';
 
+const collator = new Intl.Collator('ru');
+
 /**
- * The department is a column rather than a decoration of the name, because it
- * has a column's work to do: twenty names on this list are held in more than one
- * department, and a filter and an order have to hang off something. A name on
- * its own stopped answering "which «Аналитик» is this?", and only the header
- * beside it can be sorted, narrowed, hidden or dragged elsewhere like the rest.
+ * The row reads along the structure and then down into the job: the department,
+ * the unit inside it, the position itself and what it answers for. That is the
+ * order somebody says it out loud in — «в ДАС, в отделе аналитики, аналитик» —
+ * and the two departments stand together because a position means little
+ * without them: twenty of these names repeat, and «Аналитик» alone answers
+ * nothing.
  *
- * It takes its room from the duties, which wrap anyway, so the people are still
- * on screen without scrolling the table sideways first.
+ * Who holds a position is no longer here. It was the widest column of the four
+ * and said what a position's own page says better, with the duties each holder
+ * carries beside their name; the room it took has gone to the duties, which wrap.
  */
 const columns: ColumnDef[] = [
-    { key: 'name', label: 'Должность', width: 260 },
-    { key: 'department', label: 'Отдел', width: 180 },
-    { key: 'duties', label: 'Обязанности', width: 280 },
-    { key: 'employees_count', label: 'Сотрудники', width: 288 },
+    // Both hold an abbreviation and nothing longer, so what their widths are
+    // really cut to is the headers: «Департамент» has to stand beside its own
+    // funnel and menu without either leaning into the column next door.
+    { key: 'department', label: 'Департамент', width: 215 },
+    { key: 'unit', label: 'Отдел', width: 180 },
+    { key: 'name', label: 'Должность', width: 245 },
+    { key: 'duties', label: 'Обязанности', width: 360 },
 ];
 
 const columnKeys = columns.map((column) => column.key);
 
 /** Duties are a list, not a scale: the other three columns can be put in order. */
-const sortable = ['name', 'department', 'employees_count'];
+const sortable = ['department', 'unit', 'name'];
 
 const defaultView: ViewState = { hidden: [], pinned: { left: [], right: [] } };
+
+/** Which departments or units are being asked about; «Без…» is one of the answers. */
+type Chosen = (number | typeof NONE)[];
+
+/** What the two funnels are set to. */
+interface Narrowing {
+    department: Chosen;
+    unit: Chosen;
+}
+
+/**
+ * The two steps a row reads under: the department, and the unit inside it where
+ * the position sits in one.
+ *
+ * A position belongs to one department, and the structure is two deep, so this
+ * is all there is to work out — a department with a parent is a unit, and the
+ * parent is the department the row belongs to. Several departments hold
+ * positions of their own without any unit between, and one nobody has filed has
+ * neither.
+ */
+function filing(position: Position): { department: Department | null; unit: Department | null } {
+    const own = position.department;
+
+    if (own === null) return { department: null, unit: null };
+
+    return own.parent === null ? { department: own, unit: null } : { department: own.parent, unit: own };
+}
 
 /**
  * There are dozens of positions, not thousands, so the whole list arrives at
  * once and the search, the order and the narrowing are all worked out here
  * rather than asked of the server.
  *
- * The one funnel narrows the list to a department — the position's own, now that
- * a position has one. «Без отдела» stands at the top of it on purpose: the few
- * positions the data could not place have to be findable, and this is the one
- * question that finds them all at once.
+ * A funnel per column, each a flat list rather than the indented tree the one
+ * funnel used to be: the columns tell the two levels apart, so neither list has
+ * to. «Без департамента» and «Без отдела» stand at the top of them — the few
+ * positions the data could not place have to be findable, and so do the ones
+ * hanging off a department with no unit under them.
  */
 function buildColumns(departments: Props['options']['departments']): ColumnDef[] {
-    const filter: FilterDef = {
-        type: 'multi',
-        param: 'department',
-        options: [
-            { value: NONE, label: 'Без отдела' },
-            ...departments.map((department) => ({
-                value: department.id,
-                label: department.name,
-                // The list is named by abbreviations, and a filter is not a link one
-                // can follow to find out what an abbreviation stands for.
-                hint: department.full_name === department.name ? undefined : department.full_name,
-                // Indented by how deep it sits, as the employees list indents the same tree.
-                depth: department.depth,
-            })),
-        ],
+    const option = (department: Department) => ({
+        value: department.id,
+        label: department.name,
+        // The list is named by abbreviations, and a filter is not a link one
+        // can follow to find out what an abbreviation stands for.
+        hint: department.full_name === department.name ? undefined : department.full_name,
+    });
+
+    const filters: Record<string, FilterDef> = {
+        department: {
+            type: 'multi',
+            param: 'department',
+            // The departments the company is built of. Choosing one keeps its
+            // own positions and those of every unit inside it: a position in the
+            // отдел аналитики is a position in ДАС in every sense somebody means
+            // by the question.
+            options: [{ value: NONE, label: 'Без департамента' }, ...departments.filter((department) => !department.depth).map(option)],
+        },
+        unit: {
+            type: 'multi',
+            param: 'unit',
+            // The units, by the name they are shown under rather than in the
+            // tree's order: their departments are not in this list to be read
+            // down, so a reader looks a unit up by its own name. «Без отдела»
+            // asks for the positions that hang off a department itself, and with
+            // them the few nobody has filed at all — in both the column is empty.
+            options: [
+                { value: NONE, label: 'Без отдела' },
+                ...departments
+                    .filter((department) => department.depth === 1)
+                    .sort((a, b) => collator.compare(a.name, b.name))
+                    .map(option),
+            ],
+        },
     };
 
-    return columns.map((column) => (column.key === 'department' ? { ...column, filter } : column));
+    return columns.map((column) => (filters[column.key] ? { ...column, filter: filters[column.key] } : column));
 }
 
-/** Which departments are being asked about; «Без отдела» is one of the answers. */
-type Chosen = (number | typeof NONE)[];
+/** Whether the row is in one of the departments, and one of the units, asked about. */
+function inChosen(position: Position, chosen: Narrowing): boolean {
+    const { department, unit } = filing(position);
 
-/** Whether the row is in one of the departments asked about. */
-function inChosen(position: Position, chosen: Chosen): boolean {
-    return chosen.length === 0 || chosen.includes(position.department?.id ?? NONE);
+    return (
+        (chosen.department.length === 0 || chosen.department.includes(department?.id ?? NONE)) &&
+        (chosen.unit.length === 0 || chosen.unit.includes(unit?.id ?? NONE))
+    );
 }
 
 /**
- * What an empty list says when the funnel, and not the search, emptied it.
- * The department is spelled out rather than abbreviated: a cell has only room
- * for "ОА", but a sentence standing alone in an empty table has to be read
- * without anything beside it to explain the letters.
+ * What an empty list says when the funnels, and not the search, emptied it.
+ *
+ * A name is spelled out rather than abbreviated: a cell has only room for "ОА",
+ * but a sentence standing alone in an empty table has to be read without
+ * anything beside it to explain the letters. It says «здесь» rather than naming
+ * the level again — every full name already opens with «Департамент» or «Отдел».
  */
-function emptyMessage(chosen: Chosen, departments: Department[]): string {
-    if (chosen.length === 1 && chosen[0] === NONE) return 'Все должности закреплены за отделами.';
-    if (chosen.length === 1 && departments.length === 1) return `${departments[0].full_name} — должностей в этом отделе пока нет.`;
+function emptyMessage(chosen: Narrowing, departments: Props['options']['departments']): string {
+    const asked = [...chosen.department, ...chosen.unit];
 
-    return 'В выбранных отделах должностей пока нет.';
+    if (asked.length === 1 && asked[0] === NONE) {
+        return chosen.department.length === 1 ? 'Все должности закреплены за департаментами.' : 'Все должности закреплены за отделами.';
+    }
+
+    const alone = asked.length === 1 ? departments.find((department) => department.id === asked[0]) : undefined;
+    if (alone) return `${alone.full_name} — должностей здесь пока нет.`;
+
+    if (chosen.unit.length === 0) return 'В выбранных департаментах должностей пока нет.';
+    if (chosen.department.length === 0) return 'В выбранных отделах должностей пока нет.';
+
+    return 'В выбранных департаментах и отделах должностей пока нет.';
 }
-
-const collator = new Intl.Collator('ru');
-
-/** When a position was added; one nobody wrote the moment of reads as the oldest. */
-const addedAt = (position: Position) => (position.created_at ? Date.parse(position.created_at) : 0);
 
 function compare(a: Position, b: Position, sort: Sort): number {
     const sign = sort.direction === 'asc' ? 1 : -1;
+    const here = filing(a);
+    const there = filing(b);
+    // Positions that tie — the same department, the same unit — read
+    // alphabetically rather than in whatever order they happened to arrive in.
+    const byName = () => collator.compare(a.name, b.name);
+    // Nothing at all sorts before every name there is, which decides two things
+    // at once. The positions filed on a department itself come before its units,
+    // as they should: they are the department's own, and a unit is a step further
+    // in. And the three positions with no department whatever open the list — the
+    // order the page opens in is this one, so the rows somebody still has to file
+    // are the first thing on it, which is where the amber «Без департамента» is
+    // meant to be read and the one place they cannot be scrolled past.
+    const byDepartment = () => collator.compare(here.department?.name ?? '', there.department?.name ?? '');
+    const byUnit = () => collator.compare(here.unit?.name ?? '', there.unit?.name ?? '');
 
-    // Positions that tie — the same number of people, the same department, or
-    // added in the same second as each other — read alphabetically rather than
-    // in whatever order they happened to arrive in.
-    if (sort.key === 'employees_count') return sign * (a.employees_count - b.employees_count) || collator.compare(a.name, b.name);
-    if (sort.key === 'created') return sign * (addedAt(a) - addedAt(b)) || collator.compare(a.name, b.name);
-    // A position nobody has filed reads as no department at all, which sorts
-    // before every name there is: one press on the header and the unplaced ones
-    // are at the top, where somebody can go and file them.
-    if (sort.key === 'department') {
-        return sign * collator.compare(a.department?.name ?? '', b.department?.name ?? '') || collator.compare(a.name, b.name);
-    }
+    // Sorted by the department, the order reads the structure itself: the
+    // department, its own positions, then the units within it and the positions
+    // in each. This is the order the list opens in, and the only one in which a
+    // department's rows all stand together.
+    if (sort.key === 'department') return sign * byDepartment() || sign * byUnit() || byName();
+    // By the unit the units stand together, but their departments are scattered
+    // among them: a department holds units whose names begin anywhere.
+    if (sort.key === 'unit') return sign * byUnit() || byDepartment() || byName();
 
-    return sign * collator.compare(a.name, b.name);
+    // Namesakes stand in the order the columns before them already read in.
+    return sign * byName() || byDepartment() || byUnit();
+}
+
+/**
+ * How many rows each cell of the two structure columns covers, by the id of the
+ * position whose row it begins on. A row the map says nothing about is one a cell
+ * above has already covered, and the table draws no cell of its own there.
+ */
+interface Spans {
+    department: Map<number, number>;
+    unit: Map<number, number>;
+}
+
+/**
+ * Where each run of rows sharing a department, and each run sharing a unit
+ * inside it, begins and how far it reaches.
+ *
+ * Read off the rows as the table is about to draw them — after the search and
+ * the funnels, in the order they are in — so a block opens on the first row that
+ * survived them and covers only the rows still there, and so what the table is
+ * told cannot disagree with what is on screen.
+ */
+function spansOf(rows: Position[]): Spans {
+    const department = new Map<number, number>();
+    const unit = new Map<number, number>();
+    // The row each run began on, so its cell can be told how far it reached once
+    // the run has ended. Undefined is "no row yet", which null — a position
+    // nobody has filed — is not: whatever the first row holds, it opens both of
+    // its blocks.
+    let openDepartment: number | undefined;
+    let openUnit: number | undefined;
+    let lastDepartment: number | null | undefined;
+    let lastUnit: number | null | undefined;
+
+    rows.forEach((position) => {
+        const where = filing(position);
+        const inDepartment = where.department?.id ?? null;
+        const inUnit = where.unit?.id ?? null;
+
+        if (inDepartment !== lastDepartment) {
+            openDepartment = position.id;
+            department.set(position.id, 0);
+            // A unit block never spans two departments, even where the two cells
+            // read the same: ДУЧР and ДФКА both hold positions with no unit
+            // between, and that is two cells rather than one reaching across the
+            // line that divides their departments.
+            lastUnit = undefined;
+        }
+
+        if (inUnit !== lastUnit) {
+            openUnit = position.id;
+            unit.set(position.id, 0);
+        }
+
+        // Every row adds itself to the two cells standing over it.
+        department.set(openDepartment!, department.get(openDepartment!)! + 1);
+        unit.set(openUnit!, unit.get(openUnit!)! + 1);
+
+        lastDepartment = inDepartment;
+        lastUnit = inUnit;
+    });
+
+    return { department, unit };
+}
+
+/** A value the row has not got, written the way the rest of the project writes it. */
+function Empty() {
+    return <span className="text-muted-foreground">—</span>;
 }
 
 /**
@@ -249,7 +387,7 @@ function MoreChip({ hidden, open, onToggle }: { hidden: number; open: boolean; o
 function Duties({ duties, limit }: { duties: string[]; limit?: number }) {
     const [open, setOpen] = useState(false);
 
-    if (duties.length === 0) return <span className="text-muted-foreground">—</span>;
+    if (duties.length === 0) return <Empty />;
 
     // A position with a dozen duties would otherwise make its row as tall as the
     // rest of the table put together, so the row names a few until asked. They
@@ -276,108 +414,82 @@ function Duties({ duties, limit }: { duties: string[]; limit?: number }) {
 }
 
 /**
- * Where the position sits, named the short way and leading to the department's
- * own page, as an abbreviation does everywhere else on screen.
+ * A department named the short way and leading to its own page, as an
+ * abbreviation does everywhere else on screen. It names the whole thing in the
+ * hover rather than saying which of the two levels it is: every full name opens
+ * with «Департамент» or «Отдел» and says so itself.
+ */
+function DepartmentLink({ department }: { department: Department }) {
+    return (
+        <Link href={route('departments.show', department.id)} className="hover:underline" title={`Открыть: ${department.full_name}`}>
+            <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
+        </Link>
+    );
+}
+
+/**
+ * The label of a cell that covers a block of rows, kept in view while the block
+ * goes past.
  *
- * One that nobody has filed says so in as many words, and in the colour of
+ * A department of twenty-one positions is three screens tall. Merged cells were
+ * meant to say what a run of rows belongs to, and a name that has scrolled off
+ * the top says it to nobody: half way down ДФКА the rows read as a list of job
+ * titles again. So the name travels down its own cell and stops at the end of
+ * it, which is the block's end — the next name takes over exactly where the next
+ * block starts, and at no point is a name standing over rows it does not own.
+ *
+ * It comes to rest under the header rather than behind it: the strip of column
+ * names is sticky too, and `--table-head` is how tall the table says it is. The
+ * department's label and its unit's are in two columns side by side, so both can
+ * be at rest at once without meeting — which is the path read across, «ДФКА»
+ * beside «ОПР», over the rows it belongs to.
+ *
+ * A block of its own and a flow of its own: `flex` rather than an inline box,
+ * which sticks unevenly, and `w-fit` so the box is no wider than the name and
+ * the hover and the underline stay on the name itself.
+ */
+function Sticking({ children }: { children: ReactNode }) {
+    return (
+        <span className="sticky flex w-fit" style={{ top: 'var(--table-head, 0px)' }}>
+            {children}
+        </span>
+    );
+}
+/**
+ * A position nobody has filed says so in as many words, and in the colour of
  * something to be dealt with rather than of something missing: a blank cell
  * reads as a page that failed to load, and these rows are the ones somebody has
- * to go and finish.
+ * to go and finish. It says it in both columns, because a column is read down
+ * on its own and each of the two has to answer for itself.
  */
-function DepartmentCell({ position }: { position: Position }) {
-    if (position.department === null) {
-        return (
-            <StatusBadge tone="warning" title="Должность не закреплена за отделом">
-                Без отдела
-            </StatusBadge>
-        );
-    }
-
+function Unfiled({ children }: { children: string }) {
     return (
-        <Link
-            href={route('departments.show', position.department.id)}
-            className="hover:underline"
-            title={`Открыть отдел: ${position.department.full_name}`}
-        >
-            <DepartmentName name={position.department.name} full={position.department.full_name} tooltip={false} />
-        </Link>
+        <StatusBadge tone="warning" title="Должность не закреплена ни за департаментом, ни за отделом">
+            {children}
+        </StatusBadge>
     );
 }
 
-/** The count, and a way into the staff behind it for whoever may read them. */
-function EmployeesCount({ position, canSeeEmployees }: { position: Position; canSeeEmployees: boolean }) {
-    if (position.employees_count === 0) return <span className="text-muted-foreground tabular-nums">0</span>;
-
-    if (!canSeeEmployees) return <span className="tabular-nums">{position.employees_count}</span>;
-
-    return (
-        <Link
-            href={route('employees.index', { position: [position.id] })}
-            className="text-brand-strong tabular-nums hover:underline dark:text-[#C5E27A]"
-            title={`Сотрудники на должности: ${position.display_name}`}
-        >
-            {position.employees_count}
-        </Link>
-    );
-}
-
-/**
- * Who holds the position: the people themselves, each a way to their own card.
- *
- * A dozen names would leave the row taller than the screen, so the column names
- * a few and counts off the rest behind a chip, the way the duties beside them
- * are capped. The chip opens them where they stand.
- */
-function Employees({ position, canSeeEmployees, showsEmployees }: { position: Position; canSeeEmployees: boolean; showsEmployees: boolean }) {
-    const [open, setOpen] = useState(false);
-
-    // Where the staff are closed to the viewer no names arrived; the number
-    // always did, and it is the column they have been reading until now. It also
-    // answers for a position nobody holds, with the same muted zero as before.
-    if (!showsEmployees || position.employees.length === 0) {
-        return <EmployeesCount position={position} canSeeEmployees={canSeeEmployees} />;
-    }
-
-    const shown = open ? position.employees : position.employees.slice(0, EMPLOYEES_SHOWN);
-    const hidden = position.employees.length - shown.length;
-
-    return (
-        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 whitespace-normal">
-            {shown.map((person, index) => (
-                <span key={person.id}>
-                    <PersonLink
-                        id={person.id}
-                        className="text-brand-strong hover:underline dark:text-[#C5E27A]"
-                        title={`Открыть карточку: ${person.name}`}
-                    >
-                        {person.name}
-                    </PersonLink>
-                    {index < shown.length - 1 && ','}
-                </span>
-            ))}
-            {(hidden > 0 || open) && <MoreChip hidden={hidden} open={open} onToggle={() => setOpen(!open)} />}
-        </div>
-    );
-}
-
-/**
- * The holders on one line, for the phone row that has only one to give. The
- * names are capped as the column caps them, and the row opens the position,
- * where all of them stand with their duties.
- */
-function holdersLine(position: Position): string {
-    const shown = position.employees.slice(0, EMPLOYEES_SHOWN);
-    const names = shown.map((person) => person.name).join(', ');
-    const hidden = position.employees.length - shown.length;
-
-    return hidden > 0 ? `${names} +${hidden}` : names;
-}
-
-/** What the phone row says under the name where the holders are not for it to say. */
+/** What the phone row says under where the position sits. */
 function dutiesLine(position: Position): string {
     if (position.duties.length > 0) return position.duties.join(' · ');
 
     return 'Обязанности не заполнены';
+}
+
+/**
+ * «ДАС › ОА» — both steps of where the position sits, on the one line a phone
+ * row has, written the way a department's own page writes a path. A position
+ * filed in a department with no unit between is that department alone, and one
+ * nobody has filed says so instead, in the colour of something to be dealt
+ * with: that is how the unfiled ones are found on a phone at all.
+ */
+function StructureLine({ position }: { position: Position }) {
+    const { department, unit } = filing(position);
+
+    if (department === null) return <span className="text-[#9A4A06] dark:text-[#F8C471]">без департамента и отдела</span>;
+
+    return <span>{unit === null ? department.name : `${department.name} › ${unit.name}`}</span>;
 }
 
 /** The "⋯" at the end of a row, for whoever keeps the list. */
@@ -603,42 +715,58 @@ function DeleteDialog({ position, onClose }: { position: Position; onClose: () =
     );
 }
 
-export default function PositionsIndex({ positions, options, canEdit, canSeeEmployees, showsEmployees }: Props) {
+/** Nothing chosen in either funnel: the whole list. */
+const NOTHING_CHOSEN: Narrowing = { department: [], unit: [] };
+
+export default function PositionsIndex({ positions, options, canEdit }: Props) {
     const { view, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
-    // The departments the list is narrowed to, kept here beside the search and
-    // the order, which this page has never asked the server for either.
-    const [chosen, setChosen] = useState<Chosen>([]);
+    // The departments and the units the list is narrowed to, kept here beside
+    // the search and the order, which this page has never asked the server for
+    // either.
+    const [chosen, setChosen] = useState<Narrowing>(NOTHING_CHOSEN);
     const [editing, setEditing] = useState<Position | 'new' | null>(null);
     const [deleting, setDeleting] = useState<Position | null>(null);
 
     const tableColumns = useMemo(() => buildColumns(options.departments), [options.departments]);
-    const filters: FilterValues = { department: chosen };
-    const applyFilter = (changes: FilterValues) => setChosen((changes.department as Chosen | undefined) ?? []);
+    const filters: FilterValues = { department: chosen.department, unit: chosen.unit };
+    // A funnel reports only its own column, so what it says is laid over what
+    // the other one is already set to.
+    const applyFilter = (changes: FilterValues) => setChosen((current) => ({ ...current, ...(changes as Partial<Narrowing>) }));
 
-    // A position is searched for by what it is called, by where it sits, by what
-    // it does and by who does it: a duty, or a colleague, is often what somebody
-    // remembers of a job title they cannot name, and the department is half of
-    // what a repeated name means. Names are read where they are on screen; where
-    // the staff are closed none arrived and there is nothing to search.
+    const narrowed = chosen.department.length > 0 || chosen.unit.length > 0;
+
+    // A position is searched for by what it is called, by where it sits and by
+    // what it does: a duty is often what somebody remembers of a job title they
+    // cannot name, and the department is half of what a repeated name means.
+    // Both steps of the structure answer, so «ДАС» finds the positions of its
+    // units as well as its own.
+    //
+    // A holder's name used to answer here too, and no longer does: the names are
+    // not on this screen any more, and a search that quietly matches something
+    // invisible leaves somebody looking at rows with no sign of why they are
+    // there. "Which position does this person hold?" is a question for the staff
+    // list, which narrows by position, and for the card itself.
     const rows = useMemo(() => {
         const term = query.trim().toLowerCase();
-        const narrowed = chosen.length > 0 ? positions.filter((position) => inChosen(position, chosen)) : positions;
+        const kept = narrowed ? positions.filter((position) => inChosen(position, chosen)) : positions;
 
         const found = term
-            ? narrowed.filter(
-                  (position) =>
+            ? kept.filter((position) => {
+                  const { department, unit } = filing(position);
+                  const where = [department?.name, department?.full_name, unit?.name, unit?.full_name];
+
+                  return (
                       position.name.toLowerCase().includes(term) ||
-                      position.department?.name.toLowerCase().includes(term) ||
-                      position.department?.full_name.toLowerCase().includes(term) ||
-                      position.duties.some((duty) => duty.toLowerCase().includes(term)) ||
-                      position.employees.some((person) => person.name.toLowerCase().includes(term)),
-              )
-            : narrowed;
+                      where.some((name) => name?.toLowerCase().includes(term)) ||
+                      position.duties.some((duty) => duty.toLowerCase().includes(term))
+                  );
+              })
+            : kept;
 
         return [...found].sort((a, b) => compare(a, b, sort));
-    }, [positions, query, sort, chosen]);
+    }, [positions, query, sort, chosen, narrowed]);
 
     /** Every duty written anywhere, offered to the next position to be entered. */
     const suggestions = useMemo(
@@ -646,44 +774,115 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
         [positions],
     );
 
+    /**
+     * Whether a department and a unit are drawn as one cell over the rows they
+     * hold, rather than as a cell apiece.
+     *
+     * A merged cell is a claim about the rows it covers, and the claim holds only
+     * in the order the list opens in: there the structure is read down, a
+     * department's own positions and all of its units stand inside its own run,
+     * and a cell can reach across twenty-one rows and be telling the truth about
+     * every one of them. Put in order by «Отдел» the units stand together but
+     * their departments are scattered among them; by «Должность» nothing stands
+     * together at all.
+     *
+     * So the table is merged exactly while it is at rest, and any sorting at all
+     * flattens it. That is a sharper line than "while the rows happen to be in
+     * runs" — «Департамент» upside down keeps its runs too — but it is the line
+     * the viewer can read everywhere else on the page at the same time: the
+     * header arrow, the count on the phone's sort button and the «Сбросить всё»
+     * it offers all say the same one thing, that the list has been put in an
+     * order of somebody's own. A table that was merged while claiming to be
+     * sorted would leave all four of them disagreeing.
+     *
+     * The search and the funnels change nothing here: they take rows away and
+     * leave the order alone, so whatever survives is still in runs.
+     */
+    const grouped = !isSorted(sort, DEFAULT_SORT);
+    const spans = useMemo(() => spansOf(rows), [rows]);
+
+    /**
+     * How far each cell of the two structure columns reaches. One row, or none at
+     * all where the cell above has already covered this row; the other two
+     * columns are a cell per row whatever the order, since a position and its
+     * duties are its own.
+     */
+    const rowSpan = (column: ColumnDef, position: Position) => {
+        if (!grouped || (column.key !== 'department' && column.key !== 'unit')) return 1;
+
+        return spans[column.key].get(position.id) ?? 0;
+    };
+
+    /**
+     * What the line above the table says once the cells have come apart: the
+     * column the rows are in order by, and the order that merges them again,
+     * named exactly as the header menu names it — «По возрастанию» is the wording
+     * a viewer is about to read there. Both columns are read off the table rather
+     * than written out, so a header renamed is this sentence renamed with it;
+     * every key the table sorts by is a column of it, and the one the list opens
+     * in is the first.
+     */
+    const shapeNote = grouped
+        ? null
+        : `Порядок — по «${columns.find((column) => column.key === sort.key)!.label}», а не по структуре: ` +
+          `департамент и отдел названы в каждой строке. Ячейки снова объединятся в исходном порядке — ` +
+          `по «${columns[0].label}», по возрастанию.`;
+
     const cell = (column: ColumnDef, position: Position) => {
+        const { department, unit } = filing(position);
+        // Merged, the name of a cell stays in view while the rows it covers go
+        // past. Apart, a cell is one row tall and there is nothing for a name to
+        // outlast, so it is drawn where it stands.
+        const label = (named: ReactNode) => (grouped ? <Sticking>{named}</Sticking> : named);
+
         switch (column.key) {
-            case 'name':
+            // Both of these are drawn once per cell, and a cell is a block of rows
+            // while the table is grouped and a single row otherwise. Which rows a
+            // cell covers is `rowSpan`'s to say; what is in it does not change
+            // with it, so there is nothing here that has to know.
+            case 'department':
+                return label(department === null ? <Unfiled>Без департамента</Unfiled> : <DepartmentLink department={department} />);
+            case 'unit':
+                // A department may hold positions with no unit between — ДУЧР has
+                // no units at all — and that is nothing to fix, so the cell reads
+                // as an empty value rather than as the amber beside it. Grouped,
+                // that one «—» stands over the whole run of the department's own
+                // positions, which is how the sketch this was drawn from reads.
+                // One with no department has no unit either, and says so.
+                if (unit !== null) return label(<DepartmentLink department={unit} />);
+
+                return label(department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />);
+            case 'duties':
+                return <Duties duties={position.duties} limit={DUTIES_SHOWN} />;
+            default:
                 return (
                     <Link
                         href={route('positions.show', position.id)}
                         // Brand colour and an underline on hover: the app's mark of a
                         // link. A job title is the whole point of the row, so it wraps
                         // rather than being cut at the edge of the column. The hover
-                        // names the department too, for whoever hid that column.
+                        // names the department too, for whoever hid those columns.
                         className="text-brand-strong font-medium whitespace-normal hover:underline dark:text-[#C5E27A]"
                         title={`Открыть должность: ${position.display_name}`}
                     >
                         {position.name}
                     </Link>
                 );
-            case 'department':
-                return <DepartmentCell position={position} />;
-            case 'duties':
-                return <Duties duties={position.duties} limit={DUTIES_SHOWN} />;
-            default:
-                return <Employees position={position} canSeeEmployees={canSeeEmployees} showsEmployees={showsEmployees} />;
         }
     };
 
-    // The box reads whatever is on screen, and the names are not on every screen.
-    const searchHint = showsEmployees ? 'Поиск по названию, отделу, обязанностям и сотрудникам' : 'Поиск по названию, отделу и обязанностям';
+    // The box reads what is on screen, and nothing else: all four columns.
+    const searchHint = 'Поиск по названию, департаменту, отделу и обязанностям';
 
     /**
      * An empty list has to say which of the two reasons emptied it. A department
      * without a single position of its own is the likelier one, and "nothing
      * found" would leave somebody retyping a search that was never the trouble,
-     * so the department answers for itself — by name while there is one name to
+     * so the narrowing answers for itself — by name while there is one name to
      * give.
      */
-    const chosenDepartments = options.departments.filter((department) => chosen.includes(department.id));
-    const noneHere = chosen.length > 0 && !positions.some((position) => inChosen(position, chosen));
-    const empty = positions.length === 0 ? 'Должностей пока нет.' : noneHere ? emptyMessage(chosen, chosenDepartments) : 'Ничего не найдено.';
+    const noneHere = narrowed && !positions.some((position) => inChosen(position, chosen));
+    const empty = positions.length === 0 ? 'Должностей пока нет.' : noneHere ? emptyMessage(chosen, options.departments) : 'Ничего не найдено.';
 
     return (
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
@@ -714,14 +913,15 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                         sort={sort}
                         sortable={sortable}
                         onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
+                        // The opening order is a column of the table now, and the
+                        // sheet lists every column it can be put in order by, so
+                        // there is no name left for this to give it.
                         defaultSort={DEFAULT_SORT}
-                        // No header carries the opening order, so the sheet names it.
-                        defaultSortLabel="Дата добавления"
                         // One visit clears both, so neither is left narrowing a list
                         // somebody has just put back in order.
                         onReset={() => {
                             setSort(DEFAULT_SORT);
-                            setChosen([]);
+                            setChosen(NOTHING_CHOSEN);
                         }}
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
@@ -735,18 +935,46 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                     )}
                 </div>
 
+                {/* Said once, above the table, and only once the order has pulled
+                    the cells apart: the table changed shape under somebody's
+                    hands, and nobody should have to work out that the press that
+                    did it was a sort arrow a line above. It names the column the
+                    rows are in order by and the column that merges them again, so
+                    the way back is the sentence itself.
+
+                    Nothing above a grouped table: a cell standing over the rows it
+                    holds explains itself, and a line that is always there is a
+                    line nobody reads. And nothing on a phone, which has no columns
+                    and so no cells to merge. */}
+                {shapeNote && <p className="text-muted-foreground text-[13px] max-md:hidden">{shapeNote}</p>}
+
                 <DataTable
                     columns={tableColumns}
                     rows={rows}
                     rowKey={(position) => position.id}
                     renderCell={cell}
+                    // The structure drawn as the structure: one cell per
+                    // department over the rows it holds, one per unit inside it.
+                    // The table knows nothing about blocks and does not need to —
+                    // it asks how far a cell reaches and draws it that far.
+                    rowSpan={rowSpan}
+                    // Lines down the columns as well as between the rows. A cell
+                    // covering twenty-one rows needs an edge sideways or it is
+                    // only a name with a lot of air under it, and the four
+                    // columns of this table are four kinds of thing rather than
+                    // four facts about one. They stay drawn whichever column the
+                    // table is ordered by: a column boundary is true in every
+                    // order, and a table that changed two things at once on a
+                    // press of a header would be harder to follow, not easier.
+                    gridlines
                     sort={sort}
                     sortable={sortable}
                     onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
                     filters={filters}
                     onFilter={applyFilter}
-                    // A tree of departments needs more room than a short list.
-                    wideFilter={(column) => column.key === 'department'}
+                    // Both lists of departments spell a full name out beside an
+                    // abbreviation, which needs more room than a short label.
+                    wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                     view={view}
                     onPin={pin}
                     reorderable
@@ -765,35 +993,25 @@ export default function PositionsIndex({ positions, options, canEdit, canSeeEmpl
                             href={route('positions.show', position.id)}
                             title={position.name}
                             // There are no columns on a phone, so the line under the
-                            // name opens with the department: twenty of these names
-                            // repeat, and a row saying «Аналитик» alone could be any of
-                            // them. It goes first because the line is cut at the edge
-                            // of the screen and an abbreviation is short — the people
-                            // after it are what gives way, and the page the row opens
-                            // names them in full. One nobody has filed says so here, in
-                            // the colour of something to be dealt with: that is how the
-                            // unplaced ones are found on a phone at all.
+                            // name opens with where the position sits: twenty of these
+                            // names repeat, and a row saying «Аналитик» alone could be
+                            // any of them. It goes first because the line is cut at the
+                            // edge of the screen and two abbreviations are short — the
+                            // duties after them are what gives way, and the page the row
+                            // opens has them in full, with the holders beside them.
                             //
-                            // After the department come the people, which is what the
-                            // column beside the name is for; the duties — which a phone
-                            // could only ever show the first of — wait on the page the
-                            // row opens, where the holders stand with them. With no
-                            // holders to name, or none for this viewer to read, that
-                            // part stays the duties, as it has been.
+                            // Nothing is left out of it, however the rows are ordered.
+                            // The cells the table merges belong to a column read down;
+                            // a phone row is read on its own, and «ДАС › ОА» repeated
+                            // down a list of them is what tells one run from the next.
+                            // The order is the same structural one the table opens in,
+                            // so those runs are there to be read.
                             subtitle={
                                 <>
-                                    <span className={cn(!position.department && 'text-[#9A4A06] dark:text-[#F8C471]')}>
-                                        {position.department ? position.department.name : 'без отдела'}
-                                    </span>
+                                    <StructureLine position={position} />
                                     {' · '}
-                                    {showsEmployees && position.employees.length > 0 ? holdersLine(position) : dutiesLine(position)}
+                                    {dutiesLine(position)}
                                 </>
-                            }
-                            // Names take the room, so the number keeps to the edge.
-                            meta={
-                                <span className="tabular-nums" title={peopleLabel(position.employees_count)}>
-                                    {position.employees_count}
-                                </span>
                             }
                             trailing={
                                 canEdit ? (
