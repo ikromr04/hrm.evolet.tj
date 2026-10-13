@@ -1,6 +1,30 @@
 import { router, usePage } from '@inertiajs/react';
-import { useEffect, useRef, useState } from 'react';
-import { type Sort, type ViewState } from './types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type Sort, type TableView, type ViewState } from './types';
+
+/**
+ * How narrow and how wide a column may be dragged.
+ *
+ * The floor is what it takes for a column to stay usable at all: its header
+ * keeps the funnel and the menu, and the menu is the only way back for a column
+ * dragged down to nothing — a column squeezed until its own menu is out of reach
+ * could only be recovered by resetting the whole view. The label gives way
+ * instead and is cut short.
+ *
+ * The ceiling is about as wide as the card a table is drawn in, which is the
+ * widest a column can be and still be a column rather than the whole page. It
+ * is there so that one wild sweep of the mouse cannot push every other column
+ * off the far side of the screen — and it has to leave room for the column that
+ * fills a table, which is drawn as wide as whatever the others leave it and can
+ * only be made wider than that by being dragged past the edge of the card.
+ */
+export const MIN_COLUMN_WIDTH = 96;
+export const MAX_COLUMN_WIDTH = 1600;
+
+/** A width as it may be stored: whole pixels, between the two limits. */
+function clampWidth(width: number): number {
+    return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width)));
+}
 
 function load(key: string, fallback: ViewState, known: string[]): ViewState {
     try {
@@ -12,11 +36,21 @@ function load(key: string, fallback: ViewState, known: string[]): ViewState {
         // A view saved before columns could be dragged has no order at all; that
         // is the page's own order, and so is an order left with nothing in it.
         const order = Array.isArray(saved.order) ? kept(saved.order) : [];
+        // Likewise for widths, which are read one by one: a column that has been
+        // renamed or dropped since leaves no ghost behind, and a width that is
+        // not a number — or is one from before the limits were what they are —
+        // is brought back inside them rather than trusted.
+        const widths = Object.fromEntries(
+            Object.entries(saved.widths ?? {})
+                .filter(([column, width]) => known.includes(column) && typeof width === 'number' && Number.isFinite(width))
+                .map(([column, width]) => [column, clampWidth(width)]),
+        );
 
         return {
             hidden: kept(saved.hidden),
             pinned: { left: kept(saved.pinned.left), right: kept(saved.pinned.right) },
             ...(order.length > 0 ? { order } : {}),
+            ...(Object.keys(widths).length > 0 ? { widths } : {}),
         };
     } catch {
         return fallback;
@@ -109,9 +143,9 @@ export function orderedColumns<Column extends { key: string }>(columns: Column[]
 }
 
 /**
- * Which columns a viewer hid, pinned or dragged into another order, remembered
- * between visits. The key carries a version: bump it when the columns change so
- * badly that an old view would be nonsense.
+ * Which columns a viewer hid, pinned, dragged into another order or dragged
+ * wider, remembered between visits. The key carries a version: bump it when the
+ * columns change so badly that an old view would be nonsense.
  */
 export function useTableView(storageKey: string, columnKeys: string[], fallback: ViewState) {
     const [view, setView] = useState<ViewState>(() => load(storageKey, fallback, columnKeys));
@@ -137,6 +171,22 @@ export function useTableView(storageKey: string, columnKeys: string[], fallback:
         setView((current) => reorderColumn(current, columnKeys, key, target, place));
 
     /**
+     * How wide a viewer dragged a column, or `null` to forget it and let the
+     * page's own width stand again. It travels with the view rather than back
+     * out to the page, so it has to keep the same identity between renders.
+     */
+    const resize = useCallback((key: string, width: number | null) => {
+        setView((current) => {
+            const widths = { ...current.widths };
+
+            if (width === null) delete widths[key];
+            else widths[key] = clampWidth(width);
+
+            return { ...current, widths };
+        });
+    }, []);
+
+    /**
      * The columns in the order the table draws them — the pins at their edges,
      * everything else in between — which is how `orderedColumns` lays a menu
      * out. Hidden ones keep their place in it, since they are the ones a menu
@@ -148,7 +198,10 @@ export function useTableView(storageKey: string, columnKeys: string[], fallback:
         ...view.pinned.right.filter((key) => columnKeys.includes(key)),
     ];
 
-    return { view, setView, pin, toggleHidden, reorder, order };
+    // The table is handed the view with its own way of writing a width down.
+    const table: TableView = useMemo(() => ({ ...view, resize }), [view, resize]);
+
+    return { view: table, setView, pin, toggleHidden, reorder, resize, order };
 }
 
 export function resetView(storageKey: string) {

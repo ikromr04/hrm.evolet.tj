@@ -9,12 +9,34 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, EllipsisVertical, EyeOff, GripVertical, Pin, PinOff } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
+import {
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    ArrowUp,
+    ArrowUpDown,
+    ChevronsLeftRight,
+    ChevronsRightLeft,
+    EllipsisVertical,
+    EyeOff,
+    GripVertical,
+    Pin,
+    PinOff,
+    RotateCcw,
+} from 'lucide-react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type ReactNode } from 'react';
 import { ColumnFilter, isFilterActive } from './filters';
 import { HeaderHint } from './hint';
-import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type ViewState } from './types';
-import { orderedKeys } from './view';
+import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type TableView } from './types';
+import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, orderedKeys } from './view';
+
+/**
+ * How much of a column's width a press of «шире» or «уже» is worth: enough that
+ * two or three presses are a real change, little enough to stop where you meant
+ * to. The menu stays open between presses, so stepping is a matter of pressing
+ * again rather than of finding the menu again.
+ */
+const WIDTH_STEP = 40;
 
 /** Room for the sticky column of row actions at the right edge. */
 export const ACTIONS_WIDTH = 56;
@@ -38,7 +60,13 @@ interface DataTableProps<Row> {
     /** Which filter popovers need the wider layout. */
     wideFilter?: (column: ColumnDef) => boolean;
 
-    view: ViewState;
+    /**
+     * What the viewer has made of the columns. Hiding, pinning and the order are
+     * asked back of the page; a width the view carries its own way of writing
+     * down, and a view without one is a table whose columns cannot be dragged
+     * wider.
+     */
+    view: TableView;
     onPin: (key: string, side: 'left' | 'right' | null) => void;
     /**
      * Whether the headers carry a grip to drag a column into another place. A
@@ -102,9 +130,9 @@ interface DataTableProps<Row> {
 
 /**
  * The table behind the employee and equipment lists: columns a viewer can sort,
- * filter, pin to either edge or hide — and, where a page asks for it, drag into
- * another order — with the choice remembered between visits. Rows and cells
- * belong to the page; everything around them lives here.
+ * filter, pin to either edge, hide, drag wider or narrower — and, where a page
+ * asks for it, drag into another order — with the choice remembered between
+ * visits. Rows and cells belong to the page; everything around them lives here.
  */
 export function DataTable<Row>({
     columns,
@@ -131,6 +159,29 @@ export function DataTable<Row>({
     footer,
     mobileRow,
 }: DataTableProps<Row>) {
+    /**
+     * The column whose edge is being dragged right now, with the width it has
+     * reached. The width lives here while the hand is down — the view is written
+     * to storage on every change, and a drag of a hundred pixels is a hundred
+     * changes — and goes into the view once, when the hand comes up.
+     */
+    const [resizing, setResizing] = useState<{ key: string; width: number } | null>(null);
+    /* Where the drag began: the pointer, and the width the column had then. */
+    const resizeFrom = useRef({ x: 0, width: 0 });
+
+    /**
+     * How wide a column is drawn: what the hand is doing to it this instant,
+     * else what the viewer dragged it to before, else the page's own answer.
+     * Everything that measures a column asks here — the header cells, the width
+     * of the table and the offsets that hold the pinned columns at their edges.
+     */
+    const widthOf = (column: ColumnDef) => (resizing?.key === column.key ? resizing.width : (view.widths?.[column.key] ?? column.width));
+
+    /** Whether a column stands at a width of the viewer's own choosing. */
+    const isResized = (column: ColumnDef) => view.widths?.[column.key] !== undefined;
+
+    const clampWidth = (width: number) => Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width)));
+
     /* Left-pinned first, then the rest in their own order, then right-pinned. */
     const isHidden = (key: string) => view.hidden.includes(key);
     const pinSide = (key: string) => (view.pinned.left.includes(key) ? 'left' : view.pinned.right.includes(key) ? 'right' : null);
@@ -237,19 +288,102 @@ export function DataTable<Row>({
         return run[run.indexOf(column) + by];
     };
 
-    const actionsWidth = actions ? ACTIONS_WIDTH : 0;
-    const tableWidth = visible.reduce((sum, column) => sum + column.width, 0) + actionsWidth;
+    /**
+     * The column that takes whatever room is left over, where the columns do not
+     * fill the card by themselves.
+     *
+     * A fixed table hands a box wider than its columns out in proportion to what
+     * each column asks for, so every column would grow a little whenever one of
+     * them grew, and a dragged edge would trail behind the hand dragging it. One
+     * column is therefore left without a width of its own: the browser gives it
+     * the whole of what is left over and leaves every other column at exactly
+     * the width it declares. The table fills its card with something worth
+     * reading rather than with a gap, and an edge follows the pointer one for
+     * one from the first press.
+     *
+     * A page says which column that should be — the one whose content is glad of
+     * the room, a name or a list of duties — and where a page says nothing the
+     * last of the scrolling columns takes it, that being where the spare room
+     * would have shown. Only a column that scrolls can do the work: a pinned one
+     * is held to an edge and sized by the offsets of its neighbours.
+     *
+     * The trade is worth saying plainly: this one column changes width when its
+     * neighbours change, because filling is its job, and it is the only column
+     * that does. Dragging it is still worth something — its own width is the
+     * floor it fills up from, so widening it past the room there is makes the
+     * table scroll — but the filling wins over the width written down for it: a
+     * column asked to leave no gap cannot also be the one that leaves one.
+     */
+    const fills = center.find((column) => column.fill) ?? center.at(-1);
 
+    /**
+     * The width a column is drawn at, which for the filling column is not the
+     * width it declares. A drag and the menu's steps both start from what the
+     * eye sees, so that an edge follows the hand from the first press and «шире»
+     * widens by as much as it says.
+     */
+    const drawnWidth = (column: ColumnDef) =>
+        column === fills ? Math.round(cells.current.get(column.key)?.getBoundingClientRect().width ?? widthOf(column)) : widthOf(column);
+
+    /**
+     * The drag of a column's edge begins. The handle captures the pointer, so
+     * the rest of the gesture comes back to it however far out of the cell — or
+     * out of the table, or out of the window — the hand wanders, and the browser
+     * hands the capture back by itself if the gesture is taken away.
+     *
+     * The press is deliberately not prevented: a prevented press is a press the
+     * browser reports no double-click for, and a double-click on the handle is
+     * how a width is put back. What prevention would have been for — the header
+     * being selected as text by the drag — the table answers with a class while
+     * a drag is on.
+     */
+    const startResize = (event: PointerEvent<HTMLSpanElement>, column: ColumnDef) => {
+        // The main button only; the others belong to the browser's own menus.
+        if (event.button !== 0) return;
+
+        event.currentTarget.setPointerCapture(event.pointerId);
+        resizeFrom.current = { x: event.clientX, width: drawnWidth(column) };
+        setResizing({ key: column.key, width: drawnWidth(column) });
+    };
+
+    const moveResize = (event: PointerEvent<HTMLSpanElement>, column: ColumnDef) => {
+        if (resizing?.key !== column.key) return;
+
+        setResizing({ key: column.key, width: clampWidth(resizeFrom.current.width + event.clientX - resizeFrom.current.x) });
+    };
+
+    /**
+     * The hand comes up, or the gesture is taken away mid-drag, and the width
+     * the column reached is written into the view. A press that moved nothing
+     * writes nothing down: a column nobody has dragged should go on taking
+     * whatever width its page gives it, through any later change of mind.
+     */
+    const endResize = (column: ColumnDef) => {
+        if (resizing?.key !== column.key) return;
+
+        if (resizing.width !== resizeFrom.current.width) view.resize?.(column.key, resizing.width);
+        setResizing(null);
+    };
+
+    const actionsWidth = actions ? ACTIONS_WIDTH : 0;
+    const tableWidth = visible.reduce((sum, column) => sum + widthOf(column), 0) + actionsWidth;
+
+    /**
+     * Where a pinned column comes to rest: as far in as the columns pinned
+     * before it reach. The widths they are drawn at, not the ones their page
+     * wrote down — a column dragged wider pushes the ones pinned after it along,
+     * and both edges are read the same way, outwards from the edge they hold to.
+     */
     const stickyStyle = (column: ColumnDef): CSSProperties => {
         const side = pinSide(column.key);
 
         if (side === 'left') {
             const index = left.indexOf(column);
-            return { left: left.slice(0, index).reduce((sum, c) => sum + c.width, 0) };
+            return { left: left.slice(0, index).reduce((sum, c) => sum + widthOf(c), 0) };
         }
         if (side === 'right') {
             const index = right.indexOf(column);
-            return { right: right.slice(index + 1).reduce((sum, c) => sum + c.width, actionsWidth) };
+            return { right: right.slice(index + 1).reduce((sum, c) => sum + widthOf(c), actionsWidth) };
         }
 
         return {};
@@ -309,7 +443,15 @@ export function DataTable<Row>({
                 // it reads how far down the header reaches.
                 style={{ '--table-head': `${headHeight}px` } as CSSProperties}
             >
-                <table className="min-w-full table-fixed border-collapse text-sm" style={{ width: tableWidth }}>
+                <table
+                    // While an edge is being dragged the whole table takes the
+                    // two-headed arrow and stops selecting text, so that a hand
+                    // that wanders off the handle mid-drag — which it will, the
+                    // handle being two millimetres wide — neither loses the
+                    // cursor nor paints the headers blue on the way.
+                    className={cn('min-w-full table-fixed border-collapse text-sm', resizing && 'cursor-col-resize select-none')}
+                    style={{ width: tableWidth }}
+                >
                     <thead ref={head} className="bg-sidebar sticky top-0 z-30">
                         <tr className="text-muted-foreground text-left text-[13px] whitespace-nowrap">
                             {visible.map((column, index) => {
@@ -327,7 +469,9 @@ export function DataTable<Row>({
                                         }}
                                         scope="col"
                                         aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
-                                        style={{ width: column.width, ...stickyStyle(column) }}
+                                        // The filling column asks for no width at all, which is
+                                        // what makes the browser hand it the room left over.
+                                        style={{ width: column === fills ? undefined : widthOf(column), ...stickyStyle(column) }}
                                         onDragOver={reorderable ? (event) => dragOver(event, column) : undefined}
                                         onDrop={
                                             reorderable
@@ -339,7 +483,9 @@ export function DataTable<Row>({
                                                 : undefined
                                         }
                                         className={cn(
-                                            'group/header px-4 py-2.5 font-semibold',
+                                            // relative: the handle that widens the column lies
+                                            // along this cell's own right edge.
+                                            'group/header relative px-4 py-2.5 font-semibold',
                                             index === 0 && 'pl-6',
                                             index === visible.length - 1 && !actions && 'pr-6',
                                             stickyClass(column, true),
@@ -348,21 +494,25 @@ export function DataTable<Row>({
                                             dropLine(column),
                                         )}
                                     >
-                                        <div className="flex items-center gap-0.5">
+                                        {/* The label gives way when a column is dragged narrow:
+                                            it is cut short, and the funnel and the menu stay
+                                            where they are, since the menu is what a column too
+                                            narrow to read is widened again from. */}
+                                        <div className="flex min-w-0 items-center gap-0.5">
                                             {canSort ? (
                                                 <button
                                                     type="button"
                                                     onClick={() => onSort(column.key)}
                                                     className={cn(
-                                                        'hover:text-foreground -ml-1 inline-flex shrink-0 items-center gap-1.5 rounded px-1 py-0.5',
+                                                        'hover:text-foreground -ml-1 inline-flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5',
                                                         active && 'text-foreground',
                                                     )}
                                                 >
-                                                    <span>{column.label}</span>
+                                                    <span className="truncate">{column.label}</span>
                                                     <SortIcon className={cn('size-3.5 shrink-0', !active && 'opacity-40')} aria-hidden="true" />
                                                 </button>
                                             ) : (
-                                                <span>{column.label}</span>
+                                                <span className="truncate">{column.label}</span>
                                             )}
 
                                             <div className="ml-auto flex shrink-0 items-center gap-0.5">
@@ -454,6 +604,46 @@ export function DataTable<Row>({
                                                             </>
                                                         )}
 
+                                                        {/* The drag of an edge in words, for anyone
+                                                            not dragging a mouse — and the way back
+                                                            for a column dragged too far. The menu
+                                                            is held open on a press, because a width
+                                                            is arrived at by stepping: closing it
+                                                            would make every further step a matter
+                                                            of finding the menu again. */}
+                                                        {view.resize && (
+                                                            <>
+                                                                <DropdownMenuItem
+                                                                    disabled={drawnWidth(column) >= MAX_COLUMN_WIDTH}
+                                                                    onSelect={(event) => {
+                                                                        event.preventDefault();
+                                                                        view.resize?.(column.key, drawnWidth(column) + WIDTH_STEP);
+                                                                    }}
+                                                                >
+                                                                    <ChevronsLeftRight />
+                                                                    Шире
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuItem
+                                                                    disabled={drawnWidth(column) <= MIN_COLUMN_WIDTH}
+                                                                    onSelect={(event) => {
+                                                                        event.preventDefault();
+                                                                        view.resize?.(column.key, drawnWidth(column) - WIDTH_STEP);
+                                                                    }}
+                                                                >
+                                                                    <ChevronsRightLeft />
+                                                                    Уже
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuItem
+                                                                    disabled={!isResized(column)}
+                                                                    onSelect={() => view.resize?.(column.key, null)}
+                                                                >
+                                                                    <RotateCcw />
+                                                                    Ширина по умолчанию
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuSeparator />
+                                                            </>
+                                                        )}
+
                                                         <DropdownMenuRadioGroup
                                                             value={side ?? 'none'}
                                                             onValueChange={(value) =>
@@ -486,6 +676,36 @@ export function DataTable<Row>({
                                                 </DropdownMenu>
                                             </div>
                                         </div>
+
+                                        {/* The width, dragged. The handle is the column's own
+                                            boundary rather than another button in the row of
+                                            them: it lies along the cell's right edge, clear of
+                                            the grip and the menu, it is the only thing in a
+                                            header that answers to a two-headed arrow, and what
+                                            it shows under the pointer is a line down the whole
+                                            header — where the grip is a hand on a pair of dots,
+                                            inside the cell, beside the funnel. A double-press
+                                            puts the column back to the width its page gives it.
+                                            Nothing here for a keyboard or a screen reader, for
+                                            the same reason as the grip: the menu beside it says
+                                            the same thing in words. */}
+                                        {view.resize && (
+                                            <span
+                                                aria-hidden="true"
+                                                onPointerDown={(event) => startResize(event, column)}
+                                                onPointerMove={(event) => moveResize(event, column)}
+                                                onLostPointerCapture={() => endResize(column)}
+                                                onDoubleClick={() => view.resize?.(column.key, null)}
+                                                className="group/resize absolute inset-y-0 right-0 z-10 flex w-2 cursor-col-resize touch-none justify-end select-none"
+                                            >
+                                                <span
+                                                    className={cn(
+                                                        'bg-ring w-0.5 opacity-0 group-hover/header:opacity-30 group-hover/resize:opacity-100',
+                                                        resizing?.key === column.key && 'opacity-100',
+                                                    )}
+                                                />
+                                            </span>
+                                        )}
                                     </th>
                                 );
                             })}

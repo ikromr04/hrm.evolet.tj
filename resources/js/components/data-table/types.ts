@@ -25,7 +25,21 @@ export type FilterDef =
 export interface ColumnDef {
     key: string;
     label: string;
+    /**
+     * How wide the column is drawn, in pixels, until a viewer drags its edge:
+     * the page's own answer, and the one a reset and the column's menu come
+     * back to.
+     */
     width: number;
+    /**
+     * Whether this is the column that takes up whatever room the others leave.
+     * A table narrower than its card has to put that room somewhere, and the
+     * page knows which of its columns is glad of it — a name, a list of duties.
+     * At most one column says so; where none does, the last of the columns that
+     * scroll takes it. The width above is then the least it will be drawn at,
+     * not the width it is drawn at.
+     */
+    fill?: boolean;
     filter?: FilterDef;
     /** Anything else a page wants to keep on a column, e.g. whether it is private. */
     [extra: string]: unknown;
@@ -37,18 +51,39 @@ export interface Sort {
 }
 
 /**
- * Which columns are hidden, which are pinned to an edge, and the order a viewer
- * dragged them into. The order is left out until something is dragged, and a
- * view saved before the dragging existed has none either, so an absent order
- * means the page's own one — which is also what a reset returns to. The order
- * names the unpinned columns; a pinned one takes its place from the side it is
- * pinned to.
+ * Which columns are hidden, which are pinned to an edge, the order a viewer
+ * dragged them into and how wide they were dragged. The order is left out until
+ * something is dragged, and a view saved before the dragging existed has none
+ * either, so an absent order means the page's own one — which is also what a
+ * reset returns to. The order names the unpinned columns; a pinned one takes its
+ * place from the side it is pinned to.
+ *
+ * The widths name only the columns a viewer has actually dragged; every other
+ * column keeps the width its page gives it, so a page may still change its mind
+ * about a column nobody has touched, and a view saved before any of this could
+ * be dragged is simply a view in which nobody has.
  */
 export interface ViewState {
     hidden: string[];
     pinned: { left: string[]; right: string[] };
     order?: string[];
+    widths?: Record<string, number>;
 }
+
+/**
+ * A view as a table is handed one: everything that is written down, plus the one
+ * thing the table cannot write down itself.
+ *
+ * A width is set by dragging inside the table, but the table has no idea where
+ * views are kept — the key belongs to the page. Pinning and reordering ask the
+ * page in so many props; a width arrives with the view instead, so that the six
+ * tables already in the app can be dragged without each of their pages having to
+ * hand on one more callback first. A view with no `resize` — one a page made by
+ * hand — is a table whose columns cannot be dragged wider, exactly as before.
+ *
+ * `null` for the width puts a column back to the one its page gives it.
+ */
+export type TableView = ViewState & { resize?: (key: string, width: number | null) => void };
 
 /** Whatever shape of filters a page uses; the table only reads them by param. */
 export type FilterValues = Record<string, unknown>;
