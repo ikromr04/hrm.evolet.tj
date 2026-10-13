@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\User;
+use App\Rules\LatinEmail;
 use App\Support\Access;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -131,7 +132,7 @@ class CreateSysadmin extends Command
             'name' => ['required', 'string', 'max:100'],
             'patronymic' => ['nullable', 'string', 'max:100'],
             'sex' => ['required', Rule::in(['male', 'female'])],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique('users', 'email')],
+            'email' => ['required', 'string', 'lowercase', 'email', new LatinEmail, 'max:255', Rule::unique('users', 'email')],
             'password' => ['required', 'string', Password::defaults()],
         ];
     }

@@ -7,6 +7,7 @@ use App\Notifications\ConfirmNewEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -143,6 +144,44 @@ class ProfileUpdateTest extends TestCase
             ->assertSessionHasErrors('email');
 
         $this->assertNull($user->refresh()->pending_email);
+    }
+
+    #[DataProvider('addressesFromAnotherAlphabet')]
+    public function test_an_address_with_a_letter_from_another_alphabet_is_refused(string $typed)
+    {
+        Notification::fake();
+
+        $user = $this->colleague(['email' => 'old@evolet.tj']);
+
+        $this->actingAs($user)
+            ->patch('/settings/profile', ['email' => $typed])
+            ->assertSessionHasErrors('email');
+
+        // Nothing waits for a letter that could never arrive.
+        $this->assertNull($user->refresh()->pending_email);
+        Notification::assertNothingSent();
+
+        // The address that really is Latin reads the same and goes through.
+        $this->actingAs($user)
+            ->patch('/settings/profile', ['email' => 'new@evolet.tj'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('new@evolet.tj', $user->refresh()->pending_email);
+    }
+
+    /**
+     * Addresses nobody can tell from a Latin one by looking at them: every «е»
+     * below is Cyrillic.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function addressesFromAnotherAlphabet(): array
+    {
+        return [
+            'a stray letter in the local part' => ['nеw@evolet.tj'],
+            'a stray letter in the domain' => ['new@evolеt.tj'],
+            'the whole address' => ['нилуфар@почта.рф'],
+        ];
     }
 
     public function test_nobody_closes_their_own_account()

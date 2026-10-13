@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Settings;
 
 use App\Models\User;
+use App\Rules\LatinEmail;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -24,6 +25,7 @@ class ProfileUpdateRequest extends FormRequest
                 'string',
                 'lowercase',
                 'email',
+                new LatinEmail,
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ],

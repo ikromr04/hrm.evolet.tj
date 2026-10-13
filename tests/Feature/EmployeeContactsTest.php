@@ -90,6 +90,43 @@ class EmployeeContactsTest extends TestCase
             ->assertSessionHasNoErrors();
     }
 
+    #[DataProvider('addressesFromAnotherAlphabet')]
+    public function test_an_address_with_a_letter_from_another_alphabet_is_refused(string $typed)
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create(['email' => 'old@evolet.tj']);
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/contacts", $this->payload(['email' => $typed]))
+            ->assertSessionHasErrors('email');
+
+        // The card is where a mistyped address gets corrected, so it must not
+        // be where another one is let in: the old address still stands.
+        $this->assertSame('old@evolet.tj', $employee->refresh()->email);
+
+        // The address that really is Latin reads the same and goes through.
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/contacts", $this->payload(['email' => 'n.azimova@evolet.tj']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('n.azimova@evolet.tj', $employee->refresh()->email);
+    }
+
+    /**
+     * Addresses nobody can tell from a Latin one by looking at them: the «а»
+     * and the «е» below are Cyrillic.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function addressesFromAnotherAlphabet(): array
+    {
+        return [
+            'a stray letter in the local part' => ['n.аzimova@evolet.tj'],
+            'a stray letter in the domain' => ['n.azimova@evolеt.tj'],
+            'the whole address' => ['нилуфар@почта.рф'],
+        ];
+    }
+
     #[DataProvider('phonesAsTyped')]
     public function test_a_phone_is_stored_in_e164_however_it_was_typed(string $typed)
     {

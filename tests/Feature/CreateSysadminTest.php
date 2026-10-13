@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Notification;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -138,6 +139,37 @@ class CreateSysadminTest extends TestCase
         $this->artisan('hrm:sysadmin', $options)->assertFailed();
 
         $this->assertSame(0, User::count());
+    }
+
+    #[DataProvider('addressesFromAnotherAlphabet')]
+    public function test_an_address_with_a_letter_from_another_alphabet_is_refused(string $typed)
+    {
+        // Nobody would ever find the stray letter afterwards: this is the one
+        // account the password page cannot help, since the letter it would send
+        // goes to the address itself.
+        $this->artisan('hrm:sysadmin', [...self::OPTIONS, '--email' => $typed])->assertFailed();
+
+        $this->assertSame(0, User::count());
+
+        // The address that really is Latin reads the same and goes through.
+        $this->artisan('hrm:sysadmin', self::OPTIONS)->assertSuccessful();
+
+        $this->assertSame('admin@evolet.tj', User::role(Access::SOLE_ROLE)->sole()->email);
+    }
+
+    /**
+     * Addresses nobody can tell from a Latin one by looking at them: the «а»
+     * and the «е» below are Cyrillic.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function addressesFromAnotherAlphabet(): array
+    {
+        return [
+            'a stray letter in the local part' => ['аdmin@evolet.tj'],
+            'a stray letter in the domain' => ['admin@evolеt.tj'],
+            'the whole address' => ['некруз@почта.рф'],
+        ];
     }
 
     public function test_it_needs_the_position_to_exist_and_says_how_to_get_it()

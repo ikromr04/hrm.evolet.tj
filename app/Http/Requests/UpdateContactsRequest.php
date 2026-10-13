@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\LatinEmail;
 use App\Support\EmployeeFields;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -61,7 +62,7 @@ class UpdateContactsRequest extends FormRequest
             // The email is how the employee signs in, so it is required and
             // must stay unique; their own address is not a clash.
             'email' => $editsEmail
-                ? ['required', 'string', 'email', 'max:255', Rule::unique('users', 'email')->ignore($this->route('employee'))]
+                ? ['required', 'string', 'email', new LatinEmail, 'max:255', Rule::unique('users', 'email')->ignore($this->route('employee'))]
                 : ['nullable'],
             'phone' => $phone,
             'sos_phone' => $phone,
