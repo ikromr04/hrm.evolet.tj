@@ -28,6 +28,7 @@ export function MultiSelect<T extends string | number>({
     chipClassName,
     disabled = false,
     creatable = false,
+    numbered = false,
 }: {
     id?: string;
     options: MultiSelectOption<T>[];
@@ -43,6 +44,13 @@ export function MultiSelect<T extends string | number>({
      * as it is (a country nobody has been entered with yet). Text values only.
      */
     creatable?: boolean;
+    /**
+     * Number what is chosen. Duties are read as a list of them — first, second,
+     * third — and the order they are put in here is the order they are read in,
+     * so the numbers say both how many there are and which comes first. Most
+     * lists are a set rather than an order, and are left unnumbered.
+     */
+    numbered?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -66,9 +74,11 @@ export function MultiSelect<T extends string | number>({
 
     return (
         <div className="flex flex-col gap-2">
+            {/* A numbered list is read down the page, so it stacks; an unnumbered one
+                is a set of short values and wraps to save the room. */}
             {selected.length > 0 && (
-                <ul className="flex flex-wrap gap-1.5">
-                    {selected.map((option) => (
+                <ul className={cn('flex gap-1.5', numbered ? 'flex-col items-start' : 'flex-wrap')}>
+                    {selected.map((option, index) => (
                         <li
                             key={option.value}
                             className={cn(
@@ -77,6 +87,10 @@ export function MultiSelect<T extends string | number>({
                                 chipClassName,
                             )}
                         >
+                            {/* On the first line, not in the middle of a chip two lines tall:
+                                a number beside the text reads as a list, one beside its middle
+                                reads as a label stuck to the side. */}
+                            {numbered && <span className="text-muted-foreground shrink-0 self-start tabular-nums">{index + 1}.</span>}
                             <span className="min-w-0 break-words">{option.label}</span>
                             {!disabled && (
                                 <button
