@@ -1,4 +1,3 @@
-import { DepartmentName } from '@/components/department-name';
 import { EvoletMark } from '@/components/evolet-logo';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -42,9 +41,9 @@ export function groupByParent(departments: OrgDepartment[]): Map<number | null, 
     return map;
 }
 
-function Count({ value }: { value: number }) {
+function Count({ value, className }: { value: number; className?: string }) {
     return (
-        <span className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs tabular-nums" title={peopleLabel(value)}>
+        <span className={cn('text-muted-foreground flex shrink-0 items-center gap-1 text-xs tabular-nums', className)} title={peopleLabel(value)}>
             <Users className="size-3.5" />
             {value}
         </span>
@@ -74,6 +73,9 @@ const StaffListContext = createContext<{ isOpen: (id: number) => boolean; toggle
 function Node({ department, top }: { department: OrgDepartment; top?: boolean }) {
     const staff = useContext(StaffListContext);
     const open = staff.isOpen(department.id);
+    // A department with no abbreviation is already named in full on the first
+    // line, so there is nothing left to spell out underneath it.
+    const spelled = department.full_name !== department.name;
 
     return (
         <div
@@ -82,18 +84,28 @@ function Node({ department, top }: { department: OrgDepartment; top?: boolean })
                 top && 'border-t-brand border-t-[3px] pt-2',
             )}
         >
-            <div className="flex items-start gap-2">
-                {/* A box is small and its link already owns the hover, so the
-                    full name goes on the link rather than into a tooltip
-                    nested inside it. */}
-                <Link
-                    href={route('departments.show', department.id)}
-                    title={department.full_name === department.name ? undefined : department.full_name}
-                    className="flex-1 text-[13px] leading-snug font-semibold hover:underline"
-                >
-                    <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
+            {/* The head count stands out of the flow in the corner so that only
+                the abbreviation has to make room for it: the full name below
+                then has the whole width of the box, which is the difference
+                between two lines and three for the longest name there is. */}
+            <div className="relative">
+                <Count value={department.total_count} className="absolute top-0.5 right-0" />
+                {/* The abbreviation leads and the full name explains it
+                    underneath, so both belong to the link: it reads out whole,
+                    and the name no longer waits behind a hover or in a copy
+                    hidden for a screen reader. Only the abbreviation takes the
+                    underline, so the box keeps one heading. */}
+                <Link href={route('departments.show', department.id)} className="group flex flex-col gap-0.5">
+                    {/* Room kept clear for the count, wide enough for a company of four figures. */}
+                    <span className="pr-12 text-[13px] leading-snug font-semibold group-hover:underline">{department.name}</span>
+                    {spelled && (
+                        // Two lines hold every name the company has, so a longer
+                        // one is cut rather than left to stretch its box past
+                        // its neighbours; the department's own page spells it
+                        // out in the heading either way.
+                        <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight">{department.full_name}</span>
+                    )}
                 </Link>
-                <Count value={department.total_count} />
             </div>
 
             {department.heads.length > 0 ? (

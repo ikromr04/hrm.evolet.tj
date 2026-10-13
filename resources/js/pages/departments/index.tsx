@@ -1,5 +1,4 @@
 import { MobileRow } from '@/components/data-table';
-import { DepartmentName } from '@/components/department-name';
 import { groupByParent, OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
@@ -74,13 +73,19 @@ function DepartmentList({ departments }: { departments: OrgDepartment[] }) {
                                         </span>
                                     )
                                 }
-                                // A department's name is the whole point of the row, so it wraps rather than being cut.
+                                // A department's name is the whole point of the row, so it wraps
+                                // rather than being cut — and a phone has no hover to keep the
+                                // full name behind, so it stands under the abbreviation here as
+                                // it does in the chart.
                                 title={
-                                    <DepartmentName
-                                        name={department.name}
-                                        full={department.full_name}
-                                        className={cn('whitespace-normal', depth === 0 && 'font-semibold')}
-                                    />
+                                    <span className="flex flex-col gap-0.5">
+                                        <span className={cn('whitespace-normal', depth === 0 && 'font-semibold')}>{department.name}</span>
+                                        {department.full_name !== department.name && (
+                                            <span className="text-muted-foreground text-[12px] leading-tight font-normal whitespace-normal">
+                                                {department.full_name}
+                                            </span>
+                                        )}
+                                    </span>
                                 }
                                 subtitle={
                                     department.heads.length > 0 ? department.heads.map((head) => head.name).join(', ') : 'Руководитель не назначен'
