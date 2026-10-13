@@ -13,6 +13,11 @@ const TooltipContent = React.forwardRef<
     React.ElementRef<typeof TooltipPrimitive.Content>,
     React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
 >(({ className, sideOffset = 4, ...props }, ref) => (
+    // Through a portal, so the hint is placed against the window rather than
+    // against whatever is between it and the page: a transform anywhere above
+    // the trigger makes an absolutely placed box count from that element, and
+    // the hint lands somewhere else entirely on screen.
+    <TooltipPrimitive.Portal>
     <TooltipPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}
@@ -22,6 +27,7 @@ const TooltipContent = React.forwardRef<
         )}
         {...props}
     />
+    </TooltipPrimitive.Portal>
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
