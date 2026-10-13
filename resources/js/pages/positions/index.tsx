@@ -11,7 +11,6 @@ import {
     type Sort,
     type ViewState,
 } from '@/components/data-table';
-import { DepartmentName } from '@/components/department-name';
 import { searchBox } from '@/components/directory-manager';
 import InputError from '@/components/input-error';
 import { MobileFab } from '@/components/mobile-fab';
@@ -128,9 +127,13 @@ const collator = new Intl.Collator('ru');
  * carries beside their name; the room it took has gone to the duties, which wrap.
  */
 const columns: ColumnDef[] = [
-    // Both hold an abbreviation and nothing longer, so what their widths are
-    // really cut to is the headers: «Департамент» has to stand beside its own
-    // funnel and menu without either leaning into the column next door.
+    // Both are cut to their headers: «Департамент» has to stand beside its own
+    // funnel and menu without either leaning into the column next door. The
+    // abbreviation each cell leads with fits that easily, and the full name under
+    // it does not always — it wraps to two lines and is cut there. Widening these
+    // two to hold the longest name would take the room from the duties, which are
+    // sentences and need it more; whoever wants the whole name has the hover and
+    // the department's own page.
     { key: 'department', label: 'Департамент', width: 215 },
     { key: 'unit', label: 'Отдел', width: 180 },
     { key: 'name', label: 'Должность', width: 245 },
@@ -414,15 +417,48 @@ function Duties({ duties, limit }: { duties: string[]; limit?: number }) {
 }
 
 /**
- * A department named the short way and leading to its own page, as an
- * abbreviation does everywhere else on screen. It names the whole thing in the
- * hover rather than saying which of the two levels it is: every full name opens
- * with «Департамент» or «Отдел» and says so itself.
+ * A department named as the org chart names it: the abbreviation leading, and
+ * underneath it, quieter and smaller, what the abbreviation stands for.
+ *
+ * The chart and this table are the two places the structure itself is read, and
+ * an abbreviation learned in one has to be the same thing in the other, so the
+ * two lines stand in the same order and the same tone in both. Only the type is
+ * this table's own: a column has a header naming the level above every cell in
+ * it, so a cell needs no heading of its own the way a box on the chart does.
+ *
+ * Both lines belong to the link, so the label reads out whole and the full name
+ * is no longer waiting behind a hover or in a copy kept for a screen reader.
+ * Only the abbreviation takes the underline — two underlined lines would read as
+ * two names rather than one.
  */
 function DepartmentLink({ department }: { department: Department }) {
+    // A department with no abbreviation is already named in full on the first
+    // line, so there is nothing left to spell out underneath it. There are none
+    // today; the payload has always allowed them.
+    const spelled = department.full_name !== department.name;
+
     return (
-        <Link href={route('departments.show', department.id)} className="hover:underline" title={`Открыть: ${department.full_name}`}>
-            <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
+        <Link
+            href={route('departments.show', department.id)}
+            className="group flex min-w-0 flex-col gap-0.5"
+            // Two lines hold most of these names but not the longest, and a name
+            // cut off at the second has to be readable without leaving the table.
+            title={`Открыть: ${department.full_name}`}
+        >
+            <span className="group-hover:underline">{department.name}</span>
+            {spelled && (
+                // The columns are cut to the abbreviations, so a full name has to
+                // wrap — and then to stop, at two lines, rather than make one
+                // cell as tall as the block of rows beside it. What is cut off
+                // the hover still says, and the department's own page spells it
+                // out in its heading either way; a word longer than the column is
+                // cut at the edge instead of spilling into the next one.
+                //
+                // The wrapping is asked for because the cell will not have it
+                // otherwise: a cell covering a block of rows holds its content on
+                // one line, and a cell of a single row is cut off at its own edge.
+                <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight whitespace-normal">{department.full_name}</span>
+            )}
         </Link>
     );
 }
@@ -445,8 +481,12 @@ function DepartmentLink({ department }: { department: Department }) {
  * beside «ОПР», over the rows it belongs to.
  *
  * A block of its own and a flow of its own: `flex` rather than an inline box,
- * which sticks unevenly, and `w-fit` so the box is no wider than the name and
- * the hover and the underline stay on the name itself.
+ * which sticks unevenly, and `w-fit` so the box is no wider than the label it
+ * holds. The label is two lines now — the abbreviation and the name spelled out
+ * under it — which only makes the travelling box taller; it is still one box,
+ * both lines move together, and it is held inside its own cell, so the wider of
+ * the two columns' labels cannot lean into the other. The underline stays on the
+ * abbreviation itself, which is the only line that takes one.
  */
 function Sticking({ children }: { children: ReactNode }) {
     return (
@@ -483,6 +523,12 @@ function dutiesLine(position: Position): string {
  * filed in a department with no unit between is that department alone, and one
  * nobody has filed says so instead, in the colour of something to be dealt
  * with: that is how the unfiled ones are found on a phone at all.
+ *
+ * The full names the table's cells now carry under their abbreviations stay out
+ * of here. This line is shared with the duties and cut at the edge of the
+ * screen, so spelling two departments out would push the duties off it and often
+ * itself as well; and a row on a phone is a link to the position's own page,
+ * where the path is named in full with nothing beside it.
  */
 function StructureLine({ position }: { position: Position }) {
     const { department, unit } = filing(position);
