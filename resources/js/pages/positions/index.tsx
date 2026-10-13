@@ -1,7 +1,6 @@
 import {
     cycleSort,
     DataTable,
-    isSorted,
     MobileListTools,
     MobileRow,
     useTableView,
@@ -24,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
+import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
@@ -92,19 +92,32 @@ const STORAGE_KEY = 'positions.table.view.v2';
  * positions filed on the department itself, then its units and the positions in
  * each.
  *
- * That is what the «Департамент» column ascending already does, so the column
- * carries the opening order and the phone's sheet names it by its own label; a
- * third press on that header lands on ascending again, because ascending is
- * where the list came from.
+ * It is an order of its own rather than the «Департамент» column ascending,
+ * though the two put the rows in the same sequence and, the cells merging by
+ * what the rows say rather than by what they were sorted by, draw the same table
+ * down to the last line. What differs is what the page is claiming: at rest no
+ * header carries an arrow, there is nothing to reset and the phone's sheet shows
+ * «Структура»; sorted by the column, the arrow is on it and the reset is on
+ * offer. Keeping the two apart is what gives every header its three presses —
+ * up, down, and back to the order the list came in — instead of «Департамент»
+ * alone toggling between two.
+ *
+ * No column of the table carries it, so the phone's sheet names it: «Структура».
  *
  * The list used to open newest first, as the staff list does. That order told a
  * reader nothing here: the names repeat — twenty of them — and «Аналитик» above
  * «Дизайнер» above «Аналитик» in the order somebody happened to type them is a
  * list one can only search. The structure is what the four columns are for, and
- * it is the only order in which a department can be named once over the rows it
- * holds instead of seventeen times down them.
+ * it is the order in which the whole of it is read down at once, every
+ * department named once over the rows it holds instead of seventeen times down
+ * them.
  */
-const DEFAULT_SORT: Sort = { key: 'department', direction: 'asc' };
+const STRUCTURE = 'structure';
+
+/** What the phone's sheet calls that order, there being no header to carry it. */
+const STRUCTURE_LABEL = 'Структура';
+
+const DEFAULT_SORT: Sort = { key: STRUCTURE, direction: 'asc' };
 
 /** How many duties a row shows before the rest are counted off at the end. */
 const DUTIES_SHOWN = 4;
@@ -276,11 +289,14 @@ function compare(a: Position, b: Position, sort: Sort): number {
     const byDepartment = () => collator.compare(here.department?.name ?? '', there.department?.name ?? '');
     const byUnit = () => collator.compare(here.unit?.name ?? '', there.unit?.name ?? '');
 
-    // Sorted by the department, the order reads the structure itself: the
-    // department, its own positions, then the units within it and the positions
-    // in each. This is the order the list opens in, and the only one in which a
-    // department's rows all stand together.
-    if (sort.key === 'department') return sign * byDepartment() || sign * byUnit() || byName();
+    // The structure read down — the department, its own positions, then the units
+    // within it and the positions in each — and the «Департамент» column's own
+    // order, which is the same comparison: that column is the structure's first
+    // step, and its ties are broken by the step after it. The rows come out in
+    // the same sequence and the tables do not look alike, because only the first
+    // of the two merges the cells; which one the list is in is read off the key,
+    // not off the rows.
+    if (sort.key === STRUCTURE || sort.key === 'department') return sign * byDepartment() || sign * byUnit() || byName();
     // By the unit the units stand together, but their departments are scattered
     // among them: a department holds units whose names begin anywhere.
     if (sort.key === 'unit') return sign * byUnit() || byDepartment() || byName();
@@ -433,8 +449,9 @@ function Duties({ duties, limit }: { duties: string[]; limit?: number }) {
  */
 function DepartmentLink({ department }: { department: Department }) {
     // A department with no abbreviation is already named in full on the first
-    // line, so there is nothing left to spell out underneath it. There are none
-    // today; the payload has always allowed them.
+    // line, so there is nothing left to spell out underneath it — and that one
+    // line is then as long as «Отдел Развития Продуктового Портфеля», which is
+    // the whole of what the cell holds rather than three letters.
     const spelled = department.full_name !== department.name;
 
     return (
@@ -445,19 +462,31 @@ function DepartmentLink({ department }: { department: Department }) {
             // cut off at the second has to be readable without leaving the table.
             title={`Открыть: ${department.full_name}`}
         >
-            <span className="group-hover:underline">{department.name}</span>
+            {/* An abbreviation is three letters and needs nothing said about it.
+                A name standing here on its own is a whole name, and it is given
+                what the line below is given: it wraps, and stops at the second
+                line with an ellipsis rather than growing the cell. Asked for
+                here and not taken off the cell, because the cell holds its
+                content on one line on purpose — a cell that hid what overflowed
+                would be a scrolling box, and the label kept in view inside it
+                would never move. */}
+            <span className={cn('group-hover:underline', !spelled && 'line-clamp-2 break-words whitespace-normal')}>{department.name}</span>
             {spelled && (
                 // The columns are cut to the abbreviations, so a full name has to
                 // wrap — and then to stop, at two lines, rather than make one
                 // cell as tall as the block of rows beside it. What is cut off
                 // the hover still says, and the department's own page spells it
-                // out in its heading either way; a word longer than the column is
-                // cut at the edge instead of spilling into the next one.
+                // out in its heading either way; a word longer than the column
+                // breaks rather than pushing the cell wider — the box these lines
+                // travel in is no wider than they are, so one unbreakable word
+                // would carry it over the column next door.
                 //
                 // The wrapping is asked for because the cell will not have it
                 // otherwise: a cell covering a block of rows holds its content on
                 // one line, and a cell of a single row is cut off at its own edge.
-                <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight whitespace-normal">{department.full_name}</span>
+                <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight break-words whitespace-normal">
+                    {department.full_name}
+                </span>
             )}
         </Link>
     );
@@ -482,7 +511,11 @@ function DepartmentLink({ department }: { department: Department }) {
  *
  * A block of its own and a flow of its own: `flex` rather than an inline box,
  * which sticks unevenly, and `w-fit` so the box is no wider than the label it
- * holds. The label is two lines now — the abbreviation and the name spelled out
+ * holds — but never wider than the cell either, which `w-fit` on its own does
+ * not promise: a box shrunk to fit is still at least as wide as the longest word
+ * in it, and «человеческими» in a column somebody has dragged narrow would carry
+ * the whole label over the column next door. Asking a word to break lets it wrap
+ * but does not make the box any narrower, so the box is told outright. The label is two lines now — the abbreviation and the name spelled out
  * under it — which only makes the travelling box taller; it is still one box,
  * both lines move together, and it is held inside its own cell, so the wider of
  * the two columns' labels cannot lean into the other. The underline stays on the
@@ -490,7 +523,7 @@ function DepartmentLink({ department }: { department: Department }) {
  */
 function Sticking({ children }: { children: ReactNode }) {
     return (
-        <span className="sticky flex w-fit" style={{ top: 'var(--table-head, 0px)' }}>
+        <span className="sticky flex w-fit max-w-full" style={{ top: 'var(--table-head, 0px)' }}>
             {children}
         </span>
     );
@@ -821,80 +854,66 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     );
 
     /**
-     * Whether a department and a unit are drawn as one cell over the rows they
-     * hold, rather than as a cell apiece.
+     * Where the rows are in runs right now — which is all a merged cell ever
+     * claims, and the whole of the rule.
      *
-     * A merged cell is a claim about the rows it covers, and the claim holds only
-     * in the order the list opens in: there the structure is read down, a
-     * department's own positions and all of its units stand inside its own run,
-     * and a cell can reach across twenty-one rows and be telling the truth about
-     * every one of them. Put in order by «Отдел» the units stand together but
-     * their departments are scattered among them; by «Должность» nothing stands
-     * together at all.
+     * A cell covers the rows beside it that say the same thing, and nothing else.
+     * It is read off the rows in the order they are about to be drawn in, so the
+     * shape follows the order by itself rather than being allowed or forbidden by
+     * it: at rest the structure is read down and a department reaches across
+     * twenty-one rows; put in order by «Департамент» its rows are all still
+     * together, so it still does, and so do its units inside it; by «Отдел» the
+     * units stand together and a department merges wherever its own rows happen
+     * to have stayed side by side; by «Должность» the departments interleave and
+     * almost nothing merges, because almost nothing is adjacent and equal any
+     * more.
      *
-     * So the table is merged exactly while it is at rest, and any sorting at all
-     * flattens it. That is a sharper line than "while the rows happen to be in
-     * runs" — «Департамент» upside down keeps its runs too — but it is the line
-     * the viewer can read everywhere else on the page at the same time: the
-     * header arrow, the count on the phone's sort button and the «Сбросить всё»
-     * it offers all say the same one thing, that the list has been put in an
-     * order of somebody's own. A table that was merged while claiming to be
-     * sorted would leave all four of them disagreeing.
-     *
-     * The search and the funnels change nothing here: they take rows away and
-     * leave the order alone, so whatever survives is still in runs.
+     * The search and the funnels are the same question answered the same way:
+     * they take rows out, and the runs are counted over the ones left.
      */
-    const grouped = !isSorted(sort, DEFAULT_SORT);
     const spans = useMemo(() => spansOf(rows), [rows]);
 
     /**
-     * How far each cell of the two structure columns reaches. One row, or none at
-     * all where the cell above has already covered this row; the other two
-     * columns are a cell per row whatever the order, since a position and its
-     * duties are its own.
+     * How far each cell of the two structure columns reaches: the length of the
+     * run it opens, or none at all where the cell above has already covered this
+     * row.
+     *
+     * The other two columns are a cell per row in every order. Two neighbours can
+     * share a job title — «Аналитик» sits in six departments — and a cell merged
+     * across them would say they were one job; merging is for the two columns
+     * that say where a position sits, which is the one thing the rows of a run
+     * have in common.
      */
     const rowSpan = (column: ColumnDef, position: Position) => {
-        if (!grouped || (column.key !== 'department' && column.key !== 'unit')) return 1;
+        if (column.key !== 'department' && column.key !== 'unit') return 1;
 
         return spans[column.key].get(position.id) ?? 0;
     };
 
-    /**
-     * What the line above the table says once the cells have come apart: the
-     * column the rows are in order by, and the order that merges them again,
-     * named exactly as the header menu names it — «По возрастанию» is the wording
-     * a viewer is about to read there. Both columns are read off the table rather
-     * than written out, so a header renamed is this sentence renamed with it;
-     * every key the table sorts by is a column of it, and the one the list opens
-     * in is the first.
-     */
-    const shapeNote = grouped
-        ? null
-        : `Порядок — по «${columns.find((column) => column.key === sort.key)!.label}», а не по структуре: ` +
-          `департамент и отдел названы в каждой строке. Ячейки снова объединятся в исходном порядке — ` +
-          `по «${columns[0].label}», по возрастанию.`;
-
     const cell = (column: ColumnDef, position: Position) => {
         const { department, unit } = filing(position);
-        // Merged, the name of a cell stays in view while the rows it covers go
-        // past. Apart, a cell is one row tall and there is nothing for a name to
-        // outlast, so it is drawn where it stands.
-        const label = (named: ReactNode) => (grouped ? <Sticking>{named}</Sticking> : named);
+        // A cell covering a run keeps its name in view while the run goes past,
+        // and is held inside that run by its own cell — so the name on screen is
+        // always the name of the rows beside it. A cell of a single row has
+        // nothing to outlast and is drawn where it stands.
+        const label = (named: ReactNode) => (rowSpan(column, position) > 1 ? <Sticking>{named}</Sticking> : named);
 
         switch (column.key) {
-            // Both of these are drawn once per cell, and a cell is a block of rows
-            // while the table is grouped and a single row otherwise. Which rows a
-            // cell covers is `rowSpan`'s to say; what is in it does not change
-            // with it, so there is nothing here that has to know.
+            // Both are drawn once per cell, and how many rows that cell covers is
+            // `rowSpan`'s to say. What is in it does not change with the count, so
+            // there is nothing here that has to know.
             case 'department':
                 return label(department === null ? <Unfiled>Без департамента</Unfiled> : <DepartmentLink department={department} />);
             case 'unit':
                 // A department may hold positions with no unit between — ДУЧР has
                 // no units at all — and that is nothing to fix, so the cell reads
-                // as an empty value rather than as the amber beside it. Grouped,
-                // that one «—» stands over the whole run of the department's own
-                // positions, which is how the sketch this was drawn from reads.
-                // One with no department has no unit either, and says so.
+                // as an empty value rather than as the amber beside it. That one
+                // «—» stands over the whole run of a department's own positions,
+                // which is how the sketch this was drawn from reads — and over
+                // that run only, never over the next department's empty cells:
+                // "no unit of ДУЧР" and "no unit of ДКП" are two different things
+                // that happen to be written the same way. One with no department
+                // has no unit either, and says so.
                 if (unit !== null) return label(<DepartmentLink department={unit} />);
 
                 return label(department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />);
@@ -959,10 +978,11 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                         sort={sort}
                         sortable={sortable}
                         onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
-                        // The opening order is a column of the table now, and the
-                        // sheet lists every column it can be put in order by, so
-                        // there is no name left for this to give it.
                         defaultSort={DEFAULT_SORT}
+                        // No header carries the opening order — it is the one the
+                        // three presses come back to, and the one the cells merge
+                        // in — so the sheet names it above the columns.
+                        defaultSortLabel={STRUCTURE_LABEL}
                         // One visit clears both, so neither is left narrowing a list
                         // somebody has just put back in order.
                         onReset={() => {
@@ -981,26 +1001,21 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                     )}
                 </div>
 
-                {/* Said once, above the table, and only once the order has pulled
-                    the cells apart: the table changed shape under somebody's
-                    hands, and nobody should have to work out that the press that
-                    did it was a sort arrow a line above. It names the column the
-                    rows are in order by and the column that merges them again, so
-                    the way back is the sentence itself.
-
-                    Nothing above a grouped table: a cell standing over the rows it
-                    holds explains itself, and a line that is always there is a
-                    line nobody reads. And nothing on a phone, which has no columns
-                    and so no cells to merge. */}
-                {shapeNote && <p className="text-muted-foreground text-[13px] max-md:hidden">{shapeNote}</p>}
-
+                {/* A line used to stand here saying why the table had changed
+                    shape, back when an order could forbid the cells to merge.
+                    Nothing forbids them now: a cell covers the rows beside it
+                    that say the same thing, in every order, and what is on screen
+                    is the whole of the rule. There is no state left to announce —
+                    and a sentence that tried would be wrong by «Отдел», where
+                    plenty still merges. */}
                 <DataTable
                     columns={tableColumns}
                     rows={rows}
                     rowKey={(position) => position.id}
                     renderCell={cell}
                     // The structure drawn as the structure: one cell per
-                    // department over the rows it holds, one per unit inside it.
+                    // department over the rows it holds, one per unit inside it,
+                    // for as far as the rows beside it keep saying the same thing.
                     // The table knows nothing about blocks and does not need to —
                     // it asks how far a cell reaches and draws it that far.
                     rowSpan={rowSpan}
