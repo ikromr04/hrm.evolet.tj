@@ -15,6 +15,15 @@ use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
+/**
+ * "Отделы", the list the company structure is written down in.
+ *
+ * It is read under "Структура компании" now, as the "Подразделения" tab beside
+ * the chart it draws, rather than as a tab of "Справочники" — but it is a list
+ * of that catalogue still, kept by the same pair of rights, which is why it
+ * stays here among the controllers that serve them. The chart itself is
+ * App\Http\Controllers\DepartmentController: open to everybody, and read-only.
+ */
 class DepartmentController extends Controller
 {
     public function index(Request $request): Response

@@ -35,6 +35,12 @@ export interface SidebarNavItem {
     icon: LucideIcon;
     /** Omit for modules that are not built yet; the item renders as disabled. */
     url?: string;
+    /**
+     * Addresses that light the entry up besides its own, for a section whose
+     * pages do not all live under one of them: the menu should still say where
+     * one is.
+     */
+    match?: string[];
 }
 
 export interface SidebarNavGroup {

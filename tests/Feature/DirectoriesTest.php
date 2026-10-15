@@ -11,6 +11,16 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
+/**
+ * The reference lists as the people who keep them use them.
+ *
+ * Two of them are read elsewhere now — the job titles at /positions and the
+ * departments at /departments/units, both tabs of sections of their own — but
+ * they are lists of this catalogue still, kept by the same two rights each, so
+ * what it takes to add to them and what a save does is read here. The pages
+ * themselves are read where they live, in PositionPagesTest and
+ * DepartmentPagesTest.
+ */
 class DirectoriesTest extends TestCase
 {
     use RefreshDatabase;
@@ -34,7 +44,10 @@ class DirectoriesTest extends TestCase
         $this->actingAs($employee);
 
         $this->get('/directories/roles')->assertForbidden();
-        $this->get('/directories/departments')->assertForbidden();
+        // "Отделы" is a tab of the company structure now, at /departments/units,
+        // and still asks the right the access table names the list with — which a
+        // colleague does not hold, however freely they may read the chart.
+        $this->get('/departments/units')->assertForbidden();
         // The job titles are a section of their own now, read and kept by the
         // very same two rights — which a colleague holds neither of.
         $this->get('/positions')->assertForbidden();
@@ -68,7 +81,9 @@ class DirectoriesTest extends TestCase
             ->where('positions.0.name', 'Переводчик')
             ->where('positions.0.employees_count', 2)
         );
-        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page->component('directories/departments'));
+        // Nor are the departments: the list is read beside the chart it draws,
+        // under the same right it has always had.
+        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page->component('directories/departments'));
     }
 
     public function test_roles_get_a_generated_key_that_survives_renaming()
@@ -109,17 +124,17 @@ class DirectoriesTest extends TestCase
     {
         $this->actingAs($this->admin);
 
-        $this->post('/directories/departments', ['name' => 'Департамент', 'parent_id' => null])->assertSessionHasNoErrors();
+        $this->post('/departments/units', ['name' => 'Департамент', 'parent_id' => null])->assertSessionHasNoErrors();
         $parent = Department::firstWhere('name', 'Департамент');
-        $this->post('/directories/departments', ['name' => 'Отдел', 'parent_id' => $parent->id])->assertSessionHasNoErrors();
+        $this->post('/departments/units', ['name' => 'Отдел', 'parent_id' => $parent->id])->assertSessionHasNoErrors();
         $child = Department::firstWhere('name', 'Отдел');
         $this->assertSame($parent->id, $child->parent_id);
 
-        $this->put("/directories/departments/{$parent->id}", ['name' => 'Департамент', 'parent_id' => $child->id])->assertSessionHasErrors('parent_id');
-        $this->put("/directories/departments/{$parent->id}", ['name' => 'Департамент', 'parent_id' => $parent->id])->assertSessionHasErrors('parent_id');
+        $this->put("/departments/units/{$parent->id}", ['name' => 'Департамент', 'parent_id' => $child->id])->assertSessionHasErrors('parent_id');
+        $this->put("/departments/units/{$parent->id}", ['name' => 'Департамент', 'parent_id' => $parent->id])->assertSessionHasErrors('parent_id');
         $this->assertNull($parent->fresh()->parent_id);
 
-        $this->put("/directories/departments/{$child->id}", ['name' => 'Отдел продаж', 'parent_id' => null])->assertSessionHasNoErrors();
+        $this->put("/departments/units/{$child->id}", ['name' => 'Отдел продаж', 'parent_id' => null])->assertSessionHasNoErrors();
         $this->assertNull($child->fresh()->parent_id);
         $this->assertSame('Отдел продаж', $child->fresh()->name);
     }
@@ -137,17 +152,17 @@ class DirectoriesTest extends TestCase
         $other = Department::create(['name' => 'Другой департамент']);
 
         // A department that heads units of its own stays where it is.
-        $this->put("/directories/departments/{$top->id}", ['name' => 'Департамент', 'parent_id' => $other->id])
+        $this->put("/departments/units/{$top->id}", ['name' => 'Департамент', 'parent_id' => $other->id])
             ->assertSessionHasErrors(['parent_id' => 'Отдел нельзя вложить в другой: у него есть свои подразделения.']);
         $this->assertNull($top->fresh()->parent_id);
 
         // And a department that is itself in one takes nothing under it, neither
         // a new department nor one moved there.
-        $this->post('/directories/departments', ['name' => 'Группа', 'parent_id' => $unit->id])
+        $this->post('/departments/units', ['name' => 'Группа', 'parent_id' => $unit->id])
             ->assertSessionHasErrors(['parent_id' => 'Отдел нельзя вложить в подразделение: в структуре отделов только два уровня.']);
         $this->assertNull(Department::firstWhere('name', 'Группа'));
 
-        $this->put("/directories/departments/{$other->id}", ['name' => 'Другой департамент', 'parent_id' => $unit->id])
+        $this->put("/departments/units/{$other->id}", ['name' => 'Другой департамент', 'parent_id' => $unit->id])
             ->assertSessionHasErrors('parent_id');
         $this->assertNull($other->fresh()->parent_id);
     }
@@ -156,26 +171,26 @@ class DirectoriesTest extends TestCase
     {
         $this->actingAs($this->admin);
 
-        $this->post('/directories/departments', ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ', 'parent_id' => null])
+        $this->post('/departments/units', ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ', 'parent_id' => null])
             ->assertSessionHasNoErrors();
         $department = Department::firstWhere('name', 'Департамент маркетинга');
         $this->assertSame('ДМ', $department->abbreviation);
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМК', 'parent_id' => null])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМК', 'parent_id' => null])
             ->assertSessionHasNoErrors();
         $this->assertSame('ДМК', $department->fresh()->abbreviation);
 
         // Cleared in the form: the department has none again and reads by its
         // full name, rather than being called by an empty string.
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => '   ', 'parent_id' => null])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => '   ', 'parent_id' => null])
             ->assertSessionHasNoErrors();
         $this->assertNull($department->fresh()->abbreviation);
         $this->assertSame('Департамент маркетинга', $department->fresh()->display_name);
 
         // A short name is short: anything longer belongs in the name itself.
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => str_repeat('Д', 51), 'parent_id' => null])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Департамент маркетинга', 'abbreviation' => str_repeat('Д', 51), 'parent_id' => null])
             ->assertSessionHasErrors('abbreviation');
-        $this->post('/directories/departments', ['name' => 'Отдел Дизайна', 'abbreviation' => str_repeat('О', 51), 'parent_id' => null])
+        $this->post('/departments/units', ['name' => 'Отдел Дизайна', 'abbreviation' => str_repeat('О', 51), 'parent_id' => null])
             ->assertSessionHasErrors('abbreviation');
         $this->assertNull(Department::firstWhere('name', 'Отдел Дизайна'));
     }
@@ -186,7 +201,7 @@ class DirectoriesTest extends TestCase
         Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
         Department::create(['name' => 'Научный отдел']);
 
-        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page
+        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
             // Everywhere else a department is named by its abbreviation alone;
             // here both are shown, because here is where the short one is written.
             ->where('items.0.name', 'Департамент маркетинга')
@@ -205,14 +220,14 @@ class DirectoriesTest extends TestCase
         $second = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
         $fired = User::factory()->create(['status' => 'fired']);
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$fired->id]])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$fired->id]])
             ->assertSessionHasErrors('head_ids.0');
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$second->id, $first->id]])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$second->id, $first->id]])
             ->assertSessionHasNoErrors();
         $this->assertEqualsCanonicalizing([$first->id, $second->id], $department->heads()->pluck('users.id')->all());
 
-        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page
+        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
             ->where('items.0.heads', [['id' => $first->id, 'name' => 'Азимова Нигина'], ['id' => $second->id, 'name' => 'Бобоев Фаррух']])
             ->where('employees', fn ($people) => collect($people)->doesntContain('id', $fired->id))
         );
@@ -222,12 +237,12 @@ class DirectoriesTest extends TestCase
         );
 
         // A former head stays in the department as an ordinary member.
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$first->id]])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$first->id]])
             ->assertSessionHasNoErrors();
         $this->assertSame([$first->id], $department->heads()->pluck('users.id')->all());
         $this->assertTrue($department->users()->whereKey($second->id)->exists());
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => []])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => []])
             ->assertSessionHasNoErrors();
         $this->assertFalse($department->heads()->exists());
         $this->assertSame(2, $department->users()->count());
@@ -247,7 +262,7 @@ class DirectoriesTest extends TestCase
         $child->users()->attach([$inBoth->id, $inChild->id]);
         collect([$inBoth, $fired])->each(fn (User $u) => $u->positions()->attach($position));
 
-        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page
+        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
             // Working people only, heads included; someone in both units is counted once.
             ->where('items.0.name', 'А Департамент')
             ->where('items.0.users_count', 3)
@@ -267,14 +282,14 @@ class DirectoriesTest extends TestCase
         $fired = User::factory()->create(['status' => 'fired']);
         $department->users()->attach([$head->id => ['is_head' => true], $stays->id => ['is_head' => false], $leaves->id => ['is_head' => false], $fired->id => ['is_head' => false]]);
 
-        $this->get('/directories/departments')->assertInertia(fn (Assert $page) => $page
+        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
             ->where('items.0.member_ids', fn ($ids) => collect($ids)->sort()->values()->all() === [$stays->id, $leaves->id])
         );
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$fired->id]])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$fired->id]])
             ->assertSessionHasErrors('member_ids.0');
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$stays->id, $joins->id]])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$stays->id, $joins->id]])
             ->assertSessionHasNoErrors();
 
         // Heads stay when only members are sent; people who left stay on record.
@@ -290,7 +305,7 @@ class DirectoriesTest extends TestCase
         $department->users()->attach([$former->id => ['is_head' => true], $promoted->id => ['is_head' => false]]);
 
         // The form moves a former head to the members and a new head out of them.
-        $this->put("/directories/departments/{$department->id}", [
+        $this->put("/departments/units/{$department->id}", [
             'name' => 'Отдел',
             'parent_id' => null,
             'head_ids' => [$promoted->id],
@@ -301,7 +316,7 @@ class DirectoriesTest extends TestCase
         $this->assertEqualsCanonicalizing([$former->id, $promoted->id, $member->id], $department->users()->pluck('users.id')->all());
 
         // Left out of both lists: leaves the department.
-        $this->put("/directories/departments/{$department->id}", [
+        $this->put("/departments/units/{$department->id}", [
             'name' => 'Отдел',
             'parent_id' => null,
             'head_ids' => [$promoted->id],
@@ -316,7 +331,7 @@ class DirectoriesTest extends TestCase
         $this->actingAs($this->admin);
         [$head, $member] = User::factory(2)->create();
 
-        $this->post('/directories/departments', ['name' => 'Новый', 'parent_id' => null, 'head_ids' => [$head->id], 'member_ids' => [$member->id]])
+        $this->post('/departments/units', ['name' => 'Новый', 'parent_id' => null, 'head_ids' => [$head->id], 'member_ids' => [$member->id]])
             ->assertSessionHasNoErrors();
 
         $department = Department::firstWhere('name', 'Новый');
@@ -331,7 +346,7 @@ class DirectoriesTest extends TestCase
         $department = Department::create(['name' => 'Отдел']);
         $department->users()->attach($head, ['is_head' => true]);
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Новый отдел', 'parent_id' => null])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Новый отдел', 'parent_id' => null])
             ->assertSessionHasNoErrors();
 
         $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
@@ -342,7 +357,7 @@ class DirectoriesTest extends TestCase
         $this->actingAs($this->admin);
         $department = Department::create(['name' => 'Отдел маркетинга', 'abbreviation' => 'ОМ']);
 
-        $this->put("/directories/departments/{$department->id}", ['name' => 'Отдел рекламы', 'parent_id' => null])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел рекламы', 'parent_id' => null])
             ->assertSessionHasNoErrors();
 
         $this->assertSame('ОМ', $department->refresh()->abbreviation);
@@ -372,7 +387,7 @@ class DirectoriesTest extends TestCase
         $employee = $this->colleague();
         $employee->departments()->attach($top);
 
-        $this->delete("/directories/departments/{$top->id}")->assertSessionHasNoErrors();
+        $this->delete("/departments/units/{$top->id}")->assertSessionHasNoErrors();
 
         $this->assertNull(Department::find($top->id));
         $this->assertTrue($unit->fresh()->exists);

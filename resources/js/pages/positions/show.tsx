@@ -2,6 +2,7 @@ import { departmentTitle } from '@/components/department-name';
 import { type EmploymentStatus } from '@/components/employee-actions';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
+import { PositionProfile, type Profile } from '@/components/position-profile';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
@@ -263,6 +264,7 @@ function HolderRow({
 
 export default function PositionPage({
     position,
+    profile,
     employees,
     canEdit,
     canOpenCards,
@@ -270,6 +272,8 @@ export default function PositionPage({
     showsPositions,
 }: {
     position: Position;
+    /** «Профиль должности»: the sheet this position is described by. */
+    profile: Profile;
     employees: Holder[];
     /** Renaming the position, re-filing it and changing its duties stays on the directory page. */
     canEdit: boolean;
@@ -323,6 +327,12 @@ export default function PositionPage({
                             <p className="text-muted-foreground text-sm">Обязанности не указаны</p>
                         )}
                     </div>
+                </Card>
+
+                {/* The sheet, under the facts it is drawn from: whoever opened the
+                    position to read what the job is finds it written out here. */}
+                <Card className="min-w-0 rounded-xl max-md:rounded-2xl max-md:border-0 max-md:shadow-none">
+                    <PositionProfile position={position.id} profile={profile} />
                 </Card>
 
                 <Section title="Сотрудники на должности" count={showsEmployees ? employees.length : undefined}>

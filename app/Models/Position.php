@@ -19,6 +19,16 @@ class Position extends Model
     protected $fillable = [
         'department_id',
         'name',
+        // The two words «Профиль должности» grades a position by, «КАТЕГОРИЯ»
+        // and «ГРАЙД». Nothing can work either out, so whoever keeps the list
+        // types them, and they stay empty until somebody does.
+        'category',
+        'grade',
+        // The heading «Профиль должности» is printed under, typed by hand
+        // because it needs the name of the position in a case nothing here
+        // invents. Empty until somebody writes one, and then read in place of
+        // the heading worked out from the name.
+        'profile_title',
     ];
 
     protected static function booted(): void
@@ -79,6 +89,17 @@ class Position extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)->withTimestamps();
+    }
+
+    /**
+     * What this position keeps of its own «Профиль должности»: its wording of
+     * the standard sections it rewrote. Everything it did not rewrite it reads
+     * from the template, so this is never the whole document —
+     * RegulationSection::forPosition() puts that together.
+     */
+    public function profileSections(): HasMany
+    {
+        return $this->hasMany(RegulationSection::class);
     }
 
     /**

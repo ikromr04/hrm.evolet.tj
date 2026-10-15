@@ -1,6 +1,11 @@
 import { SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { type SidebarNavGroup } from '@/types';
+import { type SidebarNavGroup, type SidebarNavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
+
+/** Whether the page being read is one of the entry's own — its address, or one it also answers for. */
+export function navItemActive(item: SidebarNavItem, url: string): boolean {
+    return [item.url, ...(item.match ?? [])].some((address) => address !== undefined && url.startsWith(address));
+}
 
 // max-md:h-10: in the phone's slide-out menu the rows are finger targets.
 const activeClasses =
@@ -16,7 +21,7 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
                 {group.items.map((item) => (
                     <SidebarMenuItem key={item.title}>
                         {item.url ? (
-                            <SidebarMenuButton asChild isActive={page.url.startsWith(item.url)} tooltip={item.title} className={activeClasses}>
+                            <SidebarMenuButton asChild isActive={navItemActive(item, page.url)} tooltip={item.title} className={activeClasses}>
                                 <Link href={item.url} prefetch>
                                     <item.icon />
                                     <span>{item.title}</span>

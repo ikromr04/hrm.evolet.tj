@@ -1,4 +1,5 @@
 import { useMainNav } from '@/components/app-sidebar';
+import { navItemActive } from '@/components/nav-main';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { UserInfo } from '@/components/user-info';
 import { useAppearance } from '@/hooks/use-appearance';
@@ -23,7 +24,7 @@ export function MobileTabBar() {
     const [more, setMore] = useState(false);
 
     // "Ещё" lights up for the pages it leads to, so the bar always says where one is.
-    const inMore = !items.some((item) => item.url && url.startsWith(item.url));
+    const inMore = !items.some((item) => item.url && navItemActive(item, url));
 
     return (
         <>
@@ -34,7 +35,7 @@ export function MobileTabBar() {
                 <ul className="flex h-14 items-stretch">
                     {items.map((item) => (
                         <li key={item.title} className="min-w-0 flex-1">
-                            <Tab href={item.url!} icon={item.icon!} active={url.startsWith(item.url!)}>
+                            <Tab href={item.url!} icon={item.icon!} active={navItemActive(item, url)}>
                                 {SHORT[item.title] ?? item.title}
                             </Tab>
                         </li>

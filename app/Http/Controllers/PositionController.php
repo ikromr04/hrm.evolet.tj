@@ -5,9 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
+use App\Models\RegulationSection;
 use App\Models\User;
 use App\Support\Directories;
 use App\Support\EmployeeFields;
+use App\Support\PositionProfile;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -54,13 +56,17 @@ class PositionController extends Controller
                 // itself, so this is only a settled order to hand it over in: a
                 // list the server leaves alone comes out differently run to run.
                 ->orderBy('name')
-                ->get(['id', 'department_id', 'name', 'created_at'])
+                ->get(['id', 'department_id', 'name', 'category', 'grade', 'created_at'])
                 ->map(fn (Position $position) => [
                     'id' => $position->id,
                     'name' => $position->name,
                     // «Аналитик (ОПР)», for the places with room for one line and
                     // no column beside it to put the department in.
                     'display_name' => $position->display_name,
+                    // What «Профиль должности» grades the job by, typed in this
+                    // very form: empty until somebody has.
+                    'category' => $position->category,
+                    'grade' => $position->grade,
                     // Null for the few the data could not place, which the list
                     // says out loud rather than leaving a blank cell.
                     'department' => $position->department === null ? null : $this->filing($position->department),
@@ -95,7 +101,9 @@ class PositionController extends Controller
         // that names them.
         $showsEmployees = $this->showsEmployees($user);
 
-        $position->load(['department', 'duties']);
+        // The department above this one travels too: «01 ОБЩАЯ ИНФОРМАЦИЯ» of
+        // the profile names both steps of the structure.
+        $position->load(['department.parent', 'duties']);
 
         return Inertia::render('positions/show', [
             'position' => [
@@ -105,11 +113,17 @@ class PositionController extends Controller
                 // breadcrumb and the tab have one line between them.
                 'display_name' => $position->display_name,
                 'department' => $position->department === null ? null : $this->departmentRef($position->department),
+                'category' => $position->category,
+                'grade' => $position->grade,
                 'duties' => $position->duties->map(fn (PositionDuty $duty) => [
                     'id' => $duty->id,
                     'name' => $duty->name,
                 ])->values(),
             ],
+            // The document this position carries, read on this page because it
+            // is this position's: the department's page lists the positions and
+            // sends nobody's profile with the list.
+            'profile' => $this->profile($position, $user),
             'employees' => $showsEmployees ? $this->holders($position, $user, $showsPositions) : [],
             'canEdit' => Directories::canEdit($user, 'positions'),
             'canOpenCards' => $showsEmployees,
@@ -125,6 +139,8 @@ class PositionController extends Controller
         $position = Position::create([
             'department_id' => $data['department_id'],
             'name' => $data['name'],
+            'category' => $data['category'] ?? null,
+            'grade' => $data['grade'] ?? null,
         ]);
         $this->writeDuties($position, $data['duties'] ?? []);
 
@@ -138,6 +154,10 @@ class PositionController extends Controller
         $position->update([
             'department_id' => $data['department_id'],
             'name' => $data['name'],
+            // Saying nothing about the two graded fields leaves them alone, the
+            // way saying nothing about the duties does: a form that does not
+            // show a field has not emptied it.
+            ...array_intersect_key($data, array_flip(['category', 'grade'])),
         ]);
 
         // Saying nothing about the duties leaves them alone; sending a list —
@@ -157,6 +177,65 @@ class PositionController extends Controller
         $position->delete();
 
         return back();
+    }
+
+    /**
+     * «Профиль должности» as this position reads it: the nine standard sections
+     * of the shared template, each replaced by this position's wording where
+     * somebody wrote one — in one order, under the heading the sheet is printed
+     * with.
+     *
+     * The same shape the department's page sends its regulation in, so one
+     * component reads either document, with two differences. A section says
+     * whether it is drawn from data rather than written, and the fields it is
+     * drawn from travel beside the sections as `general`: «01 ОБЩАЯ
+     * ИНФОРМАЦИЯ» is a table of where the position sits and how it is graded,
+     * and it is sent as the values themselves so the page draws the document's
+     * own table instead of reading a built one for them. And the body comes
+     * twice, as the regulation's does, although for a profile the two are the
+     * same string: there are no placeholders in this document, so what was
+     * written is what is read.
+     *
+     * @return array<string, mixed>
+     */
+    private function profile(Position $position, User $viewer): array
+    {
+        return [
+            // Keeping the profile is keeping the position: the right that writes
+            // the list of job titles writes this down too. Reading it is reading
+            // the position's page, which asks for its own right already.
+            'can_edit' => Directories::canEdit($viewer, 'positions'),
+            // The heading of the sheet: what somebody typed for this position,
+            // or the name of the document and the position's own name while
+            // nobody has typed anything. One string, ready to print.
+            'title' => PositionProfile::title($position),
+            // The one section nobody writes, as the fields it is made of.
+            'general' => PositionProfile::general($position),
+            'sections' => RegulationSection::forPosition($position)->map(fn (RegulationSection $section, int $place) => [
+                'id' => $section->id,
+                // "template" — the company's own text, read as it is written;
+                // "override" — this position's wording of a standard section;
+                // "own" — a section no template has.
+                'origin' => $section->origin(),
+                'template_section_id' => $section->template_section_id,
+                // Worked out here and stored nowhere: the number is the place
+                // the section is read in this position's document, and one
+                // section of the template is read at a different place in every
+                // position's.
+                'number' => RegulationSection::number($place),
+                'title' => $section->title,
+                'order' => $section->order,
+                // Sanitized where it was written, so it is already safe to put
+                // on the page as the markup it is.
+                'body' => $section->body,
+                // The same body as somebody typed it, for the editor. The
+                // profile has no placeholders, so it is the same body.
+                'body_written' => $section->body,
+                // Drawn from the directory rather than written: the page reads
+                // `general` in its place, and the editor does not open on it.
+                'computed' => $section->computed,
+            ])->values(),
+        ];
     }
 
     /**
@@ -355,13 +434,13 @@ class PositionController extends Controller
     }
 
     /**
-     * @return array{department_id: int, name: string, duties?: list<array{name: string}>}
+     * @return array{department_id: int, name: string, category?: ?string, grade?: ?string, duties?: list<array{name: string}>}
      */
     private function validated(Request $request, ?Position $position = null): array
     {
         $this->trimDuties($request);
 
-        return $request->validate([
+        $data = $request->validate([
             // Where the position sits. The column allows nothing there, because
             // the data could not place a handful of the positions already on
             // file; a position somebody is adding by hand is one they know the
@@ -383,6 +462,12 @@ class PositionController extends Controller
                     ->where('department_id', $request->integer('department_id'))
                     ->ignore($position),
             ],
+            // What «Профиль должности» grades the job by. Nothing can work
+            // either of them out, so they are typed here — and a position
+            // nobody has graded yet is a position all the same, so a form that
+            // sends neither is not an omission.
+            'category' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'grade' => ['sometimes', 'nullable', 'string', 'max:100'],
             // A position nobody has written the duties of yet is a position all
             // the same, so saying nothing about them is not an omission.
             'duties' => ['sometimes', 'array'],
@@ -396,10 +481,24 @@ class PositionController extends Controller
         ], attributes: [
             'department_id' => 'отдел',
             'name' => 'название',
+            'category' => 'категория',
+            'grade' => 'грайд',
             'duties' => 'обязанности',
             'duties.*' => 'обязанность',
             'duties.*.name' => 'обязанность',
         ]);
+
+        // A field somebody cleared is empty rather than an empty string: the
+        // sheet reads a dash where a grade is missing, and «» is not a grade
+        // written down.
+        foreach (['category', 'grade'] as $graded) {
+            if (array_key_exists($graded, $data)) {
+                $typed = trim((string) $data[$graded]);
+                $data[$graded] = $typed === '' ? null : $typed;
+            }
+        }
+
+        return $data;
     }
 
     /**

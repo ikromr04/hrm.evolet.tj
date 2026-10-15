@@ -173,18 +173,8 @@ function Column({ parentId, byParent }: { parentId: number; byParent: Map<number
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2;
-const SCALE_KEY = 'departments.chart.scale';
 
 const clampScale = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.round(value * 100) / 100));
-
-function savedScale(): number {
-    try {
-        const value = Number(localStorage.getItem(SCALE_KEY));
-        return value ? clampScale(value) : 1;
-    } catch {
-        return 1;
-    }
-}
 
 function ZoomControls({
     allOpen,
@@ -310,27 +300,24 @@ export function PhoneViewSwitch<T extends string>({
 
 /**
  * The company as a chart: Evolet on top, departments in a row, units below
- * each. With `rootId`, one department's branch instead: that department on
- * top, its sub-departments below. Drag to move around; zoom with the buttons
- * or Ctrl + wheel / pinch; F or the button shows it fullscreen.
+ * each. Drag to move around; zoom with the buttons or Ctrl + wheel / pinch;
+ * F or the button shows it fullscreen.
  */
 export function OrgChart({
     departments,
     employeesCount = 0,
-    rootId,
 }: {
     departments: OrgDepartment[];
     /** Shown on the Evolet box of the company chart. */
     employeesCount?: number;
-    rootId?: number;
 }) {
     const byParent = groupByParent(departments);
-    const root = rootId === undefined ? undefined : departments.find((d) => d.id === rootId);
-    const top = byParent.get(root ? root.id : null) ?? [];
+    const top = byParent.get(null) ?? [];
 
     const scroller = useRef<HTMLDivElement>(null);
     const content = useRef<HTMLDivElement>(null);
-    const [scale, setScale] = useState(savedScale);
+    // Replaced by the fitted scale before the first paint; see fitted below.
+    const [scale, setScale] = useState(1);
 
     // Staff lists start folded; open one box, or all of them from the toolbar.
     const withStaff = departments.filter((d) => d.members.length > 0).map((d) => d.id);
@@ -380,11 +367,6 @@ export function OrgChart({
             const offset = frameOffset(scale);
             anchor.current = { x: (el.scrollLeft + px - offset.x) / scale, y: (el.scrollTop + py - offset.y) / scale, px, py };
             setScale(next);
-            try {
-                localStorage.setItem(SCALE_KEY, String(next));
-            } catch {
-                // Blocked storage: the zoom just is not remembered.
-            }
         },
         [scale, frameOffset],
     );
@@ -413,14 +395,39 @@ export function OrgChart({
         return () => el.removeEventListener('wheel', onWheel);
     }, [scale, zoomTo]);
 
+    // What «уместить целиком» comes to: the scale at which the whole chart is
+    // inside the frame, never magnified past its natural size.
+    const fitScale = useCallback(() => {
+        const el = scroller.current;
+        if (!el || !size.width || !size.height) return null;
+        return clampScale(Math.min(1, el.clientWidth / size.width, el.clientHeight / size.height));
+    }, [size]);
+
     const fit = () => {
         const el = scroller.current;
-        if (!el || !size.width) return;
-        zoomTo(Math.min(1, el.clientWidth / size.width, el.clientHeight / size.height));
+        const next = fitScale();
+        if (!el || next === null) return;
         // Everything fits, so start from the top-left rather than the old anchor.
         anchor.current = null;
+        setScale(next);
         el.scrollTo({ left: 0, top: 0 });
     };
+
+    // The chart opens fitted rather than at full size: whoever opens the structure
+    // is looking for the shape of the company, not the top-left corner of it. It
+    // happens once, as soon as the chart has been measured — opening a staff list
+    // later changes the size, and must not drag the view back from wherever the
+    // person has got to.
+    const fitted = useRef(false);
+
+    useLayoutEffect(() => {
+        if (fitted.current) return;
+        const next = fitScale();
+        if (next === null) return;
+        fitted.current = true;
+        setScale(next);
+        scroller.current?.scrollTo({ left: 0, top: 0 });
+    }, [fitScale]);
 
     // Fullscreen shows just the chart; the F key toggles it.
     const frame = useRef<HTMLDivElement>(null);
@@ -498,17 +505,13 @@ export function OrgChart({
                             className="absolute top-0 left-0 flex w-max origin-top-left flex-col items-center p-6"
                             style={{ transform: `scale(${scale})` }}
                         >
-                            {root ? (
-                                <Node department={root} top />
-                            ) : (
-                                <div className="bg-card flex items-center gap-3 rounded-xl border px-4 py-3 shadow-xs">
-                                    <EvoletMark className="h-7 w-auto" />
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-semibold">Evolet</span>
-                                        <span className="text-muted-foreground text-xs">{peopleLabel(employeesCount)}</span>
-                                    </div>
+                            <div className="bg-card flex items-center gap-3 rounded-xl border px-4 py-3 shadow-xs">
+                                <EvoletMark className="h-7 w-auto" />
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-semibold">Evolet</span>
+                                    <span className="text-muted-foreground text-xs">{peopleLabel(employeesCount)}</span>
                                 </div>
-                            )}
+                            </div>
 
                             {top.length > 0 && (
                                 <>
@@ -526,7 +529,7 @@ export function OrgChart({
                                             >
                                                 {/* Drop from the rail into the box. */}
                                                 <span aria-hidden="true" className="bg-border absolute top-0 left-[128px] h-6 w-px" />
-                                                <Node department={department} top={!root} />
+                                                <Node department={department} top />
                                                 <Column parentId={department.id} byParent={byParent} />
                                             </li>
                                         ))}

@@ -1,16 +1,12 @@
 import { MobileRow } from '@/components/data-table';
 import { groupByParent, OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
 import { Card } from '@/components/ui/card';
-import AppLayout from '@/layouts/app-layout';
+import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { peopleLabel } from '@/lib/employee';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
-import { Head } from '@inertiajs/react';
 import { Building2, CornerDownRight, Users } from 'lucide-react';
 import { useState } from 'react';
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Структура компании', href: '/departments' }];
 
 type View = 'list' | 'chart';
 
@@ -114,48 +110,41 @@ export default function Departments({ departments, employees_count }: { departme
 
     return (
         // The chart scrolls inside its own frame.
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
-            <Head title="Структура компании" />
+        <CompanyStructureLayout>
+            {/* What the chart below adds up to, under the tabs that lead to it. */}
+            <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">
+                {departments.length} {plural(departments.length, ['подразделение', 'подразделения', 'подразделений'])} ·{' '}
+                {peopleLabel(employees_count)} в компании
+            </p>
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                <div className="flex flex-col gap-1">
-                    {/* The phone's top bar already carries the title. */}
-                    <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Структура компании</h1>
-                    <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">
-                        {departments.length} {plural(departments.length, ['подразделение', 'подразделения', 'подразделений'])} ·{' '}
-                        {peopleLabel(employees_count)} в компании
-                    </p>
-                </div>
+            {departments.length === 0 ? (
+                <Card className="text-muted-foreground rounded-xl p-12 text-center text-sm max-md:rounded-2xl max-md:border-0 max-md:p-8 max-md:shadow-none">
+                    Отделов пока нет.
+                </Card>
+            ) : (
+                <>
+                    <PhoneViewSwitch
+                        value={view}
+                        onChange={changeView}
+                        options={[
+                            { value: 'list', label: 'Список' },
+                            { value: 'chart', label: 'Схема' },
+                        ]}
+                    />
 
-                {departments.length === 0 ? (
-                    <Card className="text-muted-foreground rounded-xl p-12 text-center text-sm max-md:rounded-2xl max-md:border-0 max-md:p-8 max-md:shadow-none">
-                        Отделов пока нет.
+                    {view === 'list' && <DepartmentList departments={departments} />}
+
+                    {/* From `md` up the chart is the page, whatever a phone last chose. */}
+                    <Card
+                        className={cn(
+                            'bg-sidebar flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1',
+                            view === 'list' && 'max-md:hidden',
+                        )}
+                    >
+                        <OrgChart departments={departments} employeesCount={employees_count} />
                     </Card>
-                ) : (
-                    <>
-                        <PhoneViewSwitch
-                            value={view}
-                            onChange={changeView}
-                            options={[
-                                { value: 'list', label: 'Список' },
-                                { value: 'chart', label: 'Схема' },
-                            ]}
-                        />
-
-                        {view === 'list' && <DepartmentList departments={departments} />}
-
-                        {/* From `md` up the chart is the page, whatever a phone last chose. */}
-                        <Card
-                            className={cn(
-                                'bg-sidebar flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1',
-                                view === 'list' && 'max-md:hidden',
-                            )}
-                        >
-                            <OrgChart departments={departments} employeesCount={employees_count} />
-                        </Card>
-                    </>
-                )}
-            </div>
-        </AppLayout>
+                </>
+            )}
+        </CompanyStructureLayout>
     );
 }

@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 /**
  * "Департамент маркетинга (ДМ)" — both names at once, for the two places with
- * room to say what an abbreviation stands for: the «Отделы» directory and a
+ * room to say what an abbreviation stands for: the «Подразделения» list and a
  * department's own page. One that has no abbreviation is just its name, with no
  * empty brackets after it.
  */

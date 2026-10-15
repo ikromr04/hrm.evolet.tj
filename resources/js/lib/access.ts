@@ -118,11 +118,12 @@ export const readsEquipmentJournal = (can: (permission: Permission) => boolean):
     (can('equipment.view.all') && can('equipment.journal.all'));
 
 /**
- * "Справочники" is not one section but five lists that share a page, and they are
- * kept by different hands — an HR officer renames a department, whoever looks
- * after the fleet adds a category of monitors — so each list is a right of its
- * own. Job titles were one of them until they grew duties and a page of their
- * own; the right that opens them is still directories.view.positions.
+ * "Справочники" is not one section but a handful of lists that share a page, and
+ * they are kept by different hands — an HR officer writes the languages down,
+ * whoever looks after the fleet adds a category of monitors — so each list is a
+ * right of its own. Job titles and departments were two of them until they grew
+ * into "Структура компании"; the rights that open them are still
+ * directories.view.positions and directories.view.departments.
  */
 
 /** One of the reference lists: what it is called and what right opens it. */
@@ -139,7 +140,9 @@ export interface DirectoryList {
  */
 export const directoryLists: DirectoryList[] = [
     { key: 'roles', title: 'Позиции', view: 'directories.view.roles' },
-    { key: 'departments', title: 'Отделы', view: 'directories.view.departments' },
+    // "Отделы" left the same way the job titles did: the departments are read
+    // beside the chart they are drawn into, under "Структура компании", and the
+    // right that opens them is still directories.view.departments.
     { key: 'languages', title: 'Языки', view: 'directories.view.languages' },
     { key: 'citizenships', title: 'Гражданства', view: 'directories.view.citizenships' },
     { key: 'equipment', title: 'Категории техники', view: 'directories.view.equipment' },
@@ -150,6 +153,30 @@ export const directoryLists: DirectoryList[] = [
 
 /** Whether at least one list is open, which is what opens the section itself. */
 export const seesDirectories = (can: (permission: Permission) => boolean): boolean => directoryLists.some((list) => can(list.view));
+
+/**
+ * "Структура компании" is three readings of the same thing — the chart, the
+ * departments it is drawn from and the job titles filled inside them — so they
+ * share a page with a strip of tabs instead of standing apart in the menu.
+ *
+ * No right is invented for them: a tab asks for the right its list has always
+ * been kept by, and the chart asks for none, because who works where is open to
+ * everybody who signs in.
+ */
+export interface CompanySection {
+    key: string;
+    title: string;
+    href: string;
+    /** The right that opens the tab; the chart names none. */
+    view?: Permission;
+}
+
+/** The tabs in the order they stand in; the first is the section's own address. */
+export const companySections: CompanySection[] = [
+    { key: 'chart', title: 'Органограмма', href: '/departments' },
+    { key: 'units', title: 'Подразделении', href: '/departments/units', view: 'directories.view.departments' },
+    { key: 'positions', title: 'Должности', href: '/positions', view: 'directories.view.positions' },
+];
 
 /*
  * Which positions a form may offer is not decided here: the server sends the list

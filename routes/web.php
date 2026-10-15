@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
 use App\Http\Controllers\EmployeeAccessController;
 use App\Http\Controllers\EmployeeAvatarController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\EquipmentRepairController;
 use App\Http\Controllers\EquipmentStatusController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PositionController;
+use App\Http\Controllers\PositionProfileController;
 use App\Http\Controllers\SearchController;
 // The reference lists themselves, under a name of their own: "Directories" here
 // already stands for the controllers that serve them.
@@ -79,7 +81,22 @@ Route::middleware(['auth'])->group(function () {
 
     // Who works where is nobody's secret: the structure of the company is open
     // to everybody who signs in, and the pages show names and nothing more.
+    // "Органограмма", the tab the section opens on.
     Route::get('departments', [DepartmentController::class, 'index'])->name('departments.index');
+
+    // "Подразделения": the same tree, written out as a list and kept there. It
+    // was a tab of "Справочники" and is a tab of the structure now, because it
+    // is the very thing the chart above draws — but the right is still the one
+    // the access table names the list with, so moving a page moved nothing
+    // about what it takes to open it. Not everybody who sees the chart may
+    // read it.
+    //
+    // Before the department page below, or "units" would be taken for an id and
+    // the wildcard would answer first.
+    Route::get('departments/units', [Directories\DepartmentController::class, 'index'])
+        ->middleware('can:'.DirectoryLists::viewPermission('departments'))
+        ->name('departments.units.index');
+
     Route::get('departments/{department}', [DepartmentController::class, 'show'])->name('departments.show');
 
     // What the bell opens. Everybody has notifications of their own and nobody
@@ -199,7 +216,90 @@ Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions
     Route::delete('positions/{position}', [PositionController::class, 'destroy'])->name('destroy');
 });
 
-// Directories: roles ("Позиция"), departments, languages, citizenships and equipment categories.
+// Keeping the departments, at the address the list itself is now read from: the
+// same pair of rights as when it was a tab of "Справочники", asked as the one
+// gate — changing a list takes being able to read it, and the bare edit right
+// would pass on its own.
+Route::middleware(['auth', 'can:directories.manage.departments'])->prefix('departments/units')->name('departments.units.')->group(function () {
+    Route::post('/', [Directories\DepartmentController::class, 'store'])->name('store');
+    Route::put('{department}', [Directories\DepartmentController::class, 'update'])->name('update');
+    Route::delete('{department}', [Directories\DepartmentController::class, 'destroy'])->name('destroy');
+});
+
+// «Положение о работе», the document every department has, written at two
+// addresses: /departments/regulation is the regulation of no department — the
+// standard text every department would start from, which nothing writes today,
+// and the only address the standard sections themselves are added to or dropped
+// from — and /departments/{department}/regulation is one department's own
+// wording of those sections, its arrangement of them and the heading it prints
+// them under, which is all a department's page edits. A correction made there
+// reaches that department and nobody else, on purpose. The document has no page
+// of its own: it is read, and edited, on the department's page, which already
+// carries it.
+//
+// Keeping it is keeping the department, so it is the same gate as the list of
+// units above, the pair of rights rather than the bare one. Reading takes
+// nothing at all — the department's page is open to everybody signed in.
+//
+// The template first, so an address of its own is never read as a department's
+// id.
+Route::middleware(['auth', 'can:directories.manage.departments'])->name('departments.regulation.')->group(function () {
+    Route::prefix('departments/regulation')->name('template.')->group(function () {
+        Route::post('sections', [DepartmentRegulationController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [DepartmentRegulationController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [DepartmentRegulationController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [DepartmentRegulationController::class, 'order'])->name('order');
+    });
+
+    Route::prefix('departments/{department}/regulation')->group(function () {
+        // The heading of the printed sheet, which belongs to the department and
+        // not to a section of the document, so it is written on its own.
+        Route::put('title', [DepartmentRegulationController::class, 'title'])->name('title');
+        Route::post('sections', [DepartmentRegulationController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [DepartmentRegulationController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [DepartmentRegulationController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [DepartmentRegulationController::class, 'order'])->name('order');
+    });
+});
+
+// «Профиль должности», the sheet the company calls СФД: the same document in
+// the same two halves as the regulation above, one address further down the
+// structure. /positions/profile is the profile of no position — the nine
+// standard sections every profile is made of, and the only address they are
+// added to or dropped from — and /positions/{position}/profile is one
+// position's own wording of them, its arrangement and its heading. A
+// correction made there reaches that position and nobody else, on purpose.
+//
+// The document has no page of its own: it is read, and edited, on the
+// position's page, and the department's page lists the positions whose profiles
+// it is the department of.
+//
+// Keeping it is keeping the position, so it is the same gate as the list of job
+// titles, the pair of rights rather than the bare one. Reading it takes the
+// right that opens that list, which the position's page already asks for.
+//
+// The template first, so an address of its own is never read as a position's
+// id.
+Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions.profile.')->group(function () {
+    Route::prefix('positions/profile')->name('template.')->group(function () {
+        Route::post('sections', [PositionProfileController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [PositionProfileController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [PositionProfileController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [PositionProfileController::class, 'order'])->name('order');
+    });
+
+    Route::prefix('positions/{position}/profile')->group(function () {
+        // The heading of the printed sheet, which belongs to the position and
+        // not to a section of the document, so it is written on its own.
+        Route::put('title', [PositionProfileController::class, 'title'])->name('title');
+        Route::post('sections', [PositionProfileController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [PositionProfileController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [PositionProfileController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [PositionProfileController::class, 'order'])->name('order');
+    });
+});
+
+// Directories: roles ("Позиция"), languages, citizenships and equipment categories.
 Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(function () {
     // The section opens on the first list this person may read rather than always
     // on the roles, which not everybody who keeps a directory may see.
@@ -214,11 +314,11 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
     // Lists kept by different people, so each is a right of its own — reading it,
     // and adding to it and renaming in it. "Доступы" is one of them too, further
     // down: it is a page of its own rather than a resource.
-    // "Должности" is not among them any more: the list has a section of its own,
-    // at /positions, and is read and kept by the very same two rights.
+    // Neither "Должности" nor "Отделы" is among them any more: both are tabs of
+    // a section of their own, at /positions and /departments/units, and both are
+    // read and kept by the very same two rights they always were.
     $lists = [
         'roles' => Directories\RoleController::class,
-        'departments' => Directories\DepartmentController::class,
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,
         'equipment' => Directories\EquipmentTypeController::class,

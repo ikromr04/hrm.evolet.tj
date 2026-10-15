@@ -18,6 +18,11 @@ use Spatie\Permission\PermissionRegistrar;
  * rather than from somebody's draft it would first have to clean up. No people
  * and no hardware either: those are the demo (UserSeeder).
  *
+ * The one exception is the standard text of «Положение о работе», which is not
+ * a draft of ours but their own document: every department's regulation reads
+ * it, and it is written on the first day so nobody has to retype a file they
+ * already have.
+ *
  * It is run on the first day and again after every update, so it is harmless
  * the second time. The rights are brought in line with the code on every run —
  * an update that adds a right needs exactly this — and the administrator is
@@ -39,6 +44,20 @@ class ProductionSeeder extends Seeder
         );
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+
+        // The one text that is not somebody's draft: «Положение о работе» is the
+        // company's own document, the same standard wording for every
+        // department, transcribed from the file they were printing it from. So
+        // it is written here rather than left for them to retype — once, while
+        // there is none, and never again, because from then on the sentences are
+        // theirs to correct.
+        $this->call(RegulationTemplateSeeder::class);
+
+        // And the shape of the other one. «Профиль должности» is nine headings
+        // the company settled on, with nothing under them: what a particular
+        // job asks of a person is theirs to write, and inventing a sentence of
+        // it here would put words they never wrote on a sheet somebody signs.
+        $this->call(PositionProfileTemplateSeeder::class);
 
         $this->systemAdministrator();
     }

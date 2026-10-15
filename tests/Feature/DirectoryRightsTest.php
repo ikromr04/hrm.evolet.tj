@@ -21,9 +21,10 @@ use Tests\TestCase;
  * own, and changing one takes being able to read it — a list one cannot open is
  * not a list one renames entries in.
  *
- * The job titles are a right of the section too, and read with every other one
- * here, although their page is no longer a tab of it: they are kept at
- * /positions now, and moving a page moved nothing about what it takes to open.
+ * The job titles and the departments are rights of the section too, and read
+ * with every other one here, although neither page is a tab of it: they are kept
+ * at /positions and /departments/units now, and moving a page moved nothing
+ * about what it takes to open.
  */
 class DirectoryRightsTest extends TestCase
 {
@@ -37,19 +38,17 @@ class DirectoryRightsTest extends TestCase
      */
     private const LISTS = [
         'roles' => ['/directories/roles', ['title' => 'Кладовщик']],
-        'departments' => ['/directories/departments', ['name' => 'Отдел дизайна']],
         'languages' => ['/directories/languages', ['name' => 'Немецкий']],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
     ];
 
     /**
-     * The pages of the section, in the order the tabs show them. The job titles
-     * are not among them: they have a page of its own, and PositionPagesTest
-     * reads the rights there.
+     * The pages of the section, in the order the tabs show them. Neither the job
+     * titles nor the departments are among them: each has a page of its own, and
+     * PositionPagesTest and DepartmentPagesTest read the rights there.
      */
     private const READABLE = [
         'roles' => '/directories/roles',
-        'departments' => '/directories/departments',
         'languages' => '/directories/languages',
         'citizenships' => '/directories/citizenships',
         'equipment' => '/directories/equipment',
@@ -148,9 +147,9 @@ class DirectoryRightsTest extends TestCase
             ->get('/directories')
             ->assertRedirect('/directories/languages');
 
-        $this->actingAs($this->person(Directories::viewPermission('departments'), Directories::viewPermission('equipment')))
+        $this->actingAs($this->person(Directories::viewPermission('citizenships'), Directories::viewPermission('equipment')))
             ->get('/directories')
-            ->assertRedirect('/directories/departments');
+            ->assertRedirect('/directories/citizenships');
 
         $this->actingAs(User::factory()->create()->assignRole('sysadmin'))
             ->get('/directories')
@@ -215,14 +214,17 @@ class DirectoryRightsTest extends TestCase
 
         $page = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
 
-        // Every list of the catalogue, which is one more than the tabs: the job
-        // titles are read and kept by rights of this section although their page
-        // sits elsewhere, so the table still offers both of theirs.
+        // Every list of the catalogue, which is two more than the tabs: the job
+        // titles and the departments are read and kept by rights of this section
+        // although their pages sit elsewhere, so the table still offers all four.
         $this->assertCount(count(Directories::LISTS), $page['directoryLists']);
         $this->assertCount(count(Directories::LISTS), $page['directoryEdits']);
-        $this->assertCount(count(self::READABLE) + 1, $page['directoryLists']);
-        $this->assertContains(Directories::viewPermission('positions'), array_column($page['directoryLists'], 'key'));
-        $this->assertContains(Directories::editPermission('positions'), array_column($page['directoryEdits'], 'key'));
+        $this->assertCount(count(self::READABLE) + 2, $page['directoryLists']);
+
+        foreach (['positions', 'departments'] as $elsewhere) {
+            $this->assertContains(Directories::viewPermission($elsewhere), array_column($page['directoryLists'], 'key'));
+            $this->assertContains(Directories::editPermission($elsewhere), array_column($page['directoryEdits'], 'key'));
+        }
         // Every right to change a list names the right to read it, so the dialog
         // can grey out what would never answer yes.
         foreach ($page['directoryEdits'] as $right) {

@@ -6,10 +6,18 @@ use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserDetail;
+use App\Support\Directories;
+use Database\Seeders\PermissionSeeder;
+use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
+/**
+ * "Структура компании": the chart everybody signed in may read, the departments
+ * themselves, and — since the list left "Справочники" — the tab that writes that
+ * structure down, at /departments/units.
+ */
 class DepartmentPagesTest extends TestCase
 {
     use RefreshDatabase;
@@ -57,9 +65,6 @@ class DepartmentPagesTest extends TestCase
 
         $this->actingAs($this->colleague())->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/show')
-            // Its own branch for the chart: itself and what is below.
-            ->where('chart', fn ($chart) => collect($chart)->pluck('id')->all() === [$sub->id, $unit->id])
-            ->where('chart', fn ($chart) => collect($chart)->firstWhere('id', $unit->id)['members'] === [['id' => $member->id, 'name' => 'Бобоев Фаррух', 'avatar' => null]])
             ->where('department.name', 'Отдел')
             // A department with units under it is on the top level: nothing above it.
             ->where('department.parents', [])
@@ -98,7 +103,6 @@ class DepartmentPagesTest extends TestCase
         // is named the one way.
         $this->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/show')
-            ->where('chart', fn ($chart) => $named($chart, $unit->id) === 'ОД')
             ->where('department.name', 'ОД')
             // Short on screen, spelled out for the hover and the screen reader.
             ->where('department.parents', [['id' => $top->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга']])
@@ -115,5 +119,75 @@ class DepartmentPagesTest extends TestCase
                 ['id' => $unit->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'total_count' => 0, 'heads' => []],
             ])
         );
+    }
+
+    /**
+     * The chart is one tab of the section and the list of departments another,
+     * and the two are not open to the same people: everybody signed in reads the
+     * structure, and only whoever may read the list reads the list.
+     */
+    public function test_the_chart_is_open_to_everybody_and_the_list_is_not()
+    {
+        $this->seed(PermissionSeeder::class);
+        $department = Department::create(['name' => 'Отдел Дизайна']);
+
+        $colleague = $this->colleague();
+        $this->actingAs($colleague)->get('/departments')->assertOk();
+        $this->actingAs($colleague)->get("/departments/{$department->id}")->assertOk();
+        $this->actingAs($colleague)->get('/departments/units')->assertForbidden();
+        $this->actingAs($colleague)->post('/departments/units', ['name' => 'Отдел продаж'])->assertForbidden();
+        $this->assertNull(Department::firstWhere('name', 'Отдел продаж'));
+
+        // Reading the list and keeping it are two rights still, and the page says
+        // which of them it is looking at.
+        $reader = User::factory()->create()->givePermissionTo(Directories::viewPermission('departments'));
+        $this->actingAs($reader)->get('/departments')->assertOk();
+        $this->assertFalse($this->actingAs($reader)->get('/departments/units')->assertOk()->viewData('page')['props']['canEdit']);
+        $this->actingAs($reader)->put("/departments/units/{$department->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
+
+        $keeper = User::factory()->create()->givePermissionTo([
+            Directories::viewPermission('departments'),
+            Directories::editPermission('departments'),
+        ]);
+        $this->assertTrue($this->actingAs($keeper)->get('/departments/units')->assertOk()->viewData('page')['props']['canEdit']);
+        $this->actingAs($keeper)->put("/departments/units/{$department->id}", ['name' => 'Отдел сбыта'])->assertRedirect();
+        $this->assertSame('Отдел сбыта', $department->fresh()->name);
+        $this->actingAs($keeper)->delete("/departments/units/{$department->id}")->assertRedirect();
+        $this->assertNull(Department::find($department->id));
+    }
+
+    /**
+     * "Отделы" left "Справочники" the way "Должности" did: the tab is gone and
+     * the old address answers nothing, while the two rights behind the list stay
+     * exactly as the production access table has them keyed.
+     */
+    public function test_the_reference_lists_no_longer_offer_the_departments_but_the_rights_stay()
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class]);
+        $sysadmin = User::factory()->create()->assignRole('sysadmin');
+
+        // Not a tab any more, and not an address of the section either.
+        $this->assertNotContains('departments', Directories::TABS);
+        $this->assertNotContains('departments', Directories::visibleTo($sysadmin));
+        $this->assertNotContains('departments', Directories::editableBy($sysadmin));
+        $this->actingAs($sysadmin)->get('/directories/departments')->assertNotFound();
+        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/roles');
+
+        // The section is shut for somebody who may read nothing but the
+        // departments — that list is elsewhere now and answers for itself.
+        $reader = User::factory()->create()->givePermissionTo(Directories::viewPermission('departments'));
+        $this->actingAs($reader)->get('/directories')->assertForbidden();
+        $this->actingAs($reader)->get('/departments/units')->assertOk();
+
+        // The two rights are still the two rights, and the access table still
+        // offers both: the production table is keyed by these very strings.
+        $this->assertContains('directories.view.departments', Directories::permissions());
+        $this->assertContains('directories.edit.departments', Directories::permissions());
+        $this->assertArrayHasKey('departments', Directories::LISTS);
+
+        $props = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
+
+        $this->assertContains('directories.view.departments', array_column($props['directoryLists'], 'key'));
+        $this->assertContains('directories.edit.departments', array_column($props['directoryEdits'], 'key'));
     }
 }

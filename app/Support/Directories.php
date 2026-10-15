@@ -15,9 +15,11 @@ use App\Models\User;
  * after the fleet adds a category of monitors — so each list is a right of its
  * own, and changing one takes being able to read it first.
  *
- * One of them no longer shares that page. The job titles are read far more often
+ * Two of them no longer share that page. The job titles are read far more often
  * than they are changed, so "Должности" became a section of its own at
- * /positions — but the two rights behind it did not move, and this is still the
+ * /positions; and the tree of departments is the company structure itself, so
+ * "Отделы" went to live beside the chart that draws it, at /departments/units.
+ * The rights behind either of them did not move, and this is still the
  * catalogue they come from.
  */
 final class Directories
@@ -27,9 +29,10 @@ final class Directories
      * holds].
      *
      * This is the catalogue the access page is built from, so a key here is a
-     * string the production access table is keyed by: "positions" stays even
-     * though the list is no longer a tab, because renaming or dropping it would
-     * silently take away what every position has been granted.
+     * string the production access table is keyed by: "positions" and
+     * "departments" stay even though neither list is a tab any more, because
+     * renaming or dropping one would silently take away what every position has
+     * been granted.
      *
      * @var array<string, array{string, string}>
      */
@@ -70,14 +73,14 @@ final class Directories
      * The lists that are tabs of the page, in the order the tabs show them,
      * because the section lands on the first one a person may open.
      *
-     * Everything in the catalogue but the job titles: those have a section of
-     * their own now, so the tabs no longer offer them and the section never
-     * opens on them — while their two rights stay in the catalogue above, where
-     * the access page and the seeder read them.
+     * Everything in the catalogue but the job titles and the departments: those
+     * are read under "Структура компании" now, so the tabs no longer offer them
+     * and the section never opens on them — while their four rights stay in the
+     * catalogue above, where the access page and the seeder read them.
      *
      * @var list<string>
      */
-    public const TABS = ['roles', 'departments', 'languages', 'citizenships', 'equipment', 'access'];
+    public const TABS = ['roles', 'languages', 'citizenships', 'equipment', 'access'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string
@@ -152,8 +155,8 @@ final class Directories
     }
 
     /**
-     * Which tabs of the section this person may open. A list that has a page of
-     * its own is not one of them: it answers for itself, on its own address.
+     * Which tabs of the section this person may open. A list that is read
+     * elsewhere is not one of them: it answers for itself, on its own address.
      *
      * @return list<string>
      */

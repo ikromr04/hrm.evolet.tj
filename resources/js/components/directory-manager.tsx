@@ -93,6 +93,13 @@ interface DirectoryManagerProps {
     /** Link to the employee list filtered by this record; without it the count is plain text. */
     employeesUrl?: (item: DirectoryItem) => string;
     /**
+     * Link to the record's own page, where it has one. A department does — with
+     * its people, its heads, its sub-departments and its chart — and a language
+     * or a citizenship leads nowhere, so the name is a link in that one list and
+     * stays plain text in the rest.
+     */
+    recordUrl?: (item: DirectoryItem) => string;
+    /**
      * The line of a card that link narrows the staff list by. Without it the list
      * refuses the filter — nobody narrows a list by what they may not read — so
      * the number is shown as a number rather than as a way into a refusal.
@@ -214,6 +221,7 @@ export function DirectoryManager({
     labels,
     employeesUrl,
     employeesField,
+    recordUrl,
     countLabel = 'Сотрудников',
     countWords = ['сотрудник', 'сотрудника', 'сотрудников'],
     tree = false,
@@ -265,9 +273,12 @@ export function DirectoryManager({
 
             {/*
              * A phone gets a list rather than the table: three columns squeezed
-             * into 320px leave the names wrapping letter by letter. Tapping a row
-             * opens the people behind it, the same way the count does on a
-             * desktop; changing and deleting sit in the row's menu.
+             * into 320px leave the names wrapping letter by letter. A row is one
+             * target there, not a name and a number side by side, so it leads
+             * where the name leads on a desktop — the record's own page, for the
+             * list that has one — and falls back to the people behind it
+             * elsewhere; changing and deleting sit in the row's menu, outside the
+             * link.
              */}
             <Card className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-none md:hidden">
                 {visible.length > 0 ? (
@@ -279,7 +290,11 @@ export function DirectoryManager({
                             return (
                                 <MobileRow
                                     key={row.id}
-                                    href={employeesUrl && opensList && count > 0 ? employeesUrl(row) : null}
+                                    // An empty department is a row to open too: its page
+                                    // holds the sub-departments and the chart whether
+                                    // anybody is counted in it or not, which the staff
+                                    // list behind a zero never did.
+                                    href={recordUrl ? recordUrl(row) : employeesUrl && opensList && count > 0 ? employeesUrl(row) : null}
                                     leading={
                                         indent > 0 || icons ? (
                                             <span className="flex items-center gap-1.5" style={{ paddingLeft: indent }}>
@@ -394,7 +409,26 @@ export function DirectoryManager({
                                             {icons && (
                                                 <IconChip icon={(row.icon && equipmentIcons[row.icon]) || fallbackIcon} size={28} iconSize={15} />
                                             )}
-                                            <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
+                                            {recordUrl ? (
+                                                // Brand colour and an underline under the cursor, the way this
+                                                // app has always drawn a link in a list. The link is the name
+                                                // and nothing else — not the cell around it, not the row — so
+                                                // the count further along and the two buttons at the end keep
+                                                // their own presses, and a child's name leads to the child
+                                                // rather than to whatever it is indented under.
+                                                <Link
+                                                    href={recordUrl(row)}
+                                                    className={cn(
+                                                        'text-brand-strong hover:underline dark:text-[#C5E27A]',
+                                                        tree && row.depth === 0 ? 'font-semibold' : 'font-medium',
+                                                    )}
+                                                    title={`Открыть ${labels.accusative}: ${rowLabel(row)}`}
+                                                >
+                                                    {rowLabel(row)}
+                                                </Link>
+                                            ) : (
+                                                <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
+                                            )}
                                             {row.protected && (
                                                 <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />
                                             )}

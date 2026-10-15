@@ -25,6 +25,8 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             DepartmentSeeder::class,
             PositionSeeder::class,
+            RegulationTemplateSeeder::class,
+            PositionProfileTemplateSeeder::class,
             LanguageSeeder::class,
             EquipmentTypeSeeder::class,
             UserSeeder::class,

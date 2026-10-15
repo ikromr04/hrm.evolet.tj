@@ -20,6 +20,11 @@ class Department extends Model
     protected $fillable = [
         'name',
         'abbreviation',
+        // The heading of «Положение о работе» as this department prints it,
+        // typed by hand because it needs the name in a case nothing here
+        // invents. Empty until somebody writes one, and then read in place of
+        // the heading worked out from the name.
+        'regulation_title',
         'parent_id',
     ];
 
@@ -87,6 +92,17 @@ class Department extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class)->withPivot('is_head')->withTimestamps();
+    }
+
+    /**
+     * What this department keeps of its own «Положение о работе»: its wording
+     * of the standard sections it rewrote. Everything it did not rewrite it
+     * reads from the template, so this is never the whole document —
+     * RegulationSection::forDepartment() puts that together.
+     */
+    public function regulationSections(): HasMany
+    {
+        return $this->hasMany(RegulationSection::class);
     }
 
     /**

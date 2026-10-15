@@ -428,7 +428,7 @@ class NotificationsTest extends TestCase
         $department->users()->attach([$stays->id, $leaves->id]);
 
         $this->actingAs($admin)
-            ->put("/directories/departments/{$department->id}", [
+            ->put("/departments/units/{$department->id}", [
                 // Renamed in the same save: a new name alone is not a move.
                 'name' => 'Отдел сбыта',
                 'head_ids' => [],

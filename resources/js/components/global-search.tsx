@@ -8,6 +8,7 @@ import { router } from '@inertiajs/react';
 import {
     BookMarked,
     Briefcase,
+    Building2,
     CornerDownLeft,
     History,
     IdCard,
@@ -121,14 +122,19 @@ export function GlobalSearch() {
                 { label: 'Главная', href: '/dashboard', icon: LayoutGrid },
                 ...(can('employees.view') ? [{ label: 'Сотрудники', href: '/employees', icon: Users }] : []),
                 { label: 'Структура компании', href: '/departments', icon: Network },
+                // The other two tabs of the section above. Neither is a page of
+                // its own any more, but both are named here, because a tab is
+                // what one types when looking for it — and each takes the right
+                // its list has always been read by.
+                ...(can('directories.view.departments') ? [{ label: 'Подразделении', href: '/departments/units', icon: Building2 }] : []),
+                ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
                 // Any part of the fleet — own, the department's or all of it — opens the section.
                 ...(seesEquipment(can) ? [{ label: 'Оборудование', href: '/equipment', icon: Laptop }] : []),
                 // The journal opens for whoever may read it on any part of the fleet;
                 // the page itself shows only the entries of that part.
                 ...(readsEquipmentJournal(can) ? [{ label: 'Журнал операций', href: '/equipment/journal', icon: History }] : []),
-                ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
-                // One of the five lists is enough: the section opens on the first
-                // one its viewer may read.
+                // One list is enough: the section opens on the first one its
+                // viewer may read.
                 ...(seesDirectories(can) ? [{ label: 'Справочники', href: '/directories', icon: BookMarked }] : []),
                 { label: 'Настройки', href: '/settings', icon: Settings },
             ] as const,
