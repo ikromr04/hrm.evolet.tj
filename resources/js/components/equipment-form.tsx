@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { blankValues, ownFields, roleName, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
@@ -27,6 +28,11 @@ export interface EquipmentFormProps {
          * not carry every employee in the company to draw this form.
          */
         holders?: { id: number; name: string }[];
+        /**
+         * The structure, for a category whose equipment a department holds
+         * rather than a colleague — a printer, a router, an air conditioner.
+         */
+        departments?: { id: number; name: string; full_name: string; depth?: number }[];
     };
     /**
      * The colleague this unit is being bought for, when the form was opened
@@ -87,6 +93,14 @@ const half: Record<EquipmentFormLayout, string> = {
  * while it is still only one column wide.
  */
 const wide: Record<EquipmentFormLayout, string> = { page: 'md:col-span-2', dialog: 'col-span-full' };
+
+/**
+ * One of the two answers to «Кому». The one in force takes the pale green a
+ * chosen tab takes elsewhere in the section, and the pair shares the width of
+ * the field between them so that neither word is cut on a phone.
+ */
+const takerChoice =
+    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:text-[13px] dark:data-[state=on]:bg-white/10';
 
 function Field({
     label,
@@ -162,6 +176,7 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
         checked_at: '',
         next_inventory_at: '',
         holder_user_id: forEmployee ? String(forEmployee.id) : '',
+        holder_department_id: '',
         issued_at: today,
     });
 
@@ -173,6 +188,13 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
         () => options.types.find((type) => String(type.id) === form.data.equipment_type_id),
         [options.types, form.data.equipment_type_id],
     );
+    // Whom the unit goes to, if it goes to anybody as it arrives. Nothing about
+    // the thing decides it — a printer may sit on one person's desk and a
+    // department may keep a spare laptop — so the form asks, and opens on the
+    // answer that is nearly always right. A form opened from somebody's card is
+    // about their equipment and does not ask at all.
+    const [taker, setTaker] = useState<'person' | 'department'>('person');
+    const toDepartment = taker === 'department' && forEmployee === null;
     // Everything the category asks about, the two it names a unit by included:
     // those two are asked above in boxes of their own, so the rest is what the
     // category's own inputs are drawn from.
@@ -221,7 +243,9 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
                       .filter(Boolean)
                 : [],
             photos,
-            holder_user_id: handingOver ? data.holder_user_id : null,
+            // One holder or the other, whichever kind this category keeps.
+            holder_user_id: handingOver && !toDepartment ? data.holder_user_id : null,
+            holder_department_id: handingOver && toDepartment ? data.holder_department_id : null,
             issued_at: handingOver ? data.issued_at : null,
             another: again,
         }));
@@ -461,7 +485,7 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
                         <div className="col-span-full flex items-center gap-2.5">
                             <Checkbox id="issue" checked={issuing} onCheckedChange={(on) => setIssuing(on === true)} />
                             <Label htmlFor="issue" className="font-normal">
-                                Сразу выдать сотруднику
+                                Сразу выдать
                             </Label>
                         </div>
                     )}
@@ -469,17 +493,64 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
                     {handingOver && (
                         <>
                             {!forEmployee && (
-                                <Field label="Кому" htmlFor="holder_user_id" error={form.errors.holder_user_id}>
-                                    <SearchableSelect
-                                        id="holder_user_id"
-                                        value={form.data.holder_user_id}
-                                        onChange={(value) => form.setData('holder_user_id', value)}
-                                        options={(options.holders ?? []).map((holder) => ({ value: String(holder.id), label: holder.name }))}
-                                        placeholder="Выберите сотрудника"
-                                        searchPlaceholder="Поиск по фамилии"
-                                        empty="Сотрудник не найден"
-                                        invalid={!!form.errors.holder_user_id}
-                                    />
+                                <Field
+                                    label="Кому"
+                                    htmlFor={toDepartment ? 'holder_department_id' : 'holder_user_id'}
+                                    error={form.errors.holder_user_id ?? form.errors.holder_department_id}
+                                >
+                                    {/* A colleague or a department, asked here because
+                                        nothing about the thing decides it. The two are
+                                        exclusive in the database, so choosing one lets
+                                        go of what was chosen under the other. */}
+                                    <ToggleGroup
+                                        type="single"
+                                        variant="outline"
+                                        value={taker}
+                                        onValueChange={(next) => {
+                                            if (!next || next === taker) return;
+                                            setTaker(next as 'person' | 'department');
+                                            form.setData((data) => ({ ...data, holder_user_id: '', holder_department_id: '' }));
+                                            form.clearErrors('holder_user_id', 'holder_department_id');
+                                        }}
+                                        aria-label="Кому выдать"
+                                        className="mb-2 w-full justify-start"
+                                    >
+                                        <ToggleGroupItem value="person" className={takerChoice}>
+                                            Сотруднику
+                                        </ToggleGroupItem>
+                                        <ToggleGroupItem value="department" className={takerChoice}>
+                                            Отделу
+                                        </ToggleGroupItem>
+                                    </ToggleGroup>
+
+                                    {toDepartment ? (
+                                        <SearchableSelect
+                                            id="holder_department_id"
+                                            value={form.data.holder_department_id}
+                                            onChange={(value) => form.setData('holder_department_id', value)}
+                                            options={(options.departments ?? []).map((department) => ({
+                                                value: String(department.id),
+                                                label: department.name,
+                                                hint: department.full_name === department.name ? undefined : department.full_name,
+                                                depth: department.depth,
+                                            }))}
+                                            placeholder="Выберите отдел"
+                                            searchPlaceholder="Поиск по названию"
+                                            empty="Отдел не найден"
+                                            invalid={!!form.errors.holder_department_id}
+                                        />
+                                    ) : (
+                                        <SearchableSelect
+                                            id="holder_user_id"
+                                            value={form.data.holder_user_id}
+                                            onChange={(value) => form.setData('holder_user_id', value)}
+                                            options={(options.holders ?? []).map((holder) => ({ value: String(holder.id), label: holder.name }))}
+                                            placeholder="Выберите сотрудника"
+                                            searchPlaceholder="Поиск по фамилии"
+                                            empty="Сотрудник не найден"
+                                            invalid={!!form.errors.holder_user_id}
+                                        />
+                                    )}
                                 </Field>
                             )}
 

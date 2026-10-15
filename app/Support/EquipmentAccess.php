@@ -295,6 +295,12 @@ final class EquipmentAccess
 
             if ($departments !== []) {
                 $q->orWhereHas('holder.departments', fn (Builder $q) => $q->whereIn('departments.id', $departments));
+                // And what the department itself holds: a printer signed out
+                // to the отдел аналитики is the отдел аналитики's equipment in
+                // the only sense anybody means by the question, and without
+                // this line the head of a department would be shown their
+                // people's laptops and not their own department's printer.
+                $q->orWhereIn('holder_department_id', $departments);
             }
 
             // A scope that comes to nothing — a head of no department — must not

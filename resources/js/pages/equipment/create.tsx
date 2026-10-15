@@ -49,7 +49,7 @@ export default function CreateEquipment({ options, forEmployee }: Props) {
                         <p className="text-muted-foreground text-sm">
                             {forEmployee
                                 ? `Единица встаёт на баланс — её сразу получит ${forEmployee.name}.`
-                                : 'Единица встаёт на баланс — её можно сразу выдать сотруднику.'}
+                                : 'Единица встаёт на баланс — её можно сразу выдать сотруднику или отделу.'}
                         </p>
                     </div>
 

@@ -47,6 +47,7 @@ class EquipmentEvent extends Model
      */
     private const NAMED = [
         'holder_user_id' => User::class,
+        'holder_department_id' => Department::class,
         'equipment_type_id' => EquipmentType::class,
     ];
 
@@ -82,6 +83,10 @@ class EquipmentEvent extends Model
             $names[$field] = match (self::NAMED[$field]) {
                 User::class => User::query()->whereKey(array_unique($values))->get(['id', 'name', 'surname'])
                     ->mapWithKeys(fn (User $u) => [$u->id => "{$u->surname} {$u->name}"])->all(),
+                // A department by the name it is known by everywhere but the
+                // directory: its abbreviation, or its full name where it has none.
+                Department::class => Department::query()->whereKey(array_unique($values))->get(['id', 'name', 'abbreviation'])
+                    ->mapWithKeys(fn (Department $d) => [$d->id => $d->display_name])->all(),
                 default => self::NAMED[$field]::query()->whereKey(array_unique($values))->pluck('name', 'id')->all(),
             };
         }

@@ -82,6 +82,9 @@ export const fieldLabel: Record<string, string> = {
     accessories: 'Комплектация',
     status: 'Статус',
     holder_user_id: 'Держатель',
+    // The other kind of holder: a department a unit is signed out to, for the
+    // categories whose things are nobody's in particular.
+    holder_department_id: 'Отдел',
     // A record of service work has fields of its own.
     kind: 'Тип работ',
     started_at: 'Дата начала',

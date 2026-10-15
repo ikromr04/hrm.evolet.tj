@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\KeepsEquipmentPhotos;
 use App\Http\Controllers\Concerns\SavesEquipmentFields;
+use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
@@ -15,10 +16,14 @@ use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentName;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -36,24 +41,81 @@ class EquipmentController extends Controller
     public const PER_PAGE_OPTIONS = [25, 50, 100];
 
     /** Columns the list can be ordered by, named as the table names them. */
-    private const SORTS = ['created', 'name', 'inventory_number', 'type', 'status', 'holder', 'issued_at'];
+    private const SORTS = ['created', 'department', 'unit', 'name', 'inventory_number', 'type', 'status', 'holder', 'issued_at'];
 
     /**
-     * The unit entered a minute ago is the one being looked for, so the list
-     * opens on what was added last. It is an order of its own rather than a
-     * column, which is what lets a header be pressed up, down and back to it.
+     * The order both tables open in, and the one a third press on a header
+     * comes back to: the company read down — the department, the unit inside
+     * it, the people in each and what each of them holds.
+     *
+     * It is an order of its own rather than a column, which is what lets a
+     * header be pressed up, down and back to it, and what lets the fleet be
+     * read by department the moment the page opens: the cells merge over
+     * neighbours that say the same thing, so a department is one block only
+     * while its rows are side by side, and no order but this one puts them
+     * there. Opening on the date a unit was entered left the departments
+     * scattered down their own column and the two columns saying the structure
+     * had nothing to say.
+     *
+     * No header carries it, so nothing opens with an arrow on it and there is
+     * nothing to reset; the phone's sheet names it «Структура», since there is
+     * no column to carry the name of an order that belongs to none.
      */
-    private const DEFAULT_SORT = 'created';
+    private const STRUCTURE = 'structure';
+
+    private const DEFAULT_SORT = self::STRUCTURE;
 
     /**
-     * The second table is read by colleague, so the colleague's name is the one
-     * thing that orders it; the other columns are categories, and a category
-     * holds a list rather than a value. Its own opening order is "issued":
-     * whoever was handed something last reads first.
+     * Everything the list will answer to: its columns and that order.
+     *
+     * "created" is among the columns now. The date a unit was entered used to
+     * be the opening order and no column at all — the one question the table
+     * answered without a header to press — so it has a column of its own
+     * rather than becoming unreachable; it is hidden until somebody asks for
+     * it, and the table is no wider than it was.
      */
-    private const HOLDER_SORTS = ['holder', 'issued'];
+    private const LIST_ORDERS = [...self::SORTS, self::STRUCTURE];
 
-    private const DEFAULT_HOLDER_SORT = 'issued';
+    /**
+     * The second table is read by colleague, so what orders it is where that
+     * colleague stands and what they are called; the other columns are
+     * categories, and a category holds a list rather than a value.
+     */
+    private const HOLDER_SORTS = ['department', 'unit', 'holder'];
+
+    /**
+     * Those, the structure it opens in, and "issued" — whoever was handed
+     * something last, which this table opened on until the structure took its
+     * place. It answers to it still, so a link or a remembered query carrying
+     * it is served rather than refused.
+     */
+    private const HOLDER_ORDERS = [...self::HOLDER_SORTS, self::STRUCTURE, 'issued'];
+
+    private const DEFAULT_HOLDER_SORT = self::STRUCTURE;
+
+    /**
+     * The name a department is shown under, read off its own row: the
+     * abbreviation it is known by, or its full name where it has none. An empty
+     * abbreviation is no abbreviation either, so that the database picks the
+     * name `Department::$display_name` picks for the page.
+     */
+    private const OWN_SHOWN = "coalesce(nullif(departments.abbreviation, ''), departments.name)";
+
+    /**
+     * The department a row is read under, which is the first step of where its
+     * holder stands: the department above their own where that one is a unit
+     * inside it, and their own where it is a department of the company. A
+     * parent that is there answers first, and a row with no parent falls
+     * through to the department itself.
+     */
+    private const DEPARTMENT_SHOWN = "coalesce(nullif(parents.abbreviation, ''), parents.name, nullif(departments.abbreviation, ''), departments.name)";
+
+    /**
+     * The second step: the unit inside that department, where the holder stands
+     * in one. A holder filed on a department itself has none, and that is
+     * nothing missing — several departments keep no units at all.
+     */
+    private const UNIT_SHOWN = 'case when departments.parent_id is null then null else '.self::OWN_SHOWN.' end';
 
     public function index(Request $request): Response
     {
@@ -66,7 +128,7 @@ class EquipmentController extends Controller
         $input = $request->validate([
             'view' => ['nullable', Rule::in(['list', 'holders'])],
             'per_page' => ['nullable', 'integer', Rule::in(self::PER_PAGE_OPTIONS)],
-            'sort' => ['nullable', Rule::in($byHolder ? self::HOLDER_SORTS : self::SORTS)],
+            'sort' => ['nullable', Rule::in($byHolder ? self::HOLDER_ORDERS : self::LIST_ORDERS)],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
 
             // The toolbar search, across everything printed on a unit.
@@ -78,6 +140,13 @@ class EquipmentController extends Controller
             'type.*' => ['integer', Rule::exists('equipment_types', 'id')],
             'status' => ['nullable', 'array'],
             'status.*' => [Rule::in(Equipment::STATUSES)],
+            // Where the holder stands, a column apiece: a department of the
+            // company, and a unit inside one. Both are departments as far as the
+            // directory is concerned, so both are checked against it.
+            'department' => ['nullable', 'array'],
+            'department.*' => ['integer', Rule::exists('departments', 'id')],
+            'unit' => ['nullable', 'array'],
+            'unit.*' => ['integer', Rule::exists('departments', 'id')],
             'holder' => ['nullable', 'string', 'max:100'],
             'issued_from' => ['nullable', 'date'],
             'issued_to' => ['nullable', 'date'],
@@ -95,6 +164,8 @@ class EquipmentController extends Controller
             'inventory_number' => trim($input['inventory_number'] ?? ''),
             'type' => array_map('intval', $input['type'] ?? []),
             'status' => array_values($input['status'] ?? []),
+            'department' => array_map('intval', $input['department'] ?? []),
+            'unit' => array_map('intval', $input['unit'] ?? []),
             'holder' => trim($input['holder'] ?? ''),
             'issued_from' => $input['issued_from'] ?? null,
             'issued_to' => $input['issued_to'] ?? null,
@@ -105,9 +176,11 @@ class EquipmentController extends Controller
         // means the default, not everything.
         $tab = $input['tab'] ?? 'issued';
         $sort = $input['sort'] ?? ($byHolder ? self::DEFAULT_HOLDER_SORT : self::DEFAULT_SORT);
-        // Newest first while nothing has been asked for; a column asked for by
-        // name reads from the top, as any column does.
-        $direction = $input['direction'] ?? (isset($input['sort']) ? 'asc' : 'desc');
+        // From the top: a column asked for by name reads down from A, and so
+        // does the structure the table opens in — the company is read from the
+        // first department, not from the last. The two orders that read newest
+        // first say so in the query; neither is the default any more.
+        $direction = $input['direction'] ?? 'asc';
         $perPage = (int) ($input['per_page'] ?? self::PER_PAGE_OPTIONS[0]);
 
         if ($byHolder) {
@@ -117,7 +190,23 @@ class EquipmentController extends Controller
         // The values come with the fields they belong to: the name and the
         // number are read off the two that carry a role, and a page of units
         // should cost one query for the lot rather than one apiece.
-        $query = Equipment::query()->with(['type:id,name,icon', 'type.fields', 'fieldValues.field:id,role,name', 'holder:id,name,surname,avatar']);
+        // Where the holder stands comes with the holder, both steps of it: the
+        // table reads a unit under a department and under the unit inside it,
+        // and the structure is two deep, so a department and its parent are the
+        // whole of the path. Read with the page of units rather than row by row.
+        $query = Equipment::query()->with([
+            'type:id,name,icon',
+            'type.fields',
+            'fieldValues.field:id,role,name',
+            'holder:id,name,surname,avatar',
+            'holder.departments:id,name,abbreviation,parent_id',
+            'holder.departments.parent:id,name,abbreviation',
+            // And the other kind of holder: the department a unit of such a
+            // category is signed out to, read under itself and under the
+            // department above it exactly as a colleague's is.
+            'holderDepartment:id,name,abbreviation,parent_id',
+            'holderDepartment.parent:id,name,abbreviation',
+        ]);
         // Whatever the tabs and filters then do, the list starts from the part of
         // the fleet this person may see at all.
         EquipmentAccess::narrow($query, $request->user());
@@ -144,6 +233,19 @@ class EquipmentController extends Controller
                 'status' => $unit->status,
                 // The write-off form opens on it, so the list carries it too.
                 'condition' => $unit->condition,
+                // Where it is read in the structure, off whichever kind of
+                // holder it has. Null twice over — for a unit nobody holds and
+                // for a colleague standing in no department — and the page
+                // tells those two apart by the holder itself: the first is
+                // where a unit on the balance sheet belongs, the second is a
+                // row somebody still has to file.
+                'department' => self::filingOf($unit->heldBy()),
+                // Whether this unit is a department's own rather than
+                // anybody's, which the page says in the «У кого» column with
+                // the dash the user asked for. Read off the row and not off
+                // the category: a category switched kind while this unit was
+                // out is exactly the case the two must not disagree on.
+                'held_by_department' => $unit->holder_department_id !== null,
                 'holder' => $unit->holder ? [
                     'id' => $unit->holder->id,
                     'name' => "{$unit->holder->surname} {$unit->holder->name}",
@@ -155,6 +257,10 @@ class EquipmentController extends Controller
                 'in_service' => (bool) $unit->repairs_exists,
                 'issued_at' => $unit->issued_at?->toDateString(),
                 'written_off_at' => $unit->written_off_at?->toDateString(),
+                // When it was put on the books, which the list used to open on
+                // and now shows in a column of its own: the question «что
+                // добавили недавно» outlived the order that answered it.
+                'created_at' => $unit->created_at?->toDateString(),
             ]);
 
         return Inertia::render('equipment/index', [
@@ -207,7 +313,8 @@ class EquipmentController extends Controller
         // from it, and the units of the page are read with it again.
         $held = fn () => Equipment::query()
             ->tap(fn (Builder $q) => EquipmentAccess::narrow($q, $request->user()))
-            ->whereNotNull('holder_user_id')
+            // In somebody's hands: a colleague's, or a department's own.
+            ->where(fn (Builder $q) => $q->whereNotNull('holder_user_id')->orWhereNotNull('holder_department_id'))
             ->tap(fn (Builder $q) => $this->applyFilters($q, [
                 ...$filters,
                 // This table says nothing about the state of a unit or the day
@@ -217,39 +324,84 @@ class EquipmentController extends Controller
                 'issued_to' => null,
             ]));
 
-        $holders = User::query()
+        // Everybody who holds something, and every department that holds
+        // something of its own. Both are rows of this table and both are read
+        // under the same structure, so the two are put in one order and that
+        // order is paged — rather than a page of colleagues with the
+        // departments scattered around it.
+        $people = User::query()
             ->whereIn('id', $held()->select('holder_user_id'))
-            ->tap(fn (Builder $q) => $this->sortHolders($q, $held, $sort, $direction))
-            ->paginate($perPage, ['id', 'name', 'surname', 'avatar'])
-            ->withQueryString();
+            // Where each of them stands, as the unit list reads it off a
+            // holder: the two columns this table opens with say it, and the
+            // rows of one department stand together under one name.
+            ->with(['departments:id,name,abbreviation,parent_id', 'departments.parent:id,name,abbreviation'])
+            ->get(['id', 'name', 'surname', 'avatar']);
 
-        // The units of the whole page in one go rather than a query per
-        // colleague, each category's in the order the list reads them: by name.
+        $departments = Department::query()
+            ->whereIn('id', $held()->select('holder_department_id'))
+            ->with('parent:id,name,abbreviation')
+            ->get(['id', 'name', 'abbreviation', 'parent_id']);
+
+        $rows = $this->holderRows($people, $departments, $held, $sort, $direction);
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $holders = new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => LengthAwarePaginator::resolveCurrentPath()],
+        );
+        $holders->withQueryString();
+
+        // The units of the whole page in one go rather than a query per row,
+        // each category's in the order the list reads them: by name. Both kinds
+        // of holder are asked for together, because a page holds both.
+        $onPage = $holders->getCollection();
         $units = $held()
             // Every value a unit holds and the fields of its category: the two
             // that name it, and the ones the line under the name is read off.
             // They come with the units of the page rather than unit by unit, so
-            // the table costs the same few reads whatever the colleagues on it
+            // the table costs the same few reads whatever the rows on it
             // happen to hold.
             ->with(['type.fields', 'fieldValues.field:id,role,name'])
-            ->whereIn('holder_user_id', $holders->getCollection()->modelKeys())
+            ->where(fn (Builder $q) => $q
+                ->whereIn('holder_user_id', self::keysOf($onPage, 'person'))
+                ->orWhereIn('holder_department_id', self::keysOf($onPage, 'department')))
             ->orderByRole('title')
             ->orderBy('id')
-            ->get(['id', 'equipment_type_id', 'holder_user_id'])
-            ->groupBy('holder_user_id');
+            ->get(['id', 'equipment_type_id', 'holder_user_id', 'holder_department_id'])
+            // Under the key of whichever holder they stand against, so a cell
+            // is read off the row that is being drawn rather than off its kind.
+            ->groupBy(fn (Equipment $unit) => self::rowKey(
+                $unit->holder_user_id === null ? 'department' : 'person',
+                $unit->holder_user_id ?? $unit->holder_department_id,
+            ));
 
         return Inertia::render('equipment/index', [
             'view' => 'holders',
-            'holders' => $holders->through(fn (User $holder) => [
-                'id' => $holder->id,
-                // Named as every list here names somebody.
-                'name' => "{$holder->surname} {$holder->name}",
+            'holders' => $holders->through(fn (array $row) => [
+                'id' => $row['model']->id,
+                // A colleague as every list here names somebody; a department
+                // as every screen but the directory names one.
+                'name' => $row['name'],
+                // Which kind of row this is, since the two are drawn
+                // differently: a department is not a who, and the page says so
+                // rather than dressing one up as a colleague.
+                'kind' => $row['kind'],
+                // Where it stands, read the same way the unit list reads it:
+                // one row per holder here, so a department's cell covers its
+                // own row and its people's with everything they hold beside
+                // them. Null for a colleague nobody has filed in a department.
+                'department' => self::filingOf($row['filing']),
                 // Their face is a line of their card, and travels only when
                 // that line is open — the same rule the list's column follows.
-                'avatar' => EmployeeFields::showsAvatar($request->user(), $holder) ? $holder->avatar : null,
+                // A department has none; it is drawn by its name.
+                'avatar' => $row['kind'] === 'person' && EmployeeFields::showsAvatar($request->user(), $row['model'])
+                    ? $row['model']->avatar
+                    : null,
                 // By category id, so the page can read a cell off the column it
-                // is drawing; a category they hold nothing of is simply absent.
-                'units' => $units->get($holder->id, collect())
+                // is drawing; a category it holds nothing of is simply absent.
+                'units' => $units->get(self::rowKey($row['kind'], $row['model']->id), collect())
                     ->groupBy('equipment_type_id')
                     ->map(fn ($ofCategory) => $ofCategory->map(fn (Equipment $unit) => [
                         'id' => $unit->id,
@@ -262,32 +414,162 @@ class EquipmentController extends Controller
                         'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
                     ])->values()),
             ]),
-            'sortable' => ['holder'],
+            'sortable' => ['department', 'unit', 'holder'],
             ...$this->shared($request, $filters, $sort, $direction, $perPage),
         ]);
     }
 
     /**
-     * The order of the colleagues: by their name, or — the order the table
-     * opens in — by the last time any of the units counted here was handed to
-     * them. A tie falls back to the name and then to the id, so paging never
-     * shows the same person twice.
-     *
-     * @param  Builder<User>  $query
-     * @param  callable(): Builder<Equipment>  $held
+     * A row of «По сотрудникам» named so that two kinds of holder cannot
+     * collide: a colleague and a department may share an id, and what they hold
+     * is looked up by this.
      */
-    private function sortHolders(Builder $query, callable $held, string $sort, string $direction): void
+    private static function rowKey(string $kind, int|string $id): string
     {
-        if ($sort === 'holder') {
-            $query->orderBy('surname', $direction)->orderBy('name', $direction)->orderBy('id');
+        return "{$kind}:{$id}";
+    }
 
-            return;
+    /** The ids of one kind of row on this page, for the one query that reads their units. */
+    private static function keysOf(Collection $rows, string $kind): array
+    {
+        return $rows->where('kind', $kind)->map(fn (array $row) => $row['model']->id)->all();
+    }
+
+    /**
+     * The rows of «По сотрудникам» in the order they are read: the structure
+     * down, and inside each department its own equipment first and then the
+     * people who work there.
+     *
+     * Ordered here rather than in the database, which is where every other list
+     * in this section is ordered. Two kinds of row cannot be put in one order
+     * by one query without a union, and a union of two shapes is harder to read
+     * — and to keep true — than this is; and the rows are few, since only
+     * somebody who actually holds something is on this table at all. The cost
+     * is that the whole of them is read to draw a page of them, which for a
+     * fleet of this size is one query returning a few hundred rows.
+     *
+     * The department's own row opens its block because nothing sorts before
+     * every name there is: the printer of the отдел аналитики is the отдел
+     * аналитики's own, and the people who work there follow it — which is the
+     * same order the unit list puts the same equipment in.
+     *
+     * @param  \Illuminate\Database\Eloquent\Collection<int, User>  $people
+     * @param  \Illuminate\Database\Eloquent\Collection<int, Department>  $departments
+     * @param  callable(): Builder<Equipment>  $held
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function holderRows(iterable $people, iterable $departments, callable $held, string $sort, string $direction): Collection
+    {
+        $rows = collect();
+
+        foreach ($departments as $department) {
+            $rows->push([
+                'kind' => 'department',
+                'model' => $department,
+                'filing' => $department,
+                'name' => $department->display_name,
+            ]);
         }
 
-        $query->orderBy(
-            $held()->selectRaw('max(equipment.issued_at)')->whereColumn('equipment.holder_user_id', 'users.id'),
-            $direction,
-        )->orderBy('surname')->orderBy('name')->orderBy('id');
+        foreach ($people as $person) {
+            $rows->push([
+                'kind' => 'person',
+                'model' => $person,
+                'filing' => self::standsIn($person),
+                'name' => "{$person->surname} {$person->name}",
+            ]);
+        }
+
+        // The order this table opened on before the structure took its place,
+        // and which a link may still ask for: whoever was handed something
+        // last. Read for every row in one go, as one question about the units.
+        $handed = $sort === 'issued'
+            ? $held()->selectRaw('holder_user_id, holder_department_id, max(issued_at) as last')
+                ->groupBy('holder_user_id', 'holder_department_id')
+                ->get()
+                ->mapWithKeys(fn ($row) => [
+                    self::rowKey($row->holder_user_id === null ? 'department' : 'person', $row->holder_user_id ?? $row->holder_department_id) => (string) $row->last,
+                ])
+            : collect();
+
+        $sign = $direction === 'desc' ? -1 : 1;
+        // Whatever the rows are put in order by, a department comes before the
+        // people of its own block and ties read by name, so that paging never
+        // shows one row twice and never leaves one out.
+        $compare = match ($sort) {
+            'holder' => fn (array $a, array $b) => $sign * self::compareNames($a['name'], $b['name']),
+            'issued' => fn (array $a, array $b) => $sign * strcmp(
+                $handed->get(self::rowKey($a['kind'], $a['model']->id), ''),
+                $handed->get(self::rowKey($b['kind'], $b['model']->id), ''),
+            ) ?: self::compareNames($a['name'], $b['name']),
+            default => fn (array $a, array $b) => self::compareFilings($a, $b, $sort, $sign),
+        };
+
+        return $rows->sort(fn (array $a, array $b) => $compare($a, $b) ?: $a['model']->id <=> $b['model']->id)->values();
+    }
+
+    /**
+     * Two rows by where they stand: the department, the unit inside it, the
+     * department's own row before the people of it, and then the name.
+     *
+     * The same comparison the database makes for the list of units, written
+     * again because these rows are put in order here. A row nobody has filed
+     * reads last whichever way the column is sorted, as it does there.
+     *
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     */
+    private static function compareFilings(array $a, array $b, string $sort, int $sign): int
+    {
+        $steps = fn (array $row) => [
+            $row['filing']?->parent->display_name ?? $row['filing']?->display_name,
+            $row['filing']?->parent === null ? null : $row['filing']->display_name,
+        ];
+
+        [$department, $unit] = $steps($a);
+        [$otherDepartment, $otherUnit] = $steps($b);
+
+        // Nothing at all reads last, whichever way the column is sorted.
+        $filed = ($b['filing'] === null ? 1 : 0) <=> ($a['filing'] === null ? 1 : 0);
+
+        if ($filed !== 0) {
+            return -$filed;
+        }
+
+        $byDepartment = $sign * self::compareNames($department, $otherDepartment);
+        // And the department's own equipment before the people of that block.
+        $byKind = ($a['kind'] === 'person' ? 1 : 0) <=> ($b['kind'] === 'person' ? 1 : 0);
+        $byName = self::compareNames($a['name'], $b['name']);
+        $byUnitName = $sign * self::compareNames($unit, $otherUnit);
+
+        if ($sort === 'unit') {
+            // The column being sorted by: what it has nothing to show for
+            // reads last, whichever way it is sorted, as it does in the list.
+            $unnamed = ($unit === null ? 1 : 0) <=> ($otherUnit === null ? 1 : 0);
+
+            return $unnamed ?: $byUnitName ?: $byDepartment ?: $byKind ?: $byName;
+        }
+
+        // Inside a department, its own rows before its units, as the structure
+        // reads down: those are the department's own, and a unit is a step
+        // further in. Turned round with the rest when the column is.
+        $own = $sign * (($unit === null ? 0 : 1) <=> ($otherUnit === null ? 0 : 1));
+
+        return $byDepartment ?: $own ?: $byUnitName ?: $byKind ?: $byName;
+    }
+
+    /**
+     * Two names, either of which may be missing.
+     *
+     * By code point, which for names written in one alphabet is the order they
+     * are read in — and Latin before Cyrillic, as the database puts them when
+     * it orders the other table. Nothing here has to agree with the database
+     * anyway: these rows are put in order in full, here, and never half in
+     * each.
+     */
+    private static function compareNames(?string $a, ?string $b): int
+    {
+        return strcmp((string) $a, (string) $b) <=> 0;
     }
 
     /**
@@ -311,6 +593,11 @@ class EquipmentController extends Controller
                 // under it: by colleague the category is the column, and the
                 // list reads the same value off the unit's own row.
                 'types' => EquipmentType::query()->orderBy('name')->get(['id', 'name', 'icon']),
+                // The structure flattened for the two funnels that narrow both
+                // tables to a department or to one unit inside it. The whole
+                // tree goes: which department a colleague stands in is read
+                // wherever their name is, and asks no right of its own.
+                'departments' => $this->departmentOptions(),
                 'statuses' => collect(Equipment::STATUSES)->map(fn (string $s) => ['value' => $s, 'label' => self::STATUS_LABELS[$s]])->all(),
                 // Whom a unit can be handed to: everyone still working here.
                 'holders' => User::query()
@@ -355,6 +642,10 @@ class EquipmentController extends Controller
                     ->orderBy('name')
                     ->get(['id', 'name', 'surname'])
                     ->map(fn (User $u) => ['id' => $u->id, 'name' => "{$u->surname} {$u->name}"]),
+                // And the departments, for a category whose equipment is a
+                // department's own: the form asks for one or for the other
+                // according to the category chosen in it.
+                'departments' => $this->departmentOptions(),
             ],
         ]);
     }
@@ -406,11 +697,19 @@ class EquipmentController extends Controller
             ...$this->photoRules(),
 
             // A unit often arrives for somebody in particular, so it can be
-            // handed over in the same breath as it is put on the books.
-            'holder_user_id' => ['nullable', 'integer', Rule::exists('users', 'id')],
+            // handed over in the same breath as it is put on the books — to a
+            // colleague, or to the department that will answer for it. One or
+            // the other, as the handover itself allows.
+            'holder_user_id' => ['nullable', 'prohibits:holder_department_id', 'integer', Rule::exists('users', 'id')],
+            'holder_department_id' => ['nullable', 'integer', Rule::exists('departments', 'id')],
             // The form's second button: stay here and enter the next unit.
             'another' => ['nullable', 'boolean'],
-            'issued_at' => ['nullable', 'required_with:holder_user_id', 'date', 'before_or_equal:today'],
+            // The day it changed hands, asked for whichever kind of hands.
+            'issued_at' => ['nullable', 'required_with:holder_user_id,holder_department_id', 'date', 'before_or_equal:today'],
+        ], messages: [
+            // The form never sends both; this is what the rule says if anything
+            // ever does, and it says it the way the form asks the question.
+            'holder_user_id.prohibits' => 'У единицы один владелец: либо сотрудник, либо отдел.',
         ], attributes: [
             'equipment_type_id' => 'категория',
             'name' => 'наименование',
@@ -421,16 +720,23 @@ class EquipmentController extends Controller
             'accessories' => 'комплектация',
             'photos' => 'фотографии',
             'holder_user_id' => 'сотрудник',
+            'holder_department_id' => 'отдел',
             'issued_at' => 'дата выдачи',
             ...$this->fieldAttributes($type),
         ]);
 
-        // Whose card the form was opened from outranks whatever it posted about
-        // the holder: a page opened for somebody hands the unit to them.
+        // Whom the unit goes to as it arrives, if anybody. Whose card the form
+        // was opened from outranks whatever it posted about the holder: a page
+        // opened for somebody hands the unit to them, and then it is nobody's
+        // department's. Otherwise the form's own answer stands, which the rules
+        // above have already held to one of the two.
         $holder = $employee?->id ?? $data['holder_user_id'] ?? null;
+        $department = $employee === null ? ($data['holder_department_id'] ?? null) : null;
 
         $equipment = Equipment::create([
-            ...Arr::except($data, ['name', 'inventory_number', 'holder_user_id', 'issued_at', 'photos', 'another', 'fields']),
+            ...Arr::except($data, [
+                'name', 'inventory_number', 'holder_user_id', 'holder_department_id', 'issued_at', 'photos', 'another', 'fields',
+            ]),
             'status' => 'stock',
         ]);
 
@@ -462,7 +768,7 @@ class EquipmentController extends Controller
             }
         }
 
-        if (! $holder) {
+        if (! $holder && ! $department) {
             return $this->afterCreating($equipment, $data, $employee);
         }
 
@@ -472,6 +778,7 @@ class EquipmentController extends Controller
         $equipment->update([
             'status' => 'issued',
             'holder_user_id' => $holder,
+            'holder_department_id' => $department,
             // The form asks for the day it changed hands; a card that named the
             // colleague itself need not have been answered, and then it is today,
             // as it is when a whole workplace is handed over at once.
@@ -566,6 +873,9 @@ class EquipmentController extends Controller
         ]);
 
         $holderDepartment = $equipment->holder?->departments()->orderBy('name')->first();
+        // The other kind of holder: a department this unit is signed out to
+        // itself, for a category whose things are nobody's in particular.
+        $heldBy = $equipment->holderDepartment;
 
         return Inertia::render('equipment/show', [
             'unit' => [
@@ -599,6 +909,16 @@ class EquipmentController extends Controller
                     // by its abbreviation, or by its full name where it has none.
                     'department' => $holderDepartment?->display_name,
                 ] : null,
+                // Whose it is where no colleague holds it: the department it is
+                // signed out to, named and linked as the card names a
+                // department. Null for everything held by a person and for
+                // everything on the balance sheet.
+                'holder_department' => $heldBy === null ? null : [
+                    ...self::departmentRef($heldBy),
+                    // The path spelled out, since the card has room for it and
+                    // «ОА» alone says little on a page about one printer.
+                    'path' => $heldBy->path(),
+                ],
             ],
             'repairs' => $equipment->repairs->map(fn ($repair) => [
                 'id' => $repair->id,
@@ -640,6 +960,10 @@ class EquipmentController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name', 'surname'])
                 ->map(fn (User $u) => ['id' => $u->id, 'name' => "{$u->surname} {$u->name}"]),
+            // Whom else a unit may be handed to: the structure, for the
+            // categories whose things a department holds. It is the same list
+            // the equipment table narrows by, and it asks no right of its own.
+            'departments' => $this->departmentOptions(),
             // What the card's forms offer; only an editor needs any of it.
             'types' => EquipmentAccess::edits($request->user()) ? EquipmentType::formOptions() : [],
             'neighbours' => $this->neighbours($equipment),
@@ -778,6 +1102,271 @@ class EquipmentController extends Controller
         ];
     }
 
+    /**
+     * A department as every screen but the directory names it: the short form
+     * it is known by, with the full name along for the quieter line under it.
+     *
+     * @return array{id: int, name: string, full_name: string}
+     */
+    private static function departmentRef(Department $department): array
+    {
+        return [
+            'id' => $department->id,
+            'name' => $department->display_name,
+            'full_name' => $department->name,
+        ];
+    }
+
+    /**
+     * Where a row is read in the structure: the department of whoever holds it,
+     * with the department above that one where there is one. Both travel
+     * because the page has no tree to walk — the table reads a row under the
+     * department in one column and under the unit inside it in the next.
+     *
+     * Whoever holds it is a colleague or a department: a printer signed out to
+     * the отдел аналитики is read under the отдел аналитики and under ДАС above
+     * it, beside the laptops of the people who work there.
+     *
+     * Null twice over: a unit in nobody's hands has no department at all, and a
+     * colleague may stand in none. The page tells the two apart by the holder,
+     * and reads them differently: the first is where a unit on the balance
+     * sheet belongs, the second is a row somebody still has to file.
+     *
+     * @return array{id: int, name: string, full_name: string, parent: array{id: int, name: string, full_name: string}|null}|null
+     */
+    private static function filingOf(User|Department|null $heldBy): ?array
+    {
+        // A department holds its equipment itself, so there is nothing to work
+        // out: it is the department the row is read under. A colleague is read
+        // under one of theirs, which is the question below.
+        $own = $heldBy instanceof Department ? $heldBy : self::standsIn($heldBy);
+
+        if ($own === null) {
+            return null;
+        }
+
+        return [
+            ...self::departmentRef($own),
+            'parent' => $own->parent === null ? null : self::departmentRef($own->parent),
+        ];
+    }
+
+    /**
+     * Which of a colleague's departments a row is read under.
+     *
+     * Most people stand in one, but a few stand in two — often a department of
+     * the company and a unit inside it at once — and a cell covering a run of
+     * rows can only name one of them. The most specific wins: a unit says both
+     * steps of the path, where the department above it says only the first. Two
+     * that are equally specific fall to the name they are shown under, so the
+     * answer never depends on the order the rows happened to arrive in.
+     *
+     * `orderByStructure` picks the same department in the database, by the same
+     * two rules. The two have to agree: the cells merge over neighbours that
+     * read alike, so a row sorted as ДФКА and printed as ДКП would break the
+     * block it was sorted into.
+     */
+    private static function standsIn(?User $holder): ?Department
+    {
+        return $holder?->departments
+            ->sortBy(fn (Department $department) => $department->display_name)
+            ->sortByDesc(fn (Department $department) => $department->parent_id !== null)
+            ->first();
+    }
+
+    /**
+     * The tree flattened for the two funnels, the way the staff list flattens
+     * it for its own: the departments of the company in order, each with its
+     * units under it, every one of them named as the columns name it.
+     *
+     * @return list<array{id: int, name: string, full_name: string, depth: int}>
+     */
+    private function departmentOptions(): array
+    {
+        $departments = Department::query()->orderBy('name')->get(['id', 'name', 'abbreviation', 'parent_id']);
+
+        return $departments
+            ->whereNull('parent_id')
+            ->flatMap(fn (Department $department) => [
+                [...self::departmentRef($department), 'depth' => 0],
+                ...$departments
+                    ->where('parent_id', $department->id)
+                    ->map(fn (Department $unit) => [...self::departmentRef($unit), 'depth' => 1]),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * One step of where a row's holder stands, as a value the database can put
+     * in order — the department named by `self::DEPARTMENT_SHOWN`, the unit by
+     * `self::UNIT_SHOWN`.
+     *
+     * One department per row, and the one the page prints: the most specific of
+     * the holder's, then the first by the name it is shown under, which is the
+     * rule `standsIn` follows over the departments the page is handed.
+     *
+     * @param  string  $select  what to read off that department
+     * @param  string  $holder  the column naming the holder in the query this hangs on
+     */
+    private static function filingQuery(string $select, string $holder): QueryBuilder
+    {
+        return DB::table('department_user')
+            ->join('departments', 'departments.id', '=', 'department_user.department_id')
+            // The department above it, where the holder's own is a unit inside
+            // one; the structure is two deep, so this is the whole of the path.
+            ->leftJoin('departments as parents', 'parents.id', '=', 'departments.parent_id')
+            ->whereColumn('department_user.user_id', $holder)
+            // A unit before a department of the company, and then by name: the
+            // two rules that pick one of two departments, in that order.
+            ->orderByRaw('departments.parent_id is null')
+            ->orderByRaw(self::OWN_SHOWN)
+            ->limit(1)
+            ->selectRaw($select);
+    }
+
+    /**
+     * The same step of the structure read off the other kind of holder: the
+     * department a unit is signed out to, which is the department itself and
+     * asks nothing about anybody's filing.
+     *
+     * @param  string  $select  what to read off it, the same two expressions
+     * @param  string  $column  the column naming that department
+     */
+    private static function heldFilingQuery(string $select, string $column): QueryBuilder
+    {
+        return DB::table('departments')
+            ->leftJoin('departments as parents', 'parents.id', '=', 'departments.parent_id')
+            ->whereColumn('departments.id', $column)
+            ->limit(1)
+            ->selectRaw($select);
+    }
+
+    /**
+     * One step of the structure for a row of this query, whichever kind of
+     * holder it has: the colleague's filing where a colleague holds it, the
+     * department itself where a department does.
+     *
+     * Written as one value rather than two, because the columns are one
+     * question — where is this read? — and the cells merge over rows that
+     * answer it alike. A department's own printer and its people's laptops
+     * stand in the same block under the same name, which is the whole of what
+     * the user asked for and what a second expression would have undone.
+     *
+     * A table whose rows are the colleagues themselves has no second holder,
+     * and is handed none.
+     */
+    private static function step(string $shown, string $holder, ?string $department): string
+    {
+        $byColleague = '('.self::filingQuery($shown, $holder)->toSql().')';
+
+        if ($department === null) {
+            return $byColleague;
+        }
+
+        // Neither is ever anything but null while the other answers: the
+        // database refuses a unit held by both at once.
+        return 'coalesce('.$byColleague.', ('.self::heldFilingQuery($shown, $department)->toSql().'))';
+    }
+
+    /**
+     * The structure read down, by either of its two columns: a department's
+     * rows together under its name, and inside it the rows of each unit.
+     *
+     * The order is what makes the merged cells worth having — a cell covers the
+     * rows beside it that say the same thing, so a department is one block only
+     * while its rows are side by side — and the second step is ordered along
+     * with the first for the same reason: ordered by the department alone, its
+     * units would interleave and the second column would merge nothing.
+     *
+     * What a column has nothing to show for reads last, whichever way it is
+     * sorted, as a unit with no name of its own already does here. There are
+     * two such nothings and they are kept apart: a holder standing in no
+     * department is a row somebody has still to file, and a unit in nobody's
+     * hands is simply on the balance sheet, which is a third of the fleet and
+     * has no business opening a list read by department.
+     *
+     * @param  Builder<Equipment>|Builder<User>  $query
+     * @param  string  $holder  the column naming the colleague who holds a row
+     * @param  string|null  $held  the column naming the department that holds it, where a row can have one
+     */
+    private static function orderByStructure(Builder $query, string $sort, string $direction, string $holder, ?string $held = null): void
+    {
+        $department = self::step(self::DEPARTMENT_SHOWN, $holder, $held);
+        $unit = self::step(self::UNIT_SHOWN, $holder, $held);
+        $missing = fn (string $step) => $step.' is null';
+        // Held by nobody at all: not by a colleague, and not — where a row can
+        // be — by a department either.
+        $unheld = $holder.' is null'.($held === null ? '' : ' and '.$held.' is null');
+        // Nothing at all reads last, and each kind of nothing one step before
+        // the next: the rows that name the level being sorted by, then those
+        // filed a step short of it, then the units nobody holds. The holder is
+        // asked about first, because a unit in nobody's hands is missing every
+        // step of the path at once and would otherwise answer to a later one. A
+        // table whose rows are the people themselves has no holder to be
+        // without, and that first question is then simply never true.
+        $query->orderByRaw($sort === 'department'
+            ? 'case when '.$unheld.' then 2 when '.$missing($department).' then 1 else 0 end'
+            : 'case when '.$unheld.' then 3 when '.$missing($department).' then 2 when '.$missing($unit).' then 1 else 0 end');
+
+        // Then down the structure itself. By the unit the units stand together
+        // and their departments are scattered among them — a department holds
+        // units whose names begin anywhere — so the department follows as a tie
+        // and in its own order.
+        // Raw rather than a subquery handed to `orderBy`, because a step is now
+        // a coalesce of two of them. The direction comes off a list of two
+        // words the request was checked against.
+        $down = fn (string $step, string $way = 'asc') => $query->orderByRaw($step.' '.($way === 'desc' ? 'desc' : 'asc'));
+
+        if ($sort === 'department') {
+            $down($department, $direction);
+            $down($unit, $direction);
+        } else {
+            $down($unit, $direction);
+            $down($department);
+        }
+    }
+
+    /**
+     * The company read down to a single unit of equipment: the department, the
+     * unit inside it, the people in each by name, and what each of them holds.
+     *
+     * The two steps of the structure are what the merged cells are drawn from;
+     * the two after them are what makes the block read as a block. A
+     * department's rows gathered but shuffled among its people would put four
+     * of one colleague's things in four places, so the holder breaks the tie
+     * and the name of the thing breaks theirs — and a unit whose category keeps
+     * no name for it reads last among that person's, as it does in every other
+     * order here.
+     *
+     * @param  Builder<Equipment>  $query
+     * @param  string  $step  which of the two columns is doing the sorting
+     */
+    private function orderDownTheStructure(Builder $query, string $step, string $direction): void
+    {
+        self::orderByStructure($query, $step, $direction, 'equipment.holder_user_id', 'equipment.holder_department_id');
+
+        $named = fn (string $column) => User::select($column)->whereColumn('users.id', 'equipment.holder_user_id');
+
+        // A department's own equipment opens its block, before the people in
+        // it: nothing sorts before every name there is, and the printer of the
+        // отдел аналитики is the отдел аналитики's own rather than anybody's.
+        $query->orderBy($named('surname'))->orderBy($named('name'))->orderByRole('title');
+    }
+
+    /**
+     * The departments asked for and the units inside them: asking about ДАС
+     * asks about its отдел аналитики too, the way the staff list reads the same
+     * choice. The structure is two deep, so one read down is the whole of it.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    private static function withUnits(array $ids): array
+    {
+        return [...$ids, ...Department::query()->whereIn('parent_id', $ids)->pluck('id')->all()];
+    }
+
     /** Spelled out for the status filter; the page has its own copy for badges. */
     private const STATUS_LABELS = [
         'issued' => 'Выдано',
@@ -796,6 +1385,14 @@ class EquipmentController extends Controller
         $query->when($filters['inventory_number'], fn (Builder $q, string $term) => $q->where(Equipment::roleValueQuery('inventory'), 'like', "%{$term}%"));
         $query->when($filters['type'], fn (Builder $q, array $ids) => $q->whereIn('equipment_type_id', $ids));
         $query->when($filters['status'], fn (Builder $q, array $statuses) => $q->whereIn('status', $statuses));
+        // Where the holder stands. Asked of every department they stand in
+        // rather than of the one their row happens to print: "техника отдела"
+        // means the equipment of the people in it, which is what the right to
+        // see a department's fleet already means, and the few colleagues who
+        // stand in two departments hold their units in both.
+        $query->when($filters['department'], fn (Builder $q, array $ids) => $q->filedIn(self::withUnits($ids)));
+        // A unit has nothing under it to read down: the structure is two deep.
+        $query->when($filters['unit'], fn (Builder $q, array $ids) => $q->filedIn($ids));
         // By the name the column prints: the colleague, or the department a unit
         // is signed out to. Each word has to land somewhere in the person's
         // name, so "Абдуллаев Фарход" finds them as surely as "фарход" does.
@@ -826,7 +1423,20 @@ class EquipmentController extends Controller
             $query->where(fn (Builder $q) => $q
                 ->whereHas('fieldValues', fn (Builder $q) => $q->where('value', 'like', "%{$term}%"))
                 ->orWhereHas('type', fn (Builder $q) => $q->where('name', 'like', "%{$term}%"))
-                ->orWhereHas('holder', fn (Builder $q) => self::whereNamed($q, $words)));
+                ->orWhereHas('holder', fn (Builder $q) => self::whereNamed($q, $words))
+                // And by where the holder stands, now that the table says it:
+                // by the abbreviation the column prints or by the name under
+                // it, and «ДАС» answers for its units too — their rows read
+                // under ДАС, so a search for it has to find them.
+                ->orWhereHas('holder.departments', fn (Builder $q) => $q
+                    ->where(fn (Builder $q) => self::whereDepartment($q, $term))
+                    ->orWhereHas('parent', fn (Builder $q) => self::whereDepartment($q, $term)))
+                // And the department a unit is signed out to, read the same
+                // way: «ДАС» finds the printer of its отдел аналитики as it
+                // finds the laptops of the people there.
+                ->orWhereHas('holderDepartment', fn (Builder $q) => $q
+                    ->where(fn (Builder $q) => self::whereDepartment($q, $term))
+                    ->orWhereHas('parent', fn (Builder $q) => self::whereDepartment($q, $term))));
         });
     }
 
@@ -860,6 +1470,17 @@ class EquipmentController extends Controller
         }
     }
 
+    /**
+     * A department named either way it is written: by the abbreviation its
+     * column prints, or by the full name standing under it.
+     *
+     * @param  Builder<Department>  $query
+     */
+    private static function whereDepartment(Builder $query, string $term): void
+    {
+        $query->where('name', 'like', "%{$term}%")->orWhere('abbreviation', 'like', "%{$term}%");
+    }
+
     private function applySort(Builder $query, string $sort, string $direction): void
     {
         match ($sort) {
@@ -867,6 +1488,21 @@ class EquipmentController extends Controller
             // handed over: the id breaks a tie, so two units entered in the
             // same second keep the order they were entered in.
             'created' => $query->orderBy('created_at', $direction)->orderBy('id', $direction),
+            // The structure, read down from whoever holds the unit — which is
+            // what gathers a department's equipment into one block for the two
+            // columns that merge their cells over it.
+            //
+            // The order the table opens in is the same comparison as its first
+            // column's, as it is on the positions page: that column is the
+            // structure's first step, and the step after it breaks its ties.
+            // The rows come out in the same sequence and the tables do not look
+            // alike, because only one of the two has an arrow on a header and
+            // something to reset; which one the list is in is read off the key.
+            self::STRUCTURE, 'department', 'unit' => $this->orderDownTheStructure(
+                $query,
+                $sort === self::STRUCTURE ? 'department' : $sort,
+                $direction,
+            ),
             // The two a unit is named by live in its category's fields, so the
             // order is taken from the value each unit holds there — and a unit
             // whose category keeps no such field holds nothing and reads last,

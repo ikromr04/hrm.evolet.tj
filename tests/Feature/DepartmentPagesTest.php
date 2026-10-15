@@ -3,13 +3,17 @@
 namespace Tests\Feature;
 
 use App\Models\Department;
+use App\Models\Equipment;
+use App\Models\EquipmentType;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserDetail;
 use App\Support\Directories;
+use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Inertia;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -126,6 +130,109 @@ class DepartmentPagesTest extends TestCase
      * and the two are not open to the same people: everybody signed in reads the
      * structure, and only whoever may read the list reads the list.
      */
+    /**
+     * The third tab of a department's page: what the department answers for
+     * and what its people hold, read in one place.
+     *
+     * The list is left out of an ordinary visit and asked for by name when the
+     * tab is opened, because this page is opened by everybody signed in and
+     * mostly to read the regulation.
+     */
+    public function test_the_equipment_tab_is_fetched_when_it_is_opened_and_reads_both_halves()
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, EquipmentTypeSeeder::class]);
+        $department = Department::create(['name' => 'Департамент анализа', 'abbreviation' => 'ДАС']);
+        $unit = Department::create(['name' => 'Отдел аналитики', 'abbreviation' => 'ОА', 'parent_id' => $department->id]);
+
+        $member = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Сухроб']);
+        $member->departments()->attach($unit->id);
+        $laptops = EquipmentType::firstWhere('name', 'Ноутбуки');
+
+        Equipment::factory()->ofType($laptops)->heldBy($unit->id)->create(['name' => 'Принтер отдела']);
+        Equipment::factory()->ofType($laptops)->issuedTo($member->id)->create(['name' => 'Ноутбук Бобоева']);
+        // Nobody's: on the balance sheet, so no department's either.
+        Equipment::factory()->ofType($laptops)->create(['name' => 'Ноутбук на складе']);
+        // And the equipment of the department above this one, which has a page
+        // of its own: this tab is about this department and not the branch.
+        Equipment::factory()->ofType($laptops)->heldBy($department->id)->create(['name' => 'Принтер департамента']);
+
+        $admin = User::factory()->create()->assignRole('sysadmin');
+
+        // An ordinary visit: the tab knows it may read, and carries no units.
+        $this->actingAs($admin)->get("/departments/{$unit->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('equipment.can_read', true)
+                ->missing('equipmentUnits')
+            );
+
+        // And the visit the tab makes when it is opened, which asks for that
+        // one prop and is given nothing else. A partial visit answers with the
+        // page object as JSON rather than as a page, so it is read as JSON.
+        $props = $this->tabOpened($admin, $unit);
+
+        $this->assertSame(['Принтер отдела'], array_column($props['equipmentUnits']['own'], 'name'));
+        // Each under the name of whoever holds it.
+        $this->assertSame(['Ноутбук Бобоева'], array_column($props['equipmentUnits']['people'], 'name'));
+        $this->assertSame('Бобоев Сухроб', $props['equipmentUnits']['people'][0]['holder']['name']);
+        // And nothing else was read to answer a question about equipment.
+        $this->assertSame(['equipmentUnits'], array_keys(array_diff_key($props, array_flip(['auth', 'ziggy', 'notifications', 'flash', 'errors']))));
+    }
+
+    /**
+     * The visit the equipment tab makes when it is opened: that one prop by
+     * name, which is what `router.reload({ only: [...] })` sends.
+     *
+     * @return array<string, mixed>
+     */
+    private function tabOpened(User $viewer, Department $department): array
+    {
+        return $this->actingAs($viewer)
+            ->get("/departments/{$department->id}", [
+                'X-Inertia' => true,
+                'X-Inertia-Partial-Data' => 'equipmentUnits',
+                'X-Inertia-Partial-Component' => 'departments/show',
+                'X-Inertia-Version' => Inertia::getVersion(),
+            ])
+            ->assertOk()
+            ->json('props');
+    }
+
+    /**
+     * Who may not read equipment is told that, and not that the department has
+     * none: the fleet is a section with rights of its own, and a department's
+     * page is open to everybody.
+     */
+    public function test_the_equipment_tab_says_whether_this_viewer_may_read_it_at_all()
+    {
+        $this->seed([RoleSeeder::class, PermissionSeeder::class, EquipmentTypeSeeder::class]);
+        $unit = Department::create(['name' => 'Отдел аналитики']);
+        $mine = User::factory()->create();
+        $mine->departments()->attach($unit->id);
+        $stranger = User::factory()->create();
+        $stranger->departments()->attach($unit->id);
+
+        Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->issuedTo($mine->id)->create(['name' => 'Мой ноутбук']);
+        Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->issuedTo($stranger->id)->create(['name' => 'Чужой ноутбук']);
+
+        // No right to the fleet at all — which is a position that was given
+        // none, since every position is created able to see its own — and the
+        // tab says so of the viewer rather than of the department.
+        $this->actingAs(User::factory()->create())->get("/departments/{$unit->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('equipment.can_read', false));
+
+        // One scope of it: the tab opens, and shows exactly that scope — the
+        // same narrowing the equipment section itself does.
+        $own = $this->mayLookAround($mine)->givePermissionTo('equipment.view.own');
+
+        $this->actingAs($own)->get("/departments/{$unit->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('equipment.can_read', true));
+
+        $units = $this->tabOpened($own, $unit)['equipmentUnits'];
+
+        $this->assertSame(['Мой ноутбук'], array_column($units['people'], 'name'));
+        $this->assertSame([], $units['own']);
+    }
+
     public function test_the_chart_is_open_to_everybody_and_the_list_is_not()
     {
         $this->seed(PermissionSeeder::class);

@@ -106,8 +106,9 @@ class EquipmentByHolderTest extends TestCase
                 ->has('options.types', EquipmentType::count())
                 // The units themselves are the other table's answer, not this one's.
                 ->missing('equipment')
-                // Only the name sorts here; the rest of the headers are categories.
-                ->where('sortable', ['holder'])
+                // Where they stand and what they are called sort here; the rest
+                // of the headers are categories, and a category holds a list.
+                ->where('sortable', ['department', 'unit', 'holder'])
             );
     }
 
@@ -160,6 +161,72 @@ class EquipmentByHolderTest extends TestCase
 
         // Nothing matches: the table is empty rather than whole.
         $this->assertSame([], $names('q='.urlencode('Проектор')));
+    }
+
+    /**
+     * The table opens on where each colleague stands, so that the fleet can be
+     * read department by department here too: a row is a person and everything
+     * against their name, so a department's cell covers its people with all
+     * their equipment beside them.
+     *
+     * Every row of this table is held by somebody, so it has only one kind of
+     * nothing — a colleague nobody has filed in a department — and that one
+     * reads last, as a column's missing value does in the list.
+     */
+    public function test_each_colleague_is_read_under_the_department_they_stand_in()
+    {
+        $analysis = Department::create(['name' => 'Департамент анализа и стратегии', 'abbreviation' => 'ДАС']);
+        $analytics = Department::create(['name' => 'Отдел аналитики', 'abbreviation' => 'ОА', 'parent_id' => $analysis->id]);
+        $staff = Department::create(['name' => 'Департамент по управлению персоналом', 'abbreviation' => 'ДУЧР']);
+
+        $standing = function (string $surname, ?Department $department) {
+            $holder = User::factory()->create(['surname' => $surname, 'name' => 'Фарход']);
+            $department === null || $holder->departments()->attach($department->id);
+            Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create();
+
+            return $holder;
+        };
+
+        $inUnit = $standing('Бобоев', $analytics);
+        $inDepartment = $standing('Олимова', $staff);
+        $unfiled = $standing('Мирзоев', null);
+
+        $admin = $this->sysadmin();
+        $rows = collect($this->rows($admin, 'sort=department'));
+
+        // Both steps of the path on the row of somebody standing in a unit, and
+        // the unit's own column empty — nothing above it — for somebody filed
+        // on a department itself.
+        $this->assertSame([
+            'id' => $analytics->id,
+            'name' => 'ОА',
+            'full_name' => 'Отдел аналитики',
+            'parent' => ['id' => $analysis->id, 'name' => 'ДАС', 'full_name' => 'Департамент анализа и стратегии'],
+        ], $rows->firstWhere('id', $inUnit->id)['department']);
+
+        $this->assertNull($rows->firstWhere('id', $inDepartment->id)['department']['parent']);
+        $this->assertNull($rows->firstWhere('id', $unfiled->id)['department']);
+
+        // ДАС, then ДУЧР, then the colleague nobody has filed — and the other
+        // way round, with that one still last.
+        $this->assertSame([$inUnit->id, $inDepartment->id, $unfiled->id], $rows->pluck('id')->all());
+        $this->assertSame(
+            [$inDepartment->id, $inUnit->id, $unfiled->id],
+            array_column($this->rows($admin, 'sort=department&direction=desc'), 'id'),
+        );
+
+        // By the unit, the one person standing in one reads first, and both the
+        // colleague filed a step short of a unit and the unfiled one follow.
+        $this->assertSame(
+            [$inUnit->id, $inDepartment->id, $unfiled->id],
+            array_column($this->rows($admin, 'sort=unit'), 'id'),
+        );
+
+        // And the funnels narrow this table as they narrow the list: a
+        // department asks about its units too.
+        $this->assertSame([$inUnit->id], array_column($this->rows($admin, "department[]={$analysis->id}"), 'id'));
+        $this->assertSame([$inUnit->id], array_column($this->rows($admin, "unit[]={$analytics->id}"), 'id'));
+        $this->assertSame([$inDepartment->id], array_column($this->rows($admin, "department[]={$staff->id}"), 'id'));
     }
 
     public function test_the_status_and_the_dates_of_issue_make_no_difference_here()
@@ -240,7 +307,7 @@ class EquipmentByHolderTest extends TestCase
         $this->assertSame(28, Equipment::count());
     }
 
-    public function test_the_table_opens_on_the_last_handover_and_sorts_by_the_name()
+    public function test_the_table_opens_on_the_structure_and_sorts_by_the_name()
     {
         $first = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
         $last = User::factory()->create(['surname' => 'Зокиров', 'name' => 'Бахтиёр']);
@@ -250,16 +317,22 @@ class EquipmentByHolderTest extends TestCase
 
         $admin = $this->sysadmin();
 
-        // Opened: whoever was handed something last, under a key of its own, so
-        // the page can tell the opening order from a sorted column.
+        // Opened: the structure read down, under a key of its own, so the page
+        // can tell the opening order from a sorted column. Neither of these two
+        // stands in a department, so what is left of that order is the name.
         $this->actingAs($admin)->get('/equipment?view=holders')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('sort.key', 'issued')
-                ->where('sort.direction', 'desc')
-                ->where('holders.data.0.id', $last->id)
+                ->where('sort.key', 'structure')
+                ->where('sort.direction', 'asc')
+                ->where('holders.data.0.id', $first->id)
             );
 
-        // The name, up and then down — the only header that sorts here.
+        // The order this table opened on until the structure took its place
+        // still answers, so a link or a remembered query carrying it is served.
+        $this->actingAs($admin)->get('/equipment?view=holders&sort=issued&direction=desc')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('holders.data.0.id', $last->id));
+
+        // The name, up and then down — one of the three headers that sort here.
         $this->actingAs($admin)->get('/equipment?view=holders&sort=holder')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.key', 'holder')

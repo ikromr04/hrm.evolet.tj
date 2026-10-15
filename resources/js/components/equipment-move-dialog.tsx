@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { useState, type FormEventHandler } from 'react';
@@ -18,10 +19,18 @@ const at = (errors: Record<string, string | undefined>, key: string) =>
 
 /** What the pictures of each move are for, said in the form itself. */
 const photoHint: Record<AskedMove, string> = {
-    issue: 'В каком виде вещь ушла сотруднику. Снимки останутся в журнале.',
+    issue: 'В каком виде вещь ушла. Снимки останутся в журнале.',
     take: 'Как вещь вернулась. Снимки останутся в журнале.',
     'write-off': 'Чем подтверждается списание. Снимки останутся в журнале.',
 };
+
+/**
+ * One of the two answers to «Кому». The one in force takes the same pale green
+ * a chosen tab takes on the equipment page, and the pair shares the dialog's
+ * width between them so that neither word is cut at 390px.
+ */
+const takerChoice =
+    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:text-[13px] dark:data-[state=on]:bg-white/10';
 
 export const moveLabel: Record<AskedMove, string> = {
     issue: 'Выдать',
@@ -39,6 +48,22 @@ interface MoveUnit {
 }
 
 /**
+ * Whom a unit is being handed to. Nothing about the thing decides it — a
+ * printer may sit on one person's desk and a department may keep a spare
+ * laptop — so it is asked at the moment of the handover and answered then.
+ */
+type Taker = 'person' | 'department';
+
+/** A department as the pickers name one: the short form, with the full name beside it. */
+interface DepartmentOption {
+    id: number;
+    name: string;
+    full_name: string;
+    /** How deep in the tree it sits, so the list reads as the tree it is. */
+    depth?: number;
+}
+
+/**
  * Handing a unit over, taking it back or writing it off. Each move asks only
  * for what it needs, and the answers end up in the unit's history.
  */
@@ -46,18 +71,26 @@ export function EquipmentMoveDialog({
     unit,
     kind,
     holders,
+    departments,
     onClose,
 }: {
     unit: MoveUnit;
     kind: AskedMove;
     holders: { id: number; name: string }[];
+    /** The structure, for the categories whose equipment a department holds. */
+    departments?: DepartmentOption[];
     onClose: () => void;
 }) {
     const today = new Date().toISOString().slice(0, 10);
     const [photos, setPhotos] = useState<File[]>([]);
+    // Most things are handed to the person who will use them, so that is what
+    // the form opens on; the other answer is one press away.
+    const [taker, setTaker] = useState<Taker>('person');
+    const toDepartment = taker === 'department';
 
     const form = useForm({
         holder_user_id: '',
+        holder_department_id: '',
         issued_at: today,
         // Opens on what the card says now: a return usually confirms it, and
         // what has changed is quicker to correct than to type out.
@@ -71,7 +104,17 @@ export function EquipmentMoveDialog({
         event.preventDefault();
 
         form.transform((data) => {
-            if (kind === 'issue') return { holder_user_id: data.holder_user_id, issued_at: data.issued_at, condition: data.condition, photos };
+            // One holder or the other, never both: the server writes the one
+            // its category asks for and the database refuses a row held twice.
+            if (kind === 'issue') {
+                return {
+                    holder_user_id: toDepartment ? null : data.holder_user_id,
+                    holder_department_id: toDepartment ? data.holder_department_id : null,
+                    issued_at: data.issued_at,
+                    condition: data.condition,
+                    photos,
+                };
+            }
             if (kind === 'take') return { condition_on_return: data.condition_on_return, returned_at: data.returned_at, photos };
 
             return { written_off_at: data.written_off_at, condition: data.condition, photos };
@@ -98,19 +141,75 @@ export function EquipmentMoveDialog({
 
                     {kind === 'issue' && (
                         <>
+                            {/* Whom it goes to: the colleague who will use it, or the
+                                department that answers for it — a printer in a
+                                corridor, a router in the ceiling, a spare laptop
+                                nobody has been given yet. The rest of the form is
+                                the same move either way. */}
                             <div className="grid content-start gap-2">
                                 <Label htmlFor="move-holder">Кому</Label>
-                                <SearchableSelect
-                                    id="move-holder"
-                                    value={form.data.holder_user_id}
-                                    onChange={(value) => form.setData('holder_user_id', value)}
-                                    options={holders.map((holder) => ({ value: String(holder.id), label: holder.name }))}
-                                    placeholder="Выберите сотрудника"
-                                    searchPlaceholder="Поиск по фамилии или имени"
-                                    empty="Сотрудник не найден"
-                                    invalid={!!form.errors.holder_user_id}
-                                />
-                                <InputError message={form.errors.holder_user_id} />
+                                <ToggleGroup
+                                    type="single"
+                                    variant="outline"
+                                    value={taker}
+                                    // Radix sends an empty string when the pressed
+                                    // choice is let go of; one of the two is always on.
+                                    onValueChange={(next) => {
+                                        if (!next || next === taker) return;
+                                        setTaker(next as Taker);
+                                        // The two are exclusive in the database, so they
+                                        // are exclusive here: what was chosen under the
+                                        // other answer is let go of rather than sent
+                                        // along with this one.
+                                        form.setData((data) => ({ ...data, holder_user_id: '', holder_department_id: '' }));
+                                        form.clearErrors('holder_user_id', 'holder_department_id');
+                                    }}
+                                    aria-label="Кому выдать"
+                                    className="w-full justify-start"
+                                >
+                                    <ToggleGroupItem value="person" className={takerChoice}>
+                                        Сотруднику
+                                    </ToggleGroupItem>
+                                    <ToggleGroupItem value="department" className={takerChoice}>
+                                        Отделу
+                                    </ToggleGroupItem>
+                                </ToggleGroup>
+                                {toDepartment ? (
+                                    <SearchableSelect
+                                        id="move-holder"
+                                        value={form.data.holder_department_id}
+                                        onChange={(value) => form.setData('holder_department_id', value)}
+                                        options={(departments ?? []).map((department) => ({
+                                            value: String(department.id),
+                                            label: department.name,
+                                            // A filter is not a link one can follow to
+                                            // find out what an abbreviation stands for.
+                                            hint: department.full_name === department.name ? undefined : department.full_name,
+                                            depth: department.depth,
+                                        }))}
+                                        placeholder="Выберите отдел"
+                                        searchPlaceholder="Поиск по названию"
+                                        empty="Отдел не найден"
+                                        invalid={!!form.errors.holder_department_id}
+                                    />
+                                ) : (
+                                    <SearchableSelect
+                                        id="move-holder"
+                                        value={form.data.holder_user_id}
+                                        onChange={(value) => form.setData('holder_user_id', value)}
+                                        options={holders.map((holder) => ({ value: String(holder.id), label: holder.name }))}
+                                        placeholder="Выберите сотрудника"
+                                        searchPlaceholder="Поиск по фамилии или имени"
+                                        empty="Сотрудник не найден"
+                                        invalid={!!form.errors.holder_user_id}
+                                    />
+                                )}
+                                <InputError message={form.errors.holder_user_id ?? form.errors.holder_department_id} />
+                                {toDepartment && (
+                                    <p className="text-muted-foreground text-[13px]">
+                                        За единицу отвечает отдел: в списке она встанет в блок этого отдела, а в колонке «У кого» будет прочерк.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="grid content-start gap-2">

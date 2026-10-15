@@ -68,7 +68,9 @@ export function ChangeLines({
     // balance sheet, or off the books altogether if this is what struck it off.
     const nobody = kind === 'written_off' ? statusLabel.written_off : statusLabel.stock;
     const read = (field: string, value: ChangeValue) =>
-        field === 'holder_user_id' && (value === null || value === '') ? nobody : readValue(field, value, names);
+        (field === 'holder_user_id' || field === 'holder_department_id') && (value === null || value === '')
+            ? nobody
+            : readValue(field, value, names);
 
     const hidden = (kind && unsaid[kind]) ?? [];
     const fields = Object.entries(changes).filter(([field]) => !hidden.includes(field));

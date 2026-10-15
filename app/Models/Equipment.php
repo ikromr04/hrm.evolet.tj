@@ -65,6 +65,7 @@ class Equipment extends Model
         'accessories',
         'status',
         'holder_user_id',
+        'holder_department_id',
         'issued_at',
         'written_off_at',
     ];
@@ -267,11 +268,34 @@ class Equipment extends Model
     }
 
     /**
-     * Back on the balance sheet, held by nobody. A return and an employee's
-     * deletion both end a spell this way, so the two cannot drift apart on
-     * which columns a unit on the shelf leaves empty. One save, so the journal
-     * reads it as one act; what the caller knows besides (the day it was
-     * looked over, the state it came back in) goes into the same save.
+     * The department a unit is signed out to, where its category is the kind
+     * whose things are a department's rather than a colleague's. Empty for
+     * everything else, and never filled at the same time as the colleague
+     * beside it — the database itself refuses a unit held twice.
+     */
+    public function holderDepartment(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'holder_department_id');
+    }
+
+    /**
+     * Who answers for it right now: the colleague it is signed out to, the
+     * department it is signed out to, or nobody while it is on the balance
+     * sheet. Two columns, one question, asked in one place so that nothing has
+     * to remember there are two.
+     */
+    public function heldBy(): User|Department|null
+    {
+        return $this->holder ?? $this->holderDepartment;
+    }
+
+    /**
+     * Back on the balance sheet, held by nobody. A return, a write-off and an
+     * employee's deletion all end a spell this way, so they cannot drift apart
+     * on which columns a unit on the shelf leaves empty — both holders are let
+     * go, whichever of the two the spell was. One save, so the journal reads it
+     * as one act; what the caller knows besides (the day it was looked over,
+     * the state it came back in) goes into the same save.
      *
      * @param  array<string, mixed>  $also
      */
@@ -280,6 +304,7 @@ class Equipment extends Model
         $this->update([
             'status' => 'stock',
             'holder_user_id' => null,
+            'holder_department_id' => null,
             'issued_at' => null,
             ...$also,
         ]);
@@ -291,6 +316,30 @@ class Equipment extends Model
     public function scopeInService(Builder $query): void
     {
         $query->where('status', '!=', 'written_off');
+    }
+
+    /**
+     * The equipment of these departments, held either way: the units signed
+     * out to a department itself, and the units of the people who stand in it.
+     *
+     * Both are what «техника отдела» means — the printer in its corridor and
+     * the laptops of everyone who works there — and saying so once is what
+     * keeps the equipment table, its two funnels and a department's own page
+     * from each having an idea of their own about it. Nothing here says
+     * anything about who may see what: that is `EquipmentAccess`, and every
+     * caller narrows by it as well.
+     *
+     * A unit nobody holds is in neither half. It is on the balance sheet or
+     * struck off, and a thing in no one's hands is no department's either.
+     *
+     * @param  Builder<Equipment>  $query
+     * @param  list<int>  $departments
+     */
+    public function scopeFiledIn(Builder $query, array $departments): void
+    {
+        $query->where(fn (Builder $q) => $q
+            ->whereIn('holder_department_id', $departments)
+            ->orWhereHas('holder.departments', fn (Builder $q) => $q->whereIn('departments.id', $departments)));
     }
 
     /**

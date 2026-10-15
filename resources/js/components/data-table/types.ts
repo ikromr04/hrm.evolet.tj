@@ -40,6 +40,27 @@ export interface ColumnDef {
      * not the width it is drawn at.
      */
     fill?: boolean;
+    /**
+     * Whether this column is fenced off from the ones beside it by a line down
+     * the boundary — what `gridlines` does to every column of a table, asked
+     * for one column at a time.
+     *
+     * It is for the columns whose cells cover blocks of rows. A cell standing
+     * over twelve rows has nothing to say where it ends sideways, and the line
+     * is what makes the block read as a block rather than as text that happens
+     * to line up. The columns around it are read a row at a time and need no
+     * line of their own; a table that drew one everywhere would be a grid, and
+     * a list of rows reads as a list.
+     *
+     * A boundary is drawn where either of the two columns meeting at it asks
+     * for one, so two fenced columns standing side by side are fenced as a
+     * pair — a line down each outer edge and the one between them — and a
+     * column dragged away from the other takes its lines with it. The line
+     * belongs to the cells, so it is pinned, dragged, hidden, resized and
+     * scrolled sideways along with the column, and the header agrees with the
+     * body without being told to.
+     */
+    fenced?: boolean;
     filter?: FilterDef;
     /** Anything else a page wants to keep on a column, e.g. whether it is private. */
     [extra: string]: unknown;

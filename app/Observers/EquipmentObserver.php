@@ -26,7 +26,7 @@ class EquipmentObserver
      * like any other, whatever form it was made in, and not the plain
      * correction the journal would otherwise call it.
      */
-    private const HANDOVER = ['holder_user_id', 'issued_at'];
+    private const HANDOVER = ['holder_user_id', 'holder_department_id', 'issued_at'];
 
     /**
      * A unit joining the fleet. It lands on the balance sheet like a unit coming
@@ -98,7 +98,8 @@ class EquipmentObserver
             // Handing a unit to somebody else is a handover like any other, so
             // it is recorded as one. A date on its own is not: that is a
             // correction to the date, and it stays a plain change.
-            array_key_exists('holder_user_id', $changes) && array_diff($fields, self::HANDOVER) === [] => 'issued',
+            (array_key_exists('holder_user_id', $changes) || array_key_exists('holder_department_id', $changes))
+                && array_diff($fields, self::HANDOVER) === [] => 'issued',
             $fields === ['accessories'] => 'accessories',
             default => 'updated',
         };
@@ -122,7 +123,9 @@ class EquipmentObserver
      *
      * Nobody is told about what they did themselves, and nothing is said when
      * there is no person behind the move: a seeder filling the fleet in is not
-     * news to the people it hands laptops to.
+     * news to the people it hands laptops to. Nor is a unit handed to a
+     * department: a department has no bell of its own, and the move is read by
+     * whoever opens the fleet rather than told to anybody.
      */
     private function announce(Equipment $equipment): void
     {

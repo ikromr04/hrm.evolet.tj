@@ -124,8 +124,11 @@ class EquipmentTest extends TestCase
             ->get('/equipment?view=list')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('tab', 'issued')
-                ->where('sort.key', 'created')
-                ->where('sort.direction', 'desc')
+                // And it opens in the order the company is read down in,
+                // under a key of its own: no column carries it, so no header
+                // opens with an arrow on it.
+                ->where('sort.key', 'structure')
+                ->where('sort.direction', 'asc')
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', 'Выданный ноутбук')
             );
@@ -192,6 +195,195 @@ class EquipmentTest extends TestCase
     }
 
     /**
+     * The departments the structure tests are read in: one with two units
+     * inside it and one with none, which is how the company is actually built.
+     *
+     * @return array<string, Department>
+     */
+    private function structure(): array
+    {
+        $analysis = Department::create(['name' => 'Департамент анализа и стратегии', 'abbreviation' => 'ДАС']);
+
+        return [
+            'analysis' => $analysis,
+            'analytics' => Department::create(['name' => 'Отдел аналитики', 'abbreviation' => 'ОА', 'parent_id' => $analysis->id]),
+            'projects' => Department::create(['name' => 'Отдел проектов', 'abbreviation' => 'ОПР', 'parent_id' => $analysis->id]),
+            'staff' => Department::create(['name' => 'Департамент по управлению персоналом', 'abbreviation' => 'ДУЧР']),
+        ];
+    }
+
+    /** A colleague who stands in these departments, if any. */
+    private function standing(string $surname, ?Department $department = null): User
+    {
+        $user = User::factory()->create(['surname' => $surname]);
+
+        if ($department !== null) {
+            $user->departments()->attach($department->id);
+        }
+
+        return $user;
+    }
+
+    /** What the unit list is handed, row by row, in the order it is handed them. */
+    private function listRows(User $viewer, string $query): array
+    {
+        $rows = [];
+
+        $this->actingAs($viewer)->get("/equipment?view=list&{$query}")
+            ->assertOk()
+            ->assertInertia(function (AssertableInertia $page) use (&$rows) {
+                $rows = $page->toArray()['props']['equipment']['data'];
+            });
+
+        return $rows;
+    }
+
+    /**
+     * Where a unit stands in the company, read off whoever holds it: the
+     * department in one column and the unit inside it in the next, each named
+     * as the org chart names it — the abbreviation it is known by, with the
+     * full name along for the line under it.
+     */
+    public function test_the_list_reads_a_unit_under_the_department_of_whoever_holds_it()
+    {
+        ['analysis' => $analysis, 'analytics' => $analytics, 'staff' => $staff] = $this->structure();
+
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Бобоев', $analytics)->id)
+            ->create(['name' => 'Ноутбук отдела']);
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Зоиров', $staff)->id)
+            ->create(['name' => 'Ноутбук департамента']);
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Мирзоев')->id)
+            ->create(['name' => 'Ноутбук без отдела']);
+        Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук на складе']);
+
+        $rows = collect($this->listRows($this->sysadmin(), 'tab=all'))->keyBy('name');
+
+        // A holder standing in a unit: both steps of the path, the unit itself
+        // and the department above it.
+        $this->assertSame([
+            'id' => $analytics->id,
+            'name' => 'ОА',
+            'full_name' => 'Отдел аналитики',
+            'parent' => ['id' => $analysis->id, 'name' => 'ДАС', 'full_name' => 'Департамент анализа и стратегии'],
+        ], $rows['Ноутбук отдела']['department']);
+
+        // A holder filed on a department itself: there is nothing above it, and
+        // that is the «Отдел» column's own empty value rather than anything missing.
+        $this->assertSame([
+            'id' => $staff->id,
+            'name' => 'ДУЧР',
+            'full_name' => 'Департамент по управлению персоналом',
+            'parent' => null,
+        ], $rows['Ноутбук департамента']['department']);
+
+        // The two nothings, told apart by the holder and not by the department:
+        // a unit out with a colleague who stands in no department, which
+        // somebody still has to put right, and a unit on the balance sheet in
+        // nobody's hands, which is where a unit between two pairs of hands belongs.
+        $this->assertNull($rows['Ноутбук без отдела']['department']);
+        $this->assertNotNull($rows['Ноутбук без отдела']['holder']);
+        $this->assertNull($rows['Ноутбук на складе']['department']);
+        $this->assertNull($rows['Ноутбук на складе']['holder']);
+    }
+
+    /**
+     * The whole point of the two columns: ordered by either of them, a
+     * department's equipment comes out as one run of rows, so one name can
+     * stand over the lot.
+     *
+     * Nothing to name reads last, whichever way the column is sorted, as a unit
+     * with no name of its own already does here — and the two kinds of nothing
+     * stay apart: a holder nobody has filed is a row to finish, and a unit
+     * nobody holds is a third of the fleet and has no business opening a list
+     * read by department.
+     */
+    public function test_sorting_by_the_structure_gathers_a_departments_equipment_into_one_block()
+    {
+        ['analytics' => $analytics, 'projects' => $projects, 'staff' => $staff] = $this->structure();
+
+        $byHolder = [
+            'Аналитик 1' => $this->standing('Бобоев', $analytics),
+            'Аналитик 2' => $this->standing('Хасанова', $analytics),
+            'Проектный' => $this->standing('Зоиров', $projects),
+            'Кадровый' => $this->standing('Олимова', $staff),
+            'Ничей отдел' => $this->standing('Мирзоев'),
+        ];
+
+        foreach ($byHolder as $name => $holder) {
+            Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => $name]);
+        }
+
+        Equipment::factory()->ofType($this->type())->create(['name' => 'Складской']);
+
+        $admin = $this->sysadmin();
+        $order = fn (string $query) => array_column($this->listRows($admin, "tab=all&{$query}"), 'name');
+
+        // ДАС first with both its units inside it, then ДУЧР, then the row
+        // somebody has to file, then the one on the balance sheet.
+        $this->assertSame(
+            ['Аналитик 1', 'Аналитик 2', 'Проектный', 'Кадровый', 'Ничей отдел', 'Складской'],
+            $order('sort=department'),
+        );
+
+        // Turned round, the departments read the other way and so do the units
+        // inside them; the two that name no department do not move.
+        $this->assertSame(
+            ['Кадровый', 'Проектный', 'Аналитик 1', 'Аналитик 2', 'Ничей отдел', 'Складской'],
+            $order('sort=department&direction=desc'),
+        );
+
+        // By the unit the units stand together — ОА, ОПР — and the rows filed
+        // on a department itself follow them, a step short of the column.
+        $this->assertSame(
+            ['Аналитик 1', 'Аналитик 2', 'Проектный', 'Кадровый', 'Ничей отдел', 'Складской'],
+            $order('sort=unit'),
+        );
+
+        $this->assertSame(
+            ['Проектный', 'Аналитик 1', 'Аналитик 2', 'Кадровый', 'Ничей отдел', 'Складской'],
+            $order('sort=unit&direction=desc'),
+        );
+    }
+
+    /**
+     * The two funnels: a department of the company, or one unit inside it.
+     *
+     * Asking about a department asks about its units too — a laptop in the
+     * отдел аналитики is a laptop of ДАС in every sense somebody means by the
+     * question — and the search box answers for a department either way it is
+     * written, the abbreviation the column prints or the name under it.
+     */
+    public function test_the_structure_narrows_the_list_and_answers_the_search()
+    {
+        ['analysis' => $analysis, 'analytics' => $analytics, 'staff' => $staff] = $this->structure();
+
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Бобоев', $analytics)->id)
+            ->create(['name' => 'Ноутбук отдела']);
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Зоиров', $analysis)->id)
+            ->create(['name' => 'Ноутбук департамента']);
+        Equipment::factory()->ofType($this->type())->issuedTo($this->standing('Олимова', $staff)->id)
+            ->create(['name' => 'Ноутбук кадров']);
+
+        $admin = $this->sysadmin();
+        $found = fn (string $query) => array_column($this->listRows($admin, "tab=all&{$query}"), 'name');
+
+        // The department and everything inside it — its own rows first, as the
+        // structure reads down: a unit is a step further in.
+        $this->assertSame(['Ноутбук департамента', 'Ноутбук отдела'], $found("sort=department&department[]={$analysis->id}"));
+        // The unit alone.
+        $this->assertSame(['Ноутбук отдела'], $found("unit[]={$analytics->id}"));
+        $this->assertSame(['Ноутбук кадров'], $found("department[]={$staff->id}"));
+        // Both at once: a unit of a department it does not belong to narrows to nothing.
+        $this->assertSame([], $found("department[]={$staff->id}&unit[]={$analytics->id}"));
+
+        // And the box above the table, over both steps of the path: the units
+        // of ДАС read under ДАС, so a search for it has to find them.
+        $this->assertSame(['Ноутбук департамента', 'Ноутбук отдела'], $found('sort=department&q='.urlencode('ДАС')));
+        $this->assertSame(['Ноутбук отдела'], $found('q='.urlencode('Отдел аналитики')));
+        $this->assertSame(['Ноутбук кадров'], $found('q='.urlencode('управлению персоналом')));
+    }
+
+    /**
      * The page opens on "По сотрудникам": who has what is what it is opened
      * with. The unit list is a reading of its own, and a link that asks it for
      * something only it can answer — a tab, a status, a date of issue — still
@@ -239,23 +431,35 @@ class EquipmentTest extends TestCase
 
     /**
      * A header is pressed three times: up, down, and back to the order the
-     * table opens in — which is the unit entered last, as the staff list opens
-     * on the colleague added last. The third press sends no sort at all, so the
-     * server has to answer that with the opening order rather than with a column.
+     * table opens in — the company read down, which is no column of the table.
+     * The third press sends no sort at all, so the server has to answer that
+     * with the opening order rather than with a column.
+     *
+     * The date a unit was entered is a column now and sorts like any other. It
+     * was the opening order until the structure took that place, and it is
+     * still what «что добавили недавно» is asked by, so it had to go somewhere
+     * a header could be pressed.
      */
-    public function test_a_header_walks_up_then_down_then_back_to_the_newest_first()
+    public function test_a_header_walks_up_then_down_then_back_to_the_structure()
     {
-        $old = Equipment::factory()->ofType($this->type())->create(['name' => 'Я', 'created_at' => now()->subDays(2)]);
-        $new = Equipment::factory()->ofType($this->type())->create(['name' => 'А', 'created_at' => now()]);
+        $analytics = $this->structure()['analytics'];
+        $early = $this->standing('Азимов', $analytics);
+        $late = $this->standing('Яқубов', $analytics);
+
+        $old = Equipment::factory()->ofType($this->type())->issuedTo($early->id)
+            ->create(['name' => 'Я', 'created_at' => now()->subDays(2)]);
+        $new = Equipment::factory()->ofType($this->type())->issuedTo($late->id)
+            ->create(['name' => 'А', 'created_at' => now()]);
 
         $admin = $this->sysadmin();
 
-        // Opened: the newest unit, and the order named as its own key.
+        // Opened: the structure read down — one department, so its people by
+        // name — under a key of its own, which no header carries.
         $this->actingAs($admin)->get('/equipment?tab=all')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('sort.key', 'created')
-                ->where('sort.direction', 'desc')
-                ->where('equipment.data.0.id', $new->id)
+                ->where('sort.key', 'structure')
+                ->where('sort.direction', 'asc')
+                ->where('equipment.data.0.id', $old->id)
             );
 
         // First press on a column, then the same column turned around.
@@ -266,15 +470,25 @@ class EquipmentTest extends TestCase
 
         // And the third press, which drops the sort from the query.
         $this->actingAs($admin)->get('/equipment?tab=all')
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $new->id));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $old->id));
 
-        // The order itself can be asked for by name, and turned around like any
-        // other: oldest first is the second press on it.
+        // The opening order can also be asked for by name and turned round, as
+        // the phone's sheet turns it round — the structure read up from the last
+        // department instead of down from the first.
+        $this->actingAs($admin)->get('/equipment?tab=all&sort=structure&direction=desc')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('sort.key', 'structure'));
+
+        // And the date the unit was entered, which is a column: oldest first on
+        // the first press, newest first on the second.
         $this->actingAs($admin)->get('/equipment?tab=all&sort=created')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.direction', 'asc')
                 ->where('equipment.data.0.id', $old->id)
+                ->where('equipment.data.0.created_at', $old->created_at->toDateString())
             );
+
+        $this->actingAs($admin)->get('/equipment?tab=all&sort=created&direction=desc')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $new->id));
     }
 
     public function test_search_covers_the_name_the_sticker_and_the_categorys_own_fields()

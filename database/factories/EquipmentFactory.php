@@ -207,6 +207,21 @@ class EquipmentFactory extends Factory
         ]);
     }
 
+    /**
+     * Signed out to a department rather than to a colleague: a printer in a
+     * corridor, the router in the ceiling. Nobody answers for it by name, and
+     * the row holds one holder as every row does.
+     */
+    public function heldBy(int $departmentId, ?string $since = null): static
+    {
+        return $this->state(fn () => [
+            'status' => 'issued',
+            'holder_user_id' => null,
+            'holder_department_id' => $departmentId,
+            'issued_at' => fake()->dateTimeBetween($since ?? '-5 years', 'now'),
+        ]);
+    }
+
     public function writtenOff(): static
     {
         return $this->state(fn () => [

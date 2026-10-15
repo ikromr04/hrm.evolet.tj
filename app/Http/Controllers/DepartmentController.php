@@ -3,15 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\Department;
+use App\Models\Equipment;
 use App\Models\Position;
 use App\Models\RegulationSection;
 use App\Models\User;
 use App\Support\Directories;
 use App\Support\Document;
 use App\Support\EmployeeFields;
+use App\Support\EquipmentAccess;
+use App\Support\EquipmentName;
 use App\Support\PositionProfile;
 use App\Support\Regulation;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -33,53 +38,42 @@ class DepartmentController extends Controller
         ]);
     }
 
-    public function show(Department $department): Response
+    /**
+     * One department: who works there, its documents and what it has.
+     *
+     * Every prop but the first is written as a closure, so that a visit asking
+     * for one of them by name — which is what the equipment tab does when it is
+     * opened — reads that one and nothing else. A full visit resolves them all,
+     * exactly as before.
+     */
+    public function show(Request $request, Department $department): Response
     {
-        $departments = $this->tree();
-        $totals = Department::staffTotals($departments);
-        $current = $departments->firstWhere('id', $department->id);
-
-        $members = $current->users()
-            ->active()
-            ->wherePivot('is_head', false)
-            ->with('positions:id,name')
-            ->orderBy('surname')
-            ->orderBy('name')
-            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'email']);
-
-        $parents = [];
-        for ($parent = $departments->firstWhere('id', $current->parent_id); $parent && ! isset($parents[$parent->id]); $parent = $departments->firstWhere('id', $parent->parent_id)) {
-            $parents[$parent->id] = ['id' => $parent->id, 'name' => $parent->display_name, 'full_name' => $parent->name];
-        }
-
         return Inertia::render('departments/show', [
-            'department' => [
-                'id' => $current->id,
-                // Both names: a department's own page has room to say what its
-                // abbreviation stands for, and everywhere it is short the full
-                // one is what the hover and the screen reader are given.
-                'name' => $current->display_name,
-                'full_name' => $current->name,
-                'parents' => array_reverse(array_values($parents)),
-                'total_count' => $totals[$current->id],
-                'heads' => $this->heads($current)->load('positions:id,name')->map(fn (User $u) => $this->person($u, details: true))->values(),
-                'children' => $departments->where('parent_id', $current->id)->map(fn (Department $d) => [
-                    'id' => $d->id,
-                    'name' => $d->display_name,
-                    'full_name' => $d->name,
-                    'total_count' => $totals[$d->id],
-                    'heads' => $this->heads($d)->map(fn (User $u) => $this->person($u))->values(),
-                ])->values(),
-                'members' => $members->map(fn (User $u) => $this->person($u, details: true)),
-            ],
+            'department' => fn () => $this->people($department),
             // The row as it came from the address, not the one out of the tree:
             // the tree reads the few columns a chart draws with, and the
             // document needs the heading this department typed as well.
-            'regulation' => $this->regulation($department),
+            'regulation' => fn () => $this->regulation($department),
             // The other document of this department's people: one profile per
             // job rather than one sheet for the whole unit, so the page gets
             // the list and each position's own page gets its document.
-            'profiles' => $this->profiles($department),
+            'profiles' => fn () => $this->profiles($department),
+            // Whether the third tab has anything to offer this viewer, which
+            // is all it needs to know before it is opened: a right, not a
+            // query. The equipment itself costs a page of reads and is asked
+            // for only by somebody who presses the tab.
+            'equipment' => ['can_read' => EquipmentAccess::viewScopes($request->user()) !== []],
+            // And the list behind it, left out of every visit that does not
+            // ask for it by name. This page is opened by everybody signed in,
+            // mostly to read the regulation, and a department with a hundred
+            // units would make that page heavy for all of them.
+            //
+            // A prop of its own rather than a line inside the one above,
+            // because Inertia leaves a prop out of the first load only where
+            // the prop itself is the one being skipped — nested inside an
+            // array it would be resolved like anything else, and the saving
+            // would be nothing.
+            'equipmentUnits' => Inertia::optional(fn () => $this->equipment($department, $request->user())),
         ]);
     }
 
@@ -163,6 +157,116 @@ class DepartmentController extends Controller
      *
      * @return array<string, mixed>
      */
+    /**
+     * The department itself: where it sits, who leads it, what is under it and
+     * who works there.
+     *
+     * Read through the tree rather than off the row, because the page says how
+     * many people each sub-department has, and a count of a branch is a walk
+     * down it.
+     *
+     * @return array<string, mixed>
+     */
+    private function people(Department $department): array
+    {
+        $departments = $this->tree();
+        $totals = Department::staffTotals($departments);
+        $current = $departments->firstWhere('id', $department->id);
+
+        $members = $current->users()
+            ->active()
+            ->wherePivot('is_head', false)
+            ->with('positions:id,name')
+            ->orderBy('surname')
+            ->orderBy('name')
+            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'email']);
+
+        $parents = [];
+        for ($parent = $departments->firstWhere('id', $current->parent_id); $parent && ! isset($parents[$parent->id]); $parent = $departments->firstWhere('id', $parent->parent_id)) {
+            $parents[$parent->id] = ['id' => $parent->id, 'name' => $parent->display_name, 'full_name' => $parent->name];
+        }
+
+        return [
+            'id' => $current->id,
+            // Both names: a department's own page has room to say what its
+            // abbreviation stands for, and everywhere it is short the full
+            // one is what the hover and the screen reader are given.
+            'name' => $current->display_name,
+            'full_name' => $current->name,
+            'parents' => array_reverse(array_values($parents)),
+            'total_count' => $totals[$current->id],
+            'heads' => $this->heads($current)->load('positions:id,name')->map(fn (User $u) => $this->person($u, details: true))->values(),
+            'children' => $departments->where('parent_id', $current->id)->map(fn (Department $d) => [
+                'id' => $d->id,
+                'name' => $d->display_name,
+                'full_name' => $d->name,
+                'total_count' => $totals[$d->id],
+                'heads' => $this->heads($d)->map(fn (User $u) => $this->person($u))->values(),
+            ])->values(),
+            'members' => $members->map(fn (User $u) => $this->person($u, details: true)),
+        ];
+    }
+
+    /**
+     * The equipment of this department, in the two halves it is actually in:
+     * the units signed out to the department itself, and the units of the
+     * people who work there, each under the name of whoever holds it.
+     *
+     * Only this department, not the branch under it. A unit of the structure
+     * has its own page and its own people, and a department that showed its
+     * units' equipment would answer for rows nobody on this page is named in
+     * — the same reason «СФД» lists this department's own positions and not
+     * its sub-departments'.
+     *
+     * What the equipment section would show this viewer and no more: the same
+     * `EquipmentAccess` that narrows the fleet narrows this, so somebody who
+     * may see only their own equipment sees their own here, and the page can
+     * neither widen a right nor leak a unit the section would keep back.
+     *
+     * A unit nobody holds is in neither half: it is on the balance sheet or
+     * struck off, and a thing in no one's hands is no department's either.
+     * That is why nothing here asks about a status — the question is answered
+     * by who holds the thing.
+     *
+     * @return array{own: list<array<string, mixed>>, people: list<array<string, mixed>>}
+     */
+    private function equipment(Department $department, User $viewer): array
+    {
+        $units = Equipment::query()
+            ->tap(fn (Builder $query) => EquipmentAccess::narrow($query, $viewer))
+            ->filedIn([$department->id])
+            // The two a unit is named by, and the holder behind the second half.
+            ->withIdentity()
+            ->with(['type:id,name,icon', 'holder:id,name,surname'])
+            ->orderByRole('title')
+            ->orderBy('id')
+            ->get(['id', 'equipment_type_id', 'holder_user_id', 'holder_department_id'])
+            ->map(fn (Equipment $unit) => [
+                'id' => $unit->id,
+                // Named as every list of equipment names a unit, nameless
+                // ones included: one unit reads the same wherever it is read.
+                'name' => EquipmentName::read($unit->name),
+                'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
+                'type' => $unit->type?->name,
+                'type_icon' => $unit->type?->icon,
+                // Only in the second half, where it is the point of the line.
+                'holder' => $unit->holder === null ? null : [
+                    'id' => $unit->holder->id,
+                    'name' => "{$unit->holder->surname} {$unit->holder->name}",
+                ],
+            ]);
+
+        return [
+            'own' => $units->whereNull('holder')->values()->all(),
+            // By the person first, so one colleague's things are read together
+            // rather than scattered through the list by what they are called.
+            'people' => $units->whereNotNull('holder')
+                ->sortBy(fn (array $unit) => $unit['holder']['name'])
+                ->values()
+                ->all(),
+        ];
+    }
+
     private function profiles(Department $department): array
     {
         $reads = Gate::allows(Directories::viewPermission('positions'));

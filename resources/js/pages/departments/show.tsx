@@ -1,6 +1,7 @@
 import { MobileRow } from '@/components/data-table';
 import { DepartmentName, departmentTitle } from '@/components/department-name';
 import { DepartmentRegulation, type Regulation } from '@/components/department-regulation';
+import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -12,7 +13,7 @@ import { useCan } from '@/lib/access';
 import { peopleLabel } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ChevronRight, ClipboardList, CornerDownRight, List, Mail, Users } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
@@ -53,14 +54,21 @@ interface Department {
  * strip of tabs under a segmented control is two presses and two rows to reach
  * what one press and one row can.
  */
-type View = 'list' | 'regulation' | 'sfd';
+type View = 'list' | 'regulation' | 'sfd' | 'equipment';
 
 /** What the main column can hold, which is everything but the list. */
 type Document = Exclude<View, 'list'>;
 
+/**
+ * The three things the main column holds. The equipment is not a document, but
+ * it is read the same way and from the same place — what belongs to this
+ * department — so it is a tab beside the other two rather than a page of its
+ * own that the structure would have to link to.
+ */
 const DOCUMENTS: { key: Document; title: string }[] = [
     { key: 'regulation', title: 'Положение' },
     { key: 'sfd', title: 'СФД' },
+    { key: 'equipment', title: 'Оборудование' },
 ];
 
 /** Bumped once already with the default below, or a saved 'chart' would still win. */
@@ -220,6 +228,105 @@ interface Profiles {
     positions: { id: number; name: string; title: string }[];
 }
 
+/** One unit of equipment as this tab names it; the holder only in the second half. */
+interface Unit {
+    id: number;
+    name: string;
+    inventory_number: string;
+    type: string | null;
+    type_icon: string | null;
+    holder: { id: number; name: string } | null;
+}
+
+/**
+ * The equipment of this department, in the two halves it is in: what the
+ * department itself answers for, and what the people who work here hold.
+ *
+ * A reading and not a workshop. Nothing is issued, returned or written off
+ * here — every line opens the unit's own page, where those things live and
+ * where the journal says what has happened to it.
+ *
+ * Three things it may have to say, and they are three different things, as on
+ * the tab before it. Equipment is a section with rights of its own, and a
+ * department's page is open to everybody signed in: «ничего нет» told to
+ * somebody who may not look would be a lie about the department rather than
+ * the truth about them.
+ */
+function DepartmentEquipment({ units, loading }: { units: Equipment | undefined; loading: boolean }) {
+    const line = 'text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5';
+
+    // Asked for when the tab was opened and not yet answered. Said in words
+    // rather than drawn as a skeleton: it is one line of text either way, and
+    // a shape that pretends to be a list is worse than a sentence that says
+    // what is happening.
+    if (units === undefined) return <p className={line}>{loading ? 'Загружаем оборудование…' : 'Оборудование не загрузилось. Обновите страницу.'}</p>;
+
+    if (units.own.length === 0 && units.people.length === 0) {
+        return <p className={line}>За этим подразделением пока не числится оборудование.</p>;
+    }
+
+    return (
+        <div className="flex flex-col gap-5 px-4 py-4 md:px-6 md:py-5">
+            {units.own.length > 0 && (
+                <UnitList
+                    title="Закреплено за отделом"
+                    count={units.own.length}
+                    hint="Техника, за которую отвечает подразделение, а не отдельный сотрудник."
+                    units={units.own}
+                />
+            )}
+
+            {units.people.length > 0 && <UnitList title="У сотрудников" count={units.people.length} units={units.people} />}
+        </div>
+    );
+}
+
+/** One half of the tab: a heading, how many, and a line per unit. */
+function UnitList({ title, count, hint, units }: { title: string; count: number; hint?: string; units: Unit[] }) {
+    return (
+        <section className="flex flex-col gap-2">
+            <h2 className="flex items-baseline gap-2 text-[17px] leading-snug font-semibold">
+                {title}
+                <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>
+            </h2>
+            {hint && <p className="text-muted-foreground text-[13px]">{hint}</p>}
+
+            <ul className="-mx-2 flex flex-col">
+                {units.map((unit) => (
+                    <li key={unit.id}>
+                        <Link
+                            href={route('equipment.show', unit.id)}
+                            className="hover:bg-muted/60 flex items-start gap-3 rounded-md px-2 py-2.5 max-md:min-h-12"
+                        >
+                            <CategoryChip icon={unit.type_icon} size={32} iconSize={16} className="mt-0.5 shrink-0" />
+                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                <span className="text-sm font-medium break-words">{unit.name}</span>
+                                <span className="text-muted-foreground text-[13px] break-words">
+                                    {/* Whose it is leads the line where there is
+                                        somebody: this half is read to find out who
+                                        has what. The number closes it, as it does
+                                        everywhere a unit is named in one line. */}
+                                    {unit.holder !== null && <span className="text-foreground">{unit.holder.name} · </span>}
+                                    {unit.type}
+                                    {' · инв. № '}
+                                    <span className="tabular-nums">{unit.inventory_number}</span>
+                                </span>
+                            </span>
+                            <ChevronRight className="text-muted-foreground/60 mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                        </Link>
+                    </li>
+                ))}
+            </ul>
+        </section>
+    );
+}
+
+/** The two halves as the server sends them. */
+interface Equipment {
+    own: Unit[];
+    people: Unit[];
+}
+
 function Section({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
     return (
         <Card className="flex flex-col gap-3 rounded-xl px-4 py-4 md:px-6 md:py-5">
@@ -321,17 +428,44 @@ function PhoneColleagueRow({ person, href }: { person: Colleague; href: string |
     );
 }
 
-export default function DepartmentPage({ department, regulation, profiles }: { department: Department; regulation: Regulation; profiles: Profiles }) {
+export default function DepartmentPage({
+    department,
+    regulation,
+    profiles,
+    equipment,
+    equipmentUnits,
+}: {
+    department: Department;
+    regulation: Regulation;
+    profiles: Profiles;
+    /** Whether this viewer may read equipment at all; the list is fetched apart. */
+    equipment: { can_read: boolean };
+    /** Absent until the tab is opened, which is when the page asks for it. */
+    equipmentUnits?: Equipment;
+}) {
     const can = useCan();
     const [view, setView] = useState<View>(savedView);
+    // Whether the list has been asked for on this visit, so that opening the
+    // tab twice does not ask twice, and a visit that never opens it never asks
+    // at all. The page is opened by everybody, mostly to read the regulation.
+    const asked = useRef(false);
+    const [loading, setLoading] = useState(false);
 
     const changeView = (next: View) => {
         setView(next);
 
-        // Only the two the page has always remembered are written down; СФД is
-        // asked for afresh each visit, because nobody has asked for a page that
-        // opens on it.
-        if (next === 'sfd') return;
+        if (next === 'equipment' && equipment.can_read && !asked.current) {
+            asked.current = true;
+            setLoading(true);
+            // Only that one prop, so the regulation, the people and the
+            // profiles are not read again to answer a question about printers.
+            router.reload({ only: ['equipmentUnits'], onFinish: () => setLoading(false) });
+        }
+
+        // Only the two the page has always remembered are written down; СФД and
+        // the equipment are asked for afresh each visit, because nobody has
+        // asked for a page that opens on either.
+        if (next === 'sfd' || next === 'equipment') return;
 
         try {
             localStorage.setItem(VIEW_KEY, next);
@@ -343,7 +477,7 @@ export default function DepartmentPage({ department, regulation, profiles }: { d
     // Which document the main column holds. On a phone the list is a view of its
     // own and the column is hidden under it; on a desktop the list has a column
     // of its own, so «Список» there simply means the document last open.
-    const open: Document = view === 'sfd' ? 'sfd' : 'regulation';
+    const open: Document = view === 'list' ? 'regulation' : view;
 
     const personHref = usePersonHref();
     // The structure of the company is open to everybody; the list of the staff is
@@ -433,10 +567,13 @@ export default function DepartmentPage({ department, regulation, profiles }: { d
                         </Card>
                     )}
 
-                    {/* Three peers on one screen, rather than two with the third
-                        hidden inside one of them: who works here, the положение
-                        and СФД are three reasons to open a department, and each
-                        is one press away. */}
+                    {/* Four peers on one screen, rather than three with the
+                        fourth hidden inside one of them: who works here, the
+                        положение, СФД and what the department has are four
+                        reasons to open a department, and each is one press
+                        away. «Техника» rather than «Оборудование» in this one
+                        place: four segments share 390px between them, and the
+                        longer word would cut all four short to fit itself. */}
                     <PhoneViewSwitch
                         value={view}
                         onChange={changeView}
@@ -444,6 +581,7 @@ export default function DepartmentPage({ department, regulation, profiles }: { d
                             { value: 'list', label: 'Список' },
                             { value: 'regulation', label: 'Положение' },
                             { value: 'sfd', label: 'СФД' },
+                            { value: 'equipment', label: 'Техника' },
                         ]}
                     />
                 </div>
@@ -479,11 +617,21 @@ export default function DepartmentPage({ department, regulation, profiles }: { d
                             aria-labelledby={`department-tab-${open}`}
                             className="min-w-0 rounded-xl max-md:rounded-2xl max-md:border-0 max-md:shadow-none"
                         >
-                            {open === 'regulation' ? (
-                                <DepartmentRegulation department={department.id} regulation={regulation} />
-                            ) : (
-                                <Profiles profiles={profiles} />
-                            )}
+                            {open === 'regulation' && <DepartmentRegulation department={department.id} regulation={regulation} />}
+                            {open === 'sfd' && <Profiles profiles={profiles} />}
+                            {open === 'equipment' &&
+                                (equipment.can_read ? (
+                                    <DepartmentEquipment units={equipmentUnits} loading={loading} />
+                                ) : (
+                                    // Said of the viewer and not of the
+                                    // department: the fleet is a section with
+                                    // rights of its own, and «ничего нет» here
+                                    // would send somebody looking for equipment
+                                    // that is standing right in front of them.
+                                    <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">
+                                        Оборудование доступно не всем — у вас нет доступа к нему.
+                                    </p>
+                                ))}
                         </Card>
                     </div>
 

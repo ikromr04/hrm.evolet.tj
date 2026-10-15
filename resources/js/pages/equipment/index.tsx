@@ -66,7 +66,27 @@ import {
     X,
     type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+
+interface Department {
+    /** The abbreviation where the department has one, the full name otherwise. */
+    name: string;
+    /** What that abbreviation stands for, spelled out. */
+    full_name: string;
+    id: number;
+}
+
+/**
+ * Where the holder of a row stands, with the department above them.
+ *
+ * The structure is two levels and no more, so this pair is the whole of it: a
+ * department with a parent is a unit inside that parent, and one without is a
+ * department of the company. Both travel because the page has no tree of its
+ * own to walk up.
+ */
+interface Filing extends Department {
+    parent: Department | null;
+}
 
 interface Unit {
     id: number;
@@ -78,10 +98,25 @@ interface Unit {
     type_icon: string | null;
     status: Status;
     condition: string | null;
-    /** Null while nobody holds it. */
+    /**
+     * Where the unit is read in the structure: the department of whoever holds
+     * it — the one its holder stands in, or the department itself where the
+     * department is the holder. Null both for a unit nobody holds and for a
+     * colleague nobody has filed; the two below tell those apart.
+     */
+    department: Filing | null;
+    /**
+     * Whether the department above is holding it rather than standing behind a
+     * colleague — a printer in a corridor, a department's spare laptop. The
+     * two columns of the structure read the same either way; «У кого» does not.
+     */
+    held_by_department: boolean;
+    /** Null while no colleague holds it, which a department's own equipment never has. */
     holder: { id: number; name: string; avatar: string | null } | null;
     issued_at: string | null;
     written_off_at: string | null;
+    /** The day it was put on the books, for the column that is hidden until asked for. */
+    created_at: string | null;
     /** A piece of service work on it has not ended yet. */
     in_service: boolean;
 }
@@ -99,14 +134,40 @@ interface Held {
     inventory_number: string;
 }
 
-/** A colleague and everything that stands against their name, by category. */
+/**
+ * A holder and everything that stands against their name, by category.
+ *
+ * Most of them are colleagues. Some things are nobody's in particular, though
+ * — a printer in a corridor, the router in the ceiling, a spare laptop — and a
+ * department answers for those, so a department is a holder here too, with a
+ * row of its own that reads first among the rows of the department it names.
+ */
 interface HolderRow {
     id: number;
-    /** "Фамилия Имя" */
+    /** "Фамилия Имя", or the name the department is known by. */
     name: string;
+    /** Which of the two this row is; a department is not a who, and is not drawn as one. */
+    kind: 'person' | 'department';
     avatar: string | null;
+    /** Where they stand; null for somebody nobody has filed in a department. */
+    department: Filing | null;
     /** What they hold, under the id of the category it belongs to. */
     units: Record<number, Held[]>;
+}
+
+/**
+ * What the two columns of the structure need of a row, in either table: where
+ * its holder stands, and who that holder is — a colleague, a department, or
+ * nobody at all, which the three of them read as three different cells.
+ */
+interface Placed {
+    id: number;
+    department: Filing | null;
+    /**
+     * Who has the thing. Only the unit list has rows nobody holds; every row of
+     * «По сотрудникам» is a person, so there the question does not arise.
+     */
+    holder?: { id: number } | null;
 }
 
 /** Which of the two tables is being read: the fleet unit by unit, or by who holds it. */
@@ -124,6 +185,9 @@ interface Filters {
     inventory_number: string;
     type: number[];
     status: Status[];
+    /** The departments of the company asked about, and the units inside them. */
+    department: number[];
+    unit: number[];
     /** A name typed in, not a pick from a list. */
     holder: string;
     issued_from: string | null;
@@ -135,6 +199,8 @@ interface Options {
     types: { id: number; name: string; icon: string | null }[];
     statuses: { value: Status; label: string }[];
     holders: { id: number; name: string }[];
+    /** The structure flattened, departments first with their units after each. */
+    departments: (Department & { depth?: number })[];
 }
 
 interface Props {
@@ -170,21 +236,38 @@ interface Props {
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оборудование', href: '/equipment' }];
 
-const STORAGE_KEY = 'equipment.table.view.v2';
+// Both keys were bumped when the structure took the front of either table: a
+// view saved before it pinned «У кого» to the left edge, and read back now it
+// would hold the holder in front of the two columns the table is meant to open
+// with. The list's went one further when the date a unit was entered became a
+// column of its own: a view that had never heard of it would show it, and the
+// table is meant to open without it.
+const STORAGE_KEY = 'equipment.table.view.v4';
 /** The other table's columns are the categories, so its own vista is kept apart. */
-const HOLDERS_STORAGE_KEY = 'equipment.holders.view.v1';
+const HOLDERS_STORAGE_KEY = 'equipment.holders.view.v2';
+
+const collator = new Intl.Collator('ru');
 
 /**
- * A stand-in for the order a table opens in — the newest unit in the list, the
- * latest handover in «По сотрудникам».
+ * The order both tables open in, and the one a third press on a header comes
+ * back to: the company read down — the department, the unit inside it, the
+ * people in each and what each of them holds.
  *
- * Neither reads a column of the table, and the server names them itself: it
- * sends the order it opened in and answers a query with no sorting in it the
- * same way. So the page never has to know what either is called. It only needs
- * something to hang the phone's "as it opens" choice on while a column is doing
- * the sorting, and this key goes nowhere near the server.
+ * It is no column of either table, so nothing opens with an arrow on it and
+ * there is nothing to reset; and it is what makes the two structure columns
+ * worth having at all, since a cell covers the rows beside it that say the same
+ * thing and no other order puts a department's rows side by side.
+ *
+ * The server names it and answers a query with no sorting in it with it, so the
+ * key here is the server's own rather than a stand-in. The page still needs it
+ * written down: a header's third press asks for it by asking for nothing, and
+ * the phone's sheet offers it beside the columns while one of them is doing the
+ * sorting.
  */
-const OPENING_SORT: Sort = { key: 'opening', direction: 'desc' };
+const OPENING_SORT: Sort = { key: 'structure', direction: 'asc' };
+
+/** What the phone's sheet calls that order, there being no header to carry it. */
+const OPENING_LABEL = 'Структура';
 
 /** How many units of one category a row names before counting off the rest. */
 const HELD_SHOWN = 3;
@@ -316,7 +399,15 @@ function DeleteDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
     );
 }
 
-/** Who has it; on the balance sheet, nobody. */
+/**
+ * Who has it; on the balance sheet, nobody — and nobody again where the thing
+ * is a department's own.
+ *
+ * A printer in a corridor is signed out to the отдел аналитики and to no
+ * colleague, so this column reads as empty for it, and the two columns before
+ * it say whose it is. That is the whole of what the dash means here: there is
+ * no person to ask for it back.
+ */
 function Holder({ unit }: { unit: Unit }) {
     if (unit.holder) {
         return (
@@ -331,12 +422,224 @@ function Holder({ unit }: { unit: Unit }) {
         );
     }
 
+    // The same dash the two columns before it draw, and for the same reason:
+    // the unit is on the balance sheet, between two pairs of hands.
+    return <Empty />;
+}
+
+/**
+ * The two steps a row reads under, and whether anybody holds it at all.
+ *
+ * A row is handed the one department it is read under, and the structure is two
+ * deep, so this is all there is to work out — a department with a parent is a
+ * unit, and the parent is the department the row belongs to. Several
+ * departments keep people without any unit between, and a holder nobody has
+ * filed has neither.
+ */
+function placing(row: Placed): { department: Department | null; unit: Department | null; unheld: boolean } {
+    const own = row.department;
+    // Held by nobody at all: no colleague, and no department either — which is
+    // a unit on the balance sheet and nothing to put right. A row of «По
+    // сотрудникам» has no holder of its own, because it is one.
+    const unheld = row.holder === null && own === null;
+
+    if (own === null) return { department: null, unit: null, unheld };
+
+    return own.parent === null ? { department: own, unit: null, unheld } : { department: own.parent, unit: own, unheld };
+}
+
+/** A value the row has not got, written the way the rest of the project writes it. */
+function Empty() {
     return <span className="text-muted-foreground">—</span>;
 }
 
-/** The columns, each with the filter that narrows it. */
+/**
+ * A department named as the org chart names it: the abbreviation leading, and
+ * underneath it, quieter and smaller, what the abbreviation stands for.
+ *
+ * The chart, the positions and this table are where the structure itself is
+ * read, and an abbreviation learned in one has to be the same thing in the
+ * others, so the two lines stand in the same order and the same tone in all of
+ * them. Both belong to the link, so the label reads out whole; only the
+ * abbreviation takes the underline — two underlined lines would read as two
+ * names rather than one.
+ */
+function DepartmentLink({ department }: { department: Department }) {
+    // A department with no abbreviation is already named in full on the first
+    // line, so there is nothing left to spell out underneath it.
+    const spelled = department.full_name !== department.name;
+
+    return (
+        <Link
+            href={route('departments.show', department.id)}
+            className="group flex min-w-0 flex-col gap-0.5"
+            // Two lines hold most of these names but not the longest, and a
+            // name cut off at the second has to be readable without leaving
+            // the table.
+            title={`Открыть: ${department.full_name}`}
+        >
+            {/* An abbreviation is three letters and needs nothing said about
+                it. A name standing here on its own is a whole name, and wraps
+                to the second line and stops there rather than growing the
+                cell. Asked for here and not taken off the cell, because a cell
+                holds its content on one line on purpose — a cell that hid what
+                overflowed would be a scrolling box, and the label kept in view
+                inside it would never move. */}
+            <span className={cn('group-hover:underline', !spelled && 'line-clamp-2 break-words whitespace-normal')}>{department.name}</span>
+            {spelled && (
+                // The columns are cut to the abbreviations, so a full name has
+                // to wrap — and then to stop, at two lines, rather than make
+                // every row of the table as tall as the longest name in it.
+                // What is cut off the hover still says, and a word longer than
+                // the column breaks rather than pushing the cell wider.
+                <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight break-words whitespace-normal">
+                    {department.full_name}
+                </span>
+            )}
+        </Link>
+    );
+}
+
+/**
+ * A holder nobody has filed says so in as many words, and in the colour of
+ * something to be dealt with rather than of something missing: a blank cell
+ * reads as a page that failed to load, and these rows are the ones somebody has
+ * to go and finish — the unit is out with a colleague who stands in no
+ * department, so there is no telling whose fleet it belongs to. It says it in
+ * both columns, because a column is read down on its own and each of the two
+ * has to answer for itself.
+ */
+function Unfiled({ children }: { children: string }) {
+    return (
+        <StatusBadge tone="warning" title="Сотрудник не закреплён ни за одним отделом">
+            {children}
+        </StatusBadge>
+    );
+}
+
+/**
+ * «ДАС › ОА» — both steps of where somebody stands, on the one line a phone row
+ * has, written the way a department's own page writes a path. Somebody filed in
+ * a department with no unit between is that department alone, and one nobody
+ * has filed says so instead, in the colour of something to be dealt with: that
+ * is how the unfiled are found on a phone at all.
+ *
+ * The full names the table's cells carry under their abbreviations stay out of
+ * here: the line is cut at the edge of the screen, and spelling two departments
+ * out would push everything beside them off it.
+ */
+function StructureLine({ row }: { row: Placed }) {
+    const { department, unit, unheld } = placing(row);
+
+    if (unheld) return null;
+    if (department === null) return <span className="text-[#9A4A06] dark:text-[#F8C471]">без департамента</span>;
+
+    return <span>{unit === null ? department.name : `${department.name} › ${unit.name}`}</span>;
+}
+
+/**
+ * The two columns both tables now open with, and the funnels that narrow either
+ * of them to a department or to one unit inside it.
+ *
+ * Each is a flat list rather than the indented tree one funnel would be: the
+ * columns tell the two levels apart, so neither list has to. Neither offers an
+ * empty answer, because on this page an empty cell is three different things —
+ * nobody holds the unit, the holder stands in no department, the department
+ * keeps no units — and one «Без департамента» could not mean all three.
+ *
+ * Both are cut to their headers, as the positions table cuts the same two: the
+ * abbreviation each cell leads with fits that easily, and the full name under it
+ * wraps to two lines and is cut there. Widening them to hold the longest name
+ * would take the room from what the row is about — the unit and who has it.
+ */
+function structureColumns(options: Options): ColumnDef[] {
+    const option = (department: Department) => ({
+        value: department.id,
+        label: department.name,
+        // The lists are named by abbreviations, and a filter is not a link one
+        // can follow to find out what an abbreviation stands for.
+        hint: department.full_name === department.name ? undefined : department.full_name,
+    });
+
+    return [
+        {
+            key: 'department',
+            label: 'Департамент',
+            width: 215,
+            filter: {
+                type: 'multi',
+                param: 'department',
+                // The departments the company is built of. Choosing one keeps
+                // the equipment of its units as well: a laptop in the отдел
+                // аналитики is a laptop of ДАС in every sense somebody means by
+                // the question.
+                options: options.departments.filter((department) => !department.depth).map(option),
+            },
+        },
+        {
+            key: 'unit',
+            label: 'Отдел',
+            width: 180,
+            filter: {
+                type: 'multi',
+                param: 'unit',
+                // The units, by the name they are shown under rather than in
+                // the tree's order: their departments are not in this list to
+                // be read down, so a reader looks a unit up by its own name.
+                options: [...options.departments.filter((department) => department.depth === 1)]
+                    .sort((a, b) => collator.compare(a.name, b.name))
+                    .map(option),
+            },
+        },
+    ];
+}
+
+/**
+ * The two columns of the structure, in either table: a cell per row, like every
+ * other column of both.
+ *
+ * The name repeats on every row it is true of — ДАС, ДАС, ДАС — rather than
+ * standing once over a block of them. A repeated name is read where the eye
+ * already is, at the row it is reading; a name that covers twelve rows is read
+ * once, at the top, and the eleven rows under it are left to be traced back up
+ * to it. The order the table opens in still gathers a department's rows
+ * together, so the repetition reads as the block it is.
+ */
+function structureCell(column: ColumnDef, row: Placed): ReactNode {
+    const { department, unit, unheld } = placing(row);
+
+    // Nobody holds it, so there is no department it stands in — and nothing to
+    // put right either: the balance sheet is where a unit between two pairs of
+    // hands belongs, and a third of the fleet is there at any time. Both cells
+    // read as the plain empty value the «У кого» column beside them reads as.
+    if (unheld) return <Empty />;
+
+    if (column.key === 'department') {
+        return department === null ? <Unfiled>Без департамента</Unfiled> : <DepartmentLink department={department} />;
+    }
+
+    if (unit !== null) return <DepartmentLink department={unit} />;
+
+    // A department may keep people with no unit between — ДУЧР has no units at
+    // all — and that is nothing to fix, so the cell reads as an empty value
+    // rather than as the amber beside it. A holder with no department has no
+    // unit either, and says so in the same words the column before it used.
+    return department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />;
+}
+
+/**
+ * The columns, each with the filter that narrows it.
+ *
+ * The row reads along the structure and then down into the thing: the
+ * department, the unit inside it, who has it, and then what it is. That is the
+ * order somebody says it out loud in — «в ДАС, в отделе аналитики, у Бобоева,
+ * ноутбук» — and it is what lets the fleet be read department by department:
+ * put in order by either of the first two columns, one name stands over the run
+ * of rows it owns.
+ */
 function buildColumns(options: Options): ColumnDef[] {
     return [
+        ...structureColumns(options),
         {
             key: 'holder',
             label: 'У кого',
@@ -374,17 +677,44 @@ function buildColumns(options: Options): ColumnDef[] {
             width: 190,
             filter: { type: 'dates', from: 'issued_from', to: 'issued_to' },
         },
+        // When the unit was put on the books. It was the order the list opened
+        // in and no column at all — the one question the table answered with no
+        // header to press — until the structure took that place; so it has a
+        // column of its own now rather than becoming a thing only a hand-typed
+        // address could ask for. Hidden until somebody turns it on in
+        // «Колонки», so the table is no wider than it was for everybody else.
+        { key: 'created', label: 'Добавлено', width: 190 },
     ];
 }
 
-/** Both tables open with whoever holds the thing at the left edge. */
-const defaultView = (): ViewState => ({ hidden: [], pinned: { left: ['holder'], right: [] } });
+/** The column the list opens without; «Колонки» is where it is turned on. */
+const HIDDEN_BY_DEFAULT = ['created'];
+
+/**
+ * Both tables open with nothing held to an edge and no column hidden but the
+ * date a unit was entered, which the list alone has.
+ *
+ * «У кого» used to be pinned to the left, so that the unit's own facts scrolled
+ * under the name of whoever has it. The structure now opens both tables, and
+ * holding all three of the columns that say where a unit is would take half the
+ * card before a single fact about the unit itself was drawn; holding only the
+ * last of them would stand it in front of the two it reads after. So neither
+ * table pins anything of its own, as the positions table does not, and a viewer
+ * who wants a column at an edge still pins it from the column's own menu.
+ */
+const defaultView = (hidden: string[] = []): ViewState => ({ hidden, pinned: { left: [], right: [] } });
 
 /** A category's column, named after the category it stands for. */
 const typeKey = (id: number) => `type-${id}`;
 
 /**
- * «По сотрудникам»: the colleague, then a column per category of equipment.
+ * «По сотрудникам»: where the colleague stands, the colleague, then a column
+ * per category of equipment.
+ *
+ * The two steps of the structure open this table as they open the other one,
+ * and they say more here: a row is a person and everything against their name,
+ * so a department named down its column against each of its people is the
+ * fleet of that department read in one run, by the people who carry it.
  *
  * The categories come in the order the toolbar already offers them in, and only
  * those asked for come at all — somebody who filtered the view down to monitors
@@ -394,6 +724,7 @@ function buildHolderColumns(options: Options, chosen: number[]): ColumnDef[] {
     const types = chosen.length > 0 ? options.types.filter((type) => chosen.includes(type.id)) : options.types;
 
     return [
+        ...structureColumns(options),
         {
             key: 'holder',
             label: 'Сотрудник',
@@ -520,8 +851,28 @@ function HeldUnits({ units, icon }: { units: Held[]; icon: string | null }) {
     );
 }
 
-/** The colleague a row is about, drawn as the list's own holder column draws one. */
+/**
+ * The colleague a row is about, drawn as the list's own holder column draws
+ * one — and, where the row is a department's own equipment, the dash the list
+ * draws in the same place.
+ *
+ * A department is not a who. It is named in the two columns before this one,
+ * where it stands over its own row and over its people's, so naming it again
+ * here would be the same word twice side by side; what this column has to say
+ * about such a row is that there is no colleague to ask for the thing back.
+ * The line under the dash says why, since a dash on its own in a column of
+ * faces and names would read as something that failed to load.
+ */
 function HolderName({ row }: { row: HolderRow }) {
+    if (row.kind === 'department') {
+        return (
+            <span className="flex flex-col gap-0.5">
+                <Empty />
+                <span className="text-muted-foreground text-[12px] leading-tight">оборудование отдела</span>
+            </span>
+        );
+    }
+
     return (
         <PersonLink
             id={row.id}
@@ -531,6 +882,26 @@ function HolderName({ row }: { row: HolderRow }) {
             <PersonFace id={row.id} name={row.name} avatar={row.avatar} className="size-7 text-[11px]" />
             <span className="truncate">{row.name}</span>
         </PersonLink>
+    );
+}
+
+/**
+ * What a card of «По сотрудникам» is headed by on a phone: the colleague, or
+ * the department whose own equipment the card holds.
+ *
+ * A card is read on its own, with no column of the structure beside it to name
+ * what it belongs to, so here the department does name itself — in the mark the
+ * application uses for a department everywhere, and with the same quiet line
+ * under it that the table's column carries.
+ */
+function HolderCardName({ row }: { row: HolderRow }) {
+    if (row.kind !== 'department' || row.department === null) return <HolderName row={row} />;
+
+    return (
+        <span className="flex flex-col gap-0.5">
+            <DepartmentLink department={row.department} />
+            <span className="text-muted-foreground text-[12px] leading-tight">оборудование отдела</span>
+        </span>
     );
 }
 
@@ -668,7 +1039,10 @@ export default function EquipmentIndex({
     const holderColumns = useMemo(() => buildHolderColumns(options, filters.type), [options, filters.type]);
     const holderFilters = useMemo(() => buildHolderFilters(options), [options]);
     const columns = byHolder ? holderColumns : unitColumns;
-    const defaults = useMemo(defaultView, []);
+    // One column opens hidden, and it is the list's: «По сотрудникам» has no
+    // date among its columns to begin with.
+    const unitDefaults = useMemo(() => defaultView(HIDDEN_BY_DEFAULT), []);
+    const holderDefaults = useMemo(() => defaultView(), []);
 
     // Each table keeps its own vista, and each keeps it under its own key: a
     // column hidden among the categories means nothing to the list of units.
@@ -677,15 +1051,16 @@ export default function EquipmentIndex({
     const unitView = useTableView(
         STORAGE_KEY,
         unitColumns.map((column) => column.key),
-        defaults,
+        unitDefaults,
     );
     const holderView = useTableView(
         HOLDERS_STORAGE_KEY,
         // Every category, not only the columns drawn right now: a category left
         // out by a filter has not been hidden, and should come back as it was.
-        ['holder', ...options.types.map((type) => typeKey(type.id))],
-        defaults,
+        ['department', 'unit', 'holder', ...options.types.map((type) => typeKey(type.id))],
+        holderDefaults,
     );
+    const defaults = byHolder ? holderDefaults : unitDefaults;
     const { view: layout, setView: setLayout, pin, toggleHidden, reorder, order } = byHolder ? holderView : unitView;
     const isHidden = (key: string) => layout.hidden.includes(key);
     const storageKey = byHolder ? HOLDERS_STORAGE_KEY : STORAGE_KEY;
@@ -777,12 +1152,14 @@ export default function EquipmentIndex({
 
     /**
      * Everything that narrows the table now, with the label it is asked under.
-     * In the list that is the columns themselves; «По сотрудникам» keeps the one
-     * column it has and adds the three questions about equipment that have no
-     * column there. The statuses and the dates it is not shown are left out of
-     * the count too, so the button does not offer to clear what it never offered.
+     * In the list that is the columns themselves; «По сотрудникам» keeps the
+     * columns that are its own — the structure and the colleague — and adds the
+     * three questions about equipment that have no column there, the categories
+     * being columns that ask nothing. The statuses and the dates it is not
+     * shown are left out of the count too, so the button does not offer to
+     * clear what it never offered.
      */
-    const narrowing = byHolder ? [columns[0], ...holderFilters] : columns;
+    const narrowing = byHolder ? [...columns.filter((column) => column.filter), ...holderFilters] : columns;
     const activeFilters = countActiveFilters(narrowing, filters as unknown as Record<string, unknown>, () => true);
     // A sorting of the viewer's own counts as one more change to reset.
     const changed = activeFilters + (sortedByColumn ? 1 : 0);
@@ -794,6 +1171,14 @@ export default function EquipmentIndex({
 
     const cell = (column: ColumnDef, unit: Unit) => {
         switch (column.key) {
+            case 'department':
+            case 'unit':
+                return structureCell(column, unit);
+            // The day it was entered, written as every date in the app is. It
+            // says nothing about where the unit is, so it is as quiet as the
+            // other date beside it.
+            case 'created':
+                return <span className="text-muted-foreground tabular-nums">{formatDate(unit.created_at) ?? '—'}</span>;
             case 'name':
                 return (
                     <Link href={route('equipment.show', unit.id)} className="group flex items-center gap-3" title={`Открыть: ${unit.name}`}>
@@ -827,24 +1212,31 @@ export default function EquipmentIndex({
         }
     };
 
-    /** The person, then a column per category of what stands against their name. */
-    const holderCell = (column: ColumnDef, row: HolderRow) =>
-        column.key === 'holder' ? (
-            <HolderName row={row} />
-        ) : (
-            <HeldUnits units={row.units[column.typeId as number] ?? []} icon={column.icon as string | null} />
-        );
+    /** Where they stand, the person, then a column per category of what stands against their name. */
+    const holderCell = (column: ColumnDef, row: HolderRow) => {
+        if (column.key === 'department' || column.key === 'unit') return structureCell(column, row);
+
+        if (column.key === 'holder') return <HolderName row={row} />;
+
+        return <HeldUnits units={row.units[column.typeId as number] ?? []} icon={column.icon as string | null} />;
+    };
 
     /** Which categories this colleague actually holds something of, in column order. */
     const held = (row: HolderRow) =>
-        holderColumns.filter((column) => column.key !== 'holder' && (row.units[column.typeId as number] ?? []).length > 0);
+        // A category's column is the one that stands for a category; the
+        // structure and the colleague stand for themselves.
+        holderColumns.filter((column) => column.typeId !== undefined && (row.units[column.typeId as number] ?? []).length > 0);
 
     /** Rows per page and the paging, under whichever table is being read. */
     const footer = (paginator: Paginated<unknown>) => (
         <>
             <div className="text-muted-foreground flex items-center gap-2 text-sm max-md:hidden">
                 {/* The rows of the other table are people, and it counts them as people. */}
-                {byHolder ? 'Сотрудников на странице' : 'Строк на странице'}
+                {/* Rows either way. The other table used to count its rows as
+                    people, and most of them are; but a department holding its
+                    own equipment has a row there too, and it is not an
+                    employee — so neither table promises what it is counting. */}
+                Строк на странице
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" size="sm" className="h-8 gap-1 px-2.5 tabular-nums">
@@ -900,7 +1292,11 @@ export default function EquipmentIndex({
                         sortable={sortable}
                         onSort={sortBy}
                         defaultSort={openingSort}
-                        defaultSortLabel={byHolder ? 'Последняя выдача' : 'Дата добавления'}
+                        // No header carries the opening order — it is the one
+                        // the three presses come back to, and the one that puts
+                        // a department's rows together — so the sheet names it
+                        // above the columns.
+                        defaultSortLabel={OPENING_LABEL}
                         onReset={resetAll}
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
@@ -1066,6 +1462,10 @@ export default function EquipmentIndex({
                         onSort={sortBy}
                         filters={filters as unknown as Record<string, unknown>}
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
+                        // Both lists of departments spell a full name out
+                        // beside an abbreviation, which needs more room than a
+                        // short label.
+                        wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                         view={layout}
                         onPin={pin}
                         // The columns here are the categories, and which of them
@@ -1085,13 +1485,23 @@ export default function EquipmentIndex({
                                     : 'Пока ни за кем не числится оборудование.'}
                             </span>
                         }
-                        // A card per colleague: the name, and under it only the categories
-                        // they actually hold something of, each unit on a line of its own.
-                        // Nothing is capped here — the card is the whole answer about that
-                        // person — and nothing runs sideways at 320px.
+                        // A card per holder: the name, where they stand, and under it only
+                        // the categories they actually hold something of, each unit on a
+                        // line of its own. Nothing is capped here — the card is the whole
+                        // answer about that person, or about what the department keeps in
+                        // its own name — and nothing runs sideways at 320px.
                         mobileRow={(row) => (
                             <li className="flex flex-col gap-2.5 px-4 py-3">
-                                <HolderName row={row} />
+                                <HolderCardName row={row} />
+
+                                {/* There are no columns on a phone, so the path is written
+                                    out on a line of its own, indented to the name it belongs
+                                    to. The cards of a department repeat it, as the rows of
+                                    the table do, which is what makes a list sorted by
+                                    department readable as one. */}
+                                <p className="text-muted-foreground pl-9 text-[12px] leading-tight">
+                                    <StructureLine row={row} />
+                                </p>
 
                                 {held(row).length === 0 ? (
                                     <p className="text-muted-foreground pl-9 text-[13px]">Ничего не числится.</p>
@@ -1151,6 +1561,7 @@ export default function EquipmentIndex({
                         onSort={sortBy}
                         filters={filters as unknown as Record<string, unknown>}
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
+                        wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                         view={layout}
                         onPin={pin}
                         reorderable
@@ -1166,9 +1577,22 @@ export default function EquipmentIndex({
                                 title={unit.name}
                                 // Who has it says more than the status the badge already
                                 // shows; a unit nobody holds is placed by its category.
+                                //
+                                // Where the holder stands closes the line rather than
+                                // opening it: the line is cut at the edge of the screen,
+                                // and of the three things on it the path is the one a
+                                // narrow phone can best do without — the row names the
+                                // person, and a person's department is read on their card.
+                                // A unit nobody holds has no path and the line ends early.
                                 subtitle={
                                     <span className="tabular-nums">
                                         Инв. № {unit.inventory_number} · {unit.holder?.name ?? unit.type ?? statusLabel[unit.status]}
+                                        {unit.holder !== null && (
+                                            <>
+                                                {' · '}
+                                                <StructureLine row={unit} />
+                                            </>
+                                        )}
                                     </span>
                                 }
                                 // Under a status tab every row has that status, and the badge
@@ -1194,7 +1618,17 @@ export default function EquipmentIndex({
             </div>
 
             {can.create && <MobileFab href={route('equipment.create')} label="Добавить оборудование" />}
-            {asking && <EquipmentMoveDialog unit={asking.unit} kind={asking.kind} holders={options.holders} onClose={() => setAsking(null)} />}
+            {asking && (
+                <EquipmentMoveDialog
+                    unit={asking.unit}
+                    kind={asking.kind}
+                    holders={options.holders}
+                    // The same structure the two columns are narrowed by, for a
+                    // category whose equipment is handed to a department.
+                    departments={options.departments}
+                    onClose={() => setAsking(null)}
+                />
+            )}
             {deleting && <DeleteDialog unit={deleting} onClose={() => setDeleting(null)} />}
         </AppLayout>
     );

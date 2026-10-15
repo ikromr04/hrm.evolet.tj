@@ -18,21 +18,52 @@ class EquipmentStatusController extends Controller
     use KeepsEquipmentPhotos;
 
     /**
-     * Handed to one colleague, who answers for it by name. A unit is never
-     * signed out to a department: a printer in the accounts office is still on
-     * somebody in particular.
+     * Handed over to whoever answers for it: one colleague by name, or one
+     * department. A laptop goes to the person who works on it; a printer in a
+     * corridor, a router in the ceiling and a spare nobody has been given yet
+     * go to the department, which answers for them with no one to sign.
+     *
+     * Nothing about the thing decides which of the two it is — the same model
+     * of laptop can be either — so the move asks, and the answer is this one
+     * handover's. One of the two is required and the other must then be empty:
+     * a unit stands against one name, and the database refuses a row that
+     * stands against two.
      */
     public function issue(Request $request, Equipment $equipment): RedirectResponse
     {
         $data = $request->validate([
-            'holder_user_id' => ['required', 'integer', Rule::exists('users', 'id')],
+            // Nullable and required at once is no contradiction: the form sends
+            // the answer it did not use as an empty field, and a null is read
+            // as "not answered" rather than refused for not being a number —
+            // which is what `required_without` then objects to when neither
+            // was answered.
+            'holder_user_id' => [
+                'nullable',
+                'required_without:holder_department_id',
+                'prohibits:holder_department_id',
+                'integer',
+                Rule::exists('users', 'id'),
+            ],
+            // Required of itself as well, so that whichever side of the choice
+            // the form is showing, the complaint lands on the box in front of
+            // whoever is reading it rather than on the one they cannot see.
+            'holder_department_id' => ['nullable', 'required_without:holder_user_id', 'integer', Rule::exists('departments', 'id')],
             'issued_at' => ['required', 'date', 'before_or_equal:today'],
             // In what state it went out, so a return has something to be
             // compared against. The form opens on what the card says now.
             'condition' => ['nullable', 'string', 'max:200'],
             ...$this->photoRules(),
-        ], messages: $this->photoMessages(), attributes: [
+        ], messages: [
+            ...$this->photoMessages(),
+            // Said as the question was asked, and the same either way round:
+            // the framework's own wording would name the box the form is not
+            // showing, which reads as a complaint about something invisible.
+            'holder_user_id.required_without' => 'Укажите, кому выдаётся техника: сотруднику или отделу.',
+            'holder_department_id.required_without' => 'Укажите, кому выдаётся техника: сотруднику или отделу.',
+            'holder_user_id.prohibits' => 'У единицы один владелец: либо сотрудник, либо отдел.',
+        ], attributes: [
             'holder_user_id' => 'сотрудник',
+            'holder_department_id' => 'отдел',
             'issued_at' => 'дата выдачи',
             'condition' => 'состояние',
             'photos' => 'фотографии',
@@ -46,7 +77,12 @@ class EquipmentStatusController extends Controller
 
         $equipment->update([
             'status' => 'issued',
-            'holder_user_id' => $data['holder_user_id'],
+            // One holder and the other empty, always both written: a unit
+            // handed from a person to a department, or the other way about,
+            // leaves nothing standing behind it — and the database would
+            // refuse the row if it did.
+            'holder_user_id' => $data['holder_user_id'] ?? null,
+            'holder_department_id' => $data['holder_department_id'] ?? null,
             'issued_at' => $data['issued_at'],
             'condition' => $data['condition'] ?? $equipment->condition,
         ]);
@@ -118,7 +154,9 @@ class EquipmentStatusController extends Controller
 
         $equipment->update([
             'status' => 'written_off',
+            // Whoever held it lets go, person or department alike.
             'holder_user_id' => null,
+            'holder_department_id' => null,
             'issued_at' => null,
             'written_off_at' => $data['written_off_at'],
             'condition' => $data['condition'] ?? $equipment->condition,

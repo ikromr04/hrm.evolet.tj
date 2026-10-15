@@ -76,6 +76,12 @@ interface Unit {
     issued_at: string | null;
     written_off_at: string | null;
     holder: Holder | null;
+    /**
+     * The department a unit is signed out to, where it was handed to one
+     * rather than to a colleague — a printer in a corridor, a spare laptop.
+     * Null for everything a colleague holds and everything on the balance sheet.
+     */
+    holder_department: { id: number; name: string; full_name: string; path: string } | null;
 }
 
 interface Repair {
@@ -106,6 +112,8 @@ interface Props {
     /** Names for the ids the entries kept: field => { id: name }. */
     names: NameLookup;
     holders: { id: number; name: string }[];
+    /** The structure, for a category whose equipment a department holds. */
+    departments: { id: number; name: string; full_name: string; depth?: number }[];
     /** The categories the «Характеристики» form offers; empty for a viewer. */
     /** Every category with its own fields, for the specs form. */
     types: CategoryOption[];
@@ -1039,7 +1047,19 @@ function narrowJournal(events: JournalEvent[], filters: JournalFilters): Journal
 
 /* ------------------------------------------------------------------------ page */
 
-export default function EquipmentShow({ unit, repairs, events, names, holders, types, neighbours, can, canReadJournal, nameless }: Props) {
+export default function EquipmentShow({
+    unit,
+    repairs,
+    events,
+    names,
+    holders,
+    departments,
+    types,
+    neighbours,
+    can,
+    canReadJournal,
+    nameless,
+}: Props) {
     // What to call it on this page: its name, or the words for having none.
     const called = unit.name ?? nameless;
     const number = unit.inventory_number ?? '—';
@@ -1264,8 +1284,27 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                             <Section
                                 // Not editable: where a unit is follows from the moves
                                 // below, so it is changed by making one of them.
-                                title={unit.holder ? 'Сейчас у сотрудника' : 'Где сейчас'}
+                                title={unit.holder ? 'Сейчас у сотрудника' : unit.holder_department ? 'Сейчас в отделе' : 'Где сейчас'}
                             >
+                                {/* A thing nobody signs for: the department answers for it,
+                                    and there is no face and no profile to open — so it is
+                                    named as the structure names a department, with the path
+                                    spelled out, and the day it was handed over beside it. */}
+                                {unit.holder_department && (
+                                    <Fields columns={1}>
+                                        <Field label="Отдел">
+                                            <Link
+                                                href={route('departments.show', unit.holder_department.id)}
+                                                className="text-brand-strong font-medium hover:underline dark:text-[#C5E27A]"
+                                                title={`Открыть: ${unit.holder_department.full_name}`}
+                                            >
+                                                {unit.holder_department.path}
+                                            </Link>
+                                        </Field>
+                                        <Field label="Выдано">{formatDate(unit.issued_at)}</Field>
+                                    </Fields>
+                                )}
+
                                 {unit.holder ? (
                                     <>
                                         {/* On a phone the holder is one row of a list: the face, the name
@@ -1314,10 +1353,15 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
                                         </div>
                                     </>
                                 ) : (
-                                    <Fields columns={1}>
-                                        <Field label="Статус">{statusLabel[unit.status]}</Field>
-                                        {unit.status === 'written_off' && <Field label="Списано">{formatDate(unit.written_off_at)}</Field>}
-                                    </Fields>
+                                    // Said once: a unit in a department's own hands has
+                                    // already been placed above, and its status adds
+                                    // nothing to «Сейчас в отделе».
+                                    !unit.holder_department && (
+                                        <Fields columns={1}>
+                                            <Field label="Статус">{statusLabel[unit.status]}</Field>
+                                            {unit.status === 'written_off' && <Field label="Списано">{formatDate(unit.written_off_at)}</Field>}
+                                        </Fields>
+                                    )
                                 )}
                             </Section>
 
@@ -1558,7 +1602,15 @@ export default function EquipmentShow({ unit, repairs, events, names, holders, t
             </div>
 
             {/* The dialog names the unit in a sentence, so it is handed the words. */}
-            {asking && <EquipmentMoveDialog unit={{ ...unit, name: called }} kind={asking} holders={holders} onClose={() => setAsking(null)} />}
+            {asking && (
+                <EquipmentMoveDialog
+                    unit={{ ...unit, name: called }}
+                    kind={asking}
+                    holders={holders}
+                    departments={departments}
+                    onClose={() => setAsking(null)}
+                />
+            )}
             {repairing && <RepairDialog unit={unit} onClose={() => setRepairing(false)} />}
             {correcting && <RepairDialog unit={unit} repair={correcting} onClose={() => setCorrecting(null)} />}
             {closing && <RepairDialog unit={unit} repair={closing} finishing onClose={() => setClosing(null)} />}

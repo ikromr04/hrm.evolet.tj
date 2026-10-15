@@ -81,15 +81,16 @@ interface DataTableProps<Row> {
     lockedKey: string;
 
     /**
-     * Whether the boundaries between columns are drawn as lines, turning the
-     * table into a grid.
+     * Whether every boundary between columns is drawn as a line, turning the
+     * whole table into a grid.
      *
-     * Off everywhere else, and asked for by the one page whose cells cover
-     * blocks of rows: a cell standing over twelve rows has nothing to say where
-     * it ends sideways, and the lines are what make the block read as a block
-     * rather than as text that happens to line up. The rest of the tables in the
-     * app are lists of rows and read as lists, with a line between rows and
-     * nothing between columns.
+     * Off unless a page asks: the tables in this app are lists of rows and read
+     * as lists, with a line between rows and nothing between columns. A page
+     * asks where its cells cover blocks of rows — a cell standing over twelve
+     * rows has nothing to say where it ends sideways, and the lines are what
+     * make the block read as a block rather than as text that happens to line
+     * up. Where only some of the columns are read that way, the columns
+     * themselves say so with `fenced` and the rest of the table stays a list.
      *
      * The lines belong to the cells, so they are pinned, dragged and scrolled
      * sideways along with them, and they are the same line the rows are divided
@@ -399,27 +400,39 @@ export function DataTable<Row>({
         // stay at the edge, being narrow.
         return cn(
             'lg:sticky',
-            header ? 'bg-sidebar z-20' : 'bg-card z-[1]',
+            // The body's pinned cells follow their row into the hover: they are
+            // the one place in the table with a background of their own, and a
+            // row lit everywhere but at its two edges reads as a drawing error.
+            header ? 'bg-sidebar z-20' : 'bg-card group-hover/row:bg-accent group-focus-within/row:bg-accent z-[1]',
             side === 'left' && column === left[left.length - 1] && 'lg:shadow-[1px_0_0_var(--border)]',
             side === 'right' && column === right[0] && 'lg:shadow-[-1px_0_0_var(--border)]',
         );
     };
 
     /**
-     * The line down a cell's right edge, where the page asked for a grid.
+     * The line down a cell's right edge, where a boundary is to be drawn.
      *
-     * Every column but the last: the last one ends at the card's own edge, or at
-     * the row's actions, which draw the line between themselves and it already.
-     * Where a pin draws that line too — the shadow that marks the edge the
+     * Every boundary belongs to the column on its left, so each one is drawn
+     * once however many of the columns meeting at it asked for it: a whole grid
+     * and a pair of fenced columns are the same line in the same place, and a
+     * fenced column standing to the right of a plain one is fenced by its
+     * neighbour's border. The boundary past the last column is nobody's: it is
+     * the card's own edge, or the row's actions, which draw the line between
+     * themselves and it already — which is also why a fenced column has nothing
+     * to draw on its left when it is the first one in the table.
+     *
+     * Where a pin draws the line too — the shadow that marks the edge the
      * columns scroll under — the border stands down from the desktop up and the
      * shadow has it, so the boundary is one line wide and not two. Below that
      * the pins do not hold and the border is the only line there is.
      */
     const gridline = (column: ColumnDef, index: number) => {
-        if (!gridlines || index === visible.length - 1) return '';
+        const next = visible[index + 1];
+
+        if (!next || (!gridlines && !column.fenced && !next.fenced)) return '';
 
         const side = pinSide(column.key);
-        const pinDraws = (side === 'left' && column === left[left.length - 1]) || (side === null && right[0] === visible[index + 1]);
+        const pinDraws = (side === 'left' && column === left[left.length - 1]) || (side === null && right[0] === next);
 
         return cn('border-r', pinDraws && 'lg:border-r-0');
     };
@@ -722,7 +735,30 @@ export function DataTable<Row>({
                     </thead>
                     <tbody>
                         {rows.map((row) => (
-                            <tr key={rowKey(row)} className="border-t align-top">
+                            <tr
+                                key={rowKey(row)}
+                                // The row under the pointer is shaded, and so is the
+                                // one the keyboard has reached — a row holds links and
+                                // a menu button, and tabbing through them should light
+                                // the row the same way, since what the eye needs is
+                                // the same thing both times: a line of cells read
+                                // across a table wider than the screen.
+                                //
+                                // `accent` is what this app shades anything hovered
+                                // with, down to the rows of a list on a phone, and it
+                                // is opaque — which it has to be here, because a
+                                // pinned cell lays its own background over the content
+                                // scrolling under it and a see-through shade would
+                                // leave the pinned columns unlit while the rest of the
+                                // row was not. The pinned cells are told to take the
+                                // same colour from the row below.
+                                //
+                                // Hover is a pointer's word: the browser only honours
+                                // it where there is one, so nothing is left lit after
+                                // a tap — and below `md` this table is a list of its
+                                // own anyway.
+                                className="group/row focus-within:bg-accent hover:bg-accent border-t align-top transition-colors"
+                            >
                                 {visible.map((column, index) => {
                                     const span = rowSpan ? rowSpan(column, row) : 1;
 
@@ -763,7 +799,9 @@ export function DataTable<Row>({
                                     );
                                 })}
                                 {actions && (
-                                    <td className="bg-card sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">{actions(row)}</td>
+                                    <td className="bg-card group-hover/row:bg-accent group-focus-within/row:bg-accent sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">
+                                        {actions(row)}
+                                    </td>
                                 )}
                             </tr>
                         ))}
