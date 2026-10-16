@@ -4,15 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Department;
 use App\Models\Equipment;
-use App\Models\Position;
-use App\Models\RegulationSection;
 use App\Models\User;
-use App\Support\Directories;
-use App\Support\Document;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentName;
-use App\Support\PositionProfile;
+use App\Support\Profile;
 use App\Support\Regulation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -54,10 +50,12 @@ class DepartmentController extends Controller
             // the tree reads the few columns a chart draws with, and the
             // document needs the heading this department typed as well.
             'regulation' => fn () => $this->regulation($department),
-            // The other document of this department's people: one profile per
-            // job rather than one sheet for the whole unit, so the page gets
-            // the list and each position's own page gets its document.
-            'profiles' => fn () => $this->profiles($department),
+            // And the other document the department keeps: «СФД», the same nine
+            // sections a position's profile is made of, written about the unit.
+            // The tab held the list of this department's jobs until the company
+            // said what it wanted there — the sheet itself — and a position's
+            // own profile is read on the position's page, as it always was.
+            'profile' => fn () => $this->profile($department),
             // Whether the third tab has anything to offer this viewer, which
             // is all it needs to know before it is opened: a right, not a
             // query. The equipment itself costs a page of reads and is asked
@@ -96,67 +94,53 @@ class DepartmentController extends Controller
      */
     private function regulation(Department $department): array
     {
-        $values = Regulation::values($department);
-
         return [
             // Keeping the regulation is keeping the department: the right that
             // writes the structure down in «Подразделения» writes this down too.
             // Reading it takes nothing — this page is open to everybody.
             'can_edit' => Gate::allows('directories.manage.departments'),
-            // The heading of the sheet, resolved: what this department typed,
-            // or the name of the document and its own name while nobody has
-            // typed anything. One string, ready to print.
-            'title' => Regulation::title($department),
             // The one name the document needs: its sentences are written so
             // that the nominative reads correctly in every one of them.
             'names' => ['nominative' => $department->name],
             // What may be typed into the text, and what each one reads as here.
             'placeholders' => Regulation::offer($department),
-            'sections' => RegulationSection::forDepartment($department)->map(fn (RegulationSection $section, int $place) => [
-                'id' => $section->id,
-                // "template" — the company's own text, read as it is written;
-                // "override" — this department's wording of a standard section;
-                // "own" — a section no template has.
-                'origin' => $section->origin(),
-                'template_section_id' => $section->template_section_id,
-                // Worked out here and stored nowhere: the number is the place
-                // the section is read in this department's document, and one
-                // section of the template is read at a different place in every
-                // department's.
-                'number' => RegulationSection::number($place),
-                'title' => $section->title,
-                'order' => $section->order,
-                // Sanitized where it was written, so it is already safe to put
-                // on the page as the markup it is.
-                'body' => Document::resolve($section->body, $values),
-                // The same body as somebody typed it, for the editor.
-                'body_written' => $section->body,
-            ])->values(),
+            // The heading and the sections, as a position's page reads them too.
+            ...Regulation::paper($department),
         ];
     }
 
     /**
-     * «СФД» on a department's page: the positions of this department, each with
-     * the heading of the sheet it is read under.
+     * «СФД» as this department keeps it: the nine standard sections of the
+     * shared template, each replaced by this department's wording where it
+     * wrote one — in one order, under the heading the sheet is printed with,
+     * with «01 ОБЩАЯ ИНФОРМАЦИЯ» answered from what the application knows about
+     * the unit.
      *
-     * The list and not the documents. «Профиль должности» belongs to a position
-     * and is read, and written, on that position's own page — the way the
-     * regulation is read on the department's — and a department of thirty jobs
-     * would otherwise hand this page thirty documents of nine sections each,
-     * every time somebody opens it to look at the staff. So the tab lists the
-     * jobs and each of them is one step away.
+     * The document and not a list of the jobs under it. The tab listed this
+     * department's positions until the company said that a unit's СФД is the
+     * same sheet a job has; a position's own profile is still read, and
+     * written, on that position's page, and nothing here sends it.
      *
-     * Its own positions only: a sub-department's jobs are listed on the
-     * sub-department's page, which is also where its own regulation is.
-     *
-     * The list is a page of the job titles, so it takes the right that opens
-     * that page. Everybody signed in reads a department, not everybody reads the
-     * directory of positions, and the tab is told outright rather than left to
-     * work it out from an empty list — "nobody holds a position here" and "the
-     * positions are not yours to read" are not the same thing.
+     * The same shape a position's page sends its profile in, because it is the
+     * same document — Profile puts both together — and the same shape the
+     * regulation above travels in, so one component on the page reads any of
+     * the three.
      *
      * @return array<string, mixed>
      */
+    private function profile(Department $department): array
+    {
+        return [
+            // Keeping this sheet is keeping the department, the way its
+            // «Положение о работе» is: the right that writes the structure down
+            // in «Подразделения» writes this down too, and not the right that
+            // keeps the list of job titles — the sheet is the department's own.
+            // Reading it takes nothing; this page is open to everybody.
+            'can_edit' => Gate::allows('directories.manage.departments'),
+            ...Profile::paper($department),
+        ];
+    }
+
     /**
      * The department itself: where it sits, who leads it, what is under it and
      * who works there.
@@ -264,29 +248,6 @@ class DepartmentController extends Controller
                 ->sortBy(fn (array $unit) => $unit['holder']['name'])
                 ->values()
                 ->all(),
-        ];
-    }
-
-    private function profiles(Department $department): array
-    {
-        $reads = Gate::allows(Directories::viewPermission('positions'));
-
-        return [
-            'can_read' => $reads,
-            // Keeping a profile is keeping the position it belongs to, which is
-            // a right of the job titles and not of the structure.
-            'can_edit' => Gate::allows('directories.manage.positions'),
-            'positions' => $reads
-                ? $department->positions()->get(['id', 'name', 'profile_title'])->map(fn (Position $position) => [
-                    'id' => $position->id,
-                    // The plain name: the department is the page this is read
-                    // on, so there is nothing to tell apart in brackets.
-                    'name' => $position->name,
-                    // What the sheet is headed, so the tab names the document
-                    // rather than guessing at it.
-                    'title' => PositionProfile::title($position),
-                ])->values()
-                : [],
         ];
     }
 

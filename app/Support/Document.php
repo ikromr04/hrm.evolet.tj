@@ -2,6 +2,8 @@
 
 namespace App\Support;
 
+use App\Models\Department;
+use App\Models\Position;
 use Dom\HTMLDocument;
 use InvalidArgumentException;
 use Symfony\Component\HtmlSanitizer\HtmlSanitizer;
@@ -12,19 +14,19 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
  * What the company's documents are made of, whichever of them is being read.
  *
  * There are two. «Положение о работе» belongs to a department and says how that
- * department works; «Профиль должности», the sheet the company calls СФД,
- * belongs to a position and says what the person in it is expected to be. They
- * are written, kept and printed the same way — a template of standard sections
- * every owner reads, one owner's wording in the place of a standard section it
- * rewrote, that owner's own arrangement of the whole, and a heading of its own —
- * and so they are one piece of machinery with two names rather than two
- * copies of one.
+ * department works; «Профиль должности», the sheet the company calls СФД, says
+ * what is expected of the thing it is written for — of a position, and of a
+ * department, which keeps one of its own. They are written, kept and printed
+ * the same way — a template of standard sections every owner reads, one owner's
+ * wording in the place of a standard section it rewrote, that owner's own
+ * arrangement of the whole, and a heading of its own — and so they are one
+ * piece of machinery with two names rather than two copies of one.
  *
  * This is the half of it that has no opinion about which document it is serving:
  * what a body may be made of, how long it may be, and how a text is read once
  * the placeholders in it are answered. What each document says for itself — its
  * placeholders, the words its heading begins with, the table it draws from data
- * — is in Regulation and PositionProfile.
+ * — is in Regulation and Profile.
  */
 final class Document
 {
@@ -41,24 +43,49 @@ final class Document
     public const PROFILE = 'profile';
 
     /**
-     * Who owns each of them: the column on a section that names its owner.
+     * Where an owner of each kind is named: the column a section — or an
+     * arrangement of one — keeps it in.
      *
-     * A document belongs to one kind of thing and always the same kind — a
-     * regulation to a department, a profile to a position — so this is the one
-     * place that pairing is written down, and everything else asks.
+     * One column per kind of owner and not per document, because a department
+     * now owns two documents and names itself in the same column in both. Which
+     * of the two a row belongs to is what `document` says; this says only whose
+     * it is.
      *
-     * @var array<string, string> document => the column naming its owner
+     * @var array<class-string, string> the kind of owner => the column naming it
+     */
+    public const COLUMNS = [
+        Department::class => 'department_id',
+        Position::class => 'position_id',
+    ];
+
+    /**
+     * Who may own each document.
+     *
+     * «Положение о работе» is a department's and nobody else's: it is how a unit
+     * of the company works, and a job has none of its own. «Профиль должности»
+     * is owned by a position and by a department alike — the company writes the
+     * same nine sections about a job and about a unit, and asked for the unit's
+     * sheet to be that sheet rather than a list of the jobs under it.
+     *
+     * One template serves both: the standard text is a section owned by nobody,
+     * so there is nothing in it that belongs to one kind of owner, and a second
+     * set of nine would be the same nine sentences drifting apart.
+     *
+     * A row still belongs to exactly one owner. That is the database's rule as
+     * much as this one's, and this only says which column such a row may use.
+     *
+     * @var array<string, list<class-string>> document => the kinds that may own it
      */
     public const OWNERS = [
-        self::REGULATION => 'department_id',
-        self::PROFILE => 'position_id',
+        self::REGULATION => [Department::class],
+        self::PROFILE => [Department::class, Position::class],
     ];
 
     /**
      * What a printed sheet says where the application has no answer — a
-     * department with no head appointed, a position whose grade nobody has
-     * typed. A dash, because an empty space on a sheet somebody signs reads as a
-     * mistake of the printer rather than as something nobody has filled in.
+     * department with no head appointed, a department with nothing above it. A
+     * dash, because an empty space on a sheet somebody signs reads as a mistake
+     * of the printer rather than as something nobody has filled in.
      *
      * The regulation reads it into a sentence, where the gap would otherwise
      * fall mid-line. A field that travels as data — the table of «01 ОБЩАЯ
@@ -175,14 +202,39 @@ final class Document
     private static ?HtmlSanitizer $sanitizer = null;
 
     /**
-     * Which column names the owner of this document's sections — and, in
+     * Every column a section of this document may name its owner in — and, in
      * passing, that there is such a document at all: a row filed under a name
      * nothing here knows would otherwise be read as a section of everything.
+     *
+     * One column for the regulation and two for the profile. What reads them
+     * all at once is the question «whose is this row, if anybody's?», which is
+     * how the template is told from an owner's wording: the template fills in
+     * none of them.
+     *
+     * @return list<string>
      */
-    public static function owner(string $document): string
+    public static function owners(string $document): array
     {
-        return self::OWNERS[$document]
+        $kinds = self::OWNERS[$document]
             ?? throw new InvalidArgumentException("Документа «{$document}» не существует.");
+
+        return array_values(array_map(fn (string $kind) => self::COLUMNS[$kind], $kinds));
+    }
+
+    /** The column this owner is named in, whichever document is being written. */
+    public static function column(Department|Position $owner): string
+    {
+        return self::COLUMNS[$owner::class];
+    }
+
+    /**
+     * Whether this document is this owner's kind of document at all — the one
+     * rule about meaning rather than shape, and the reason a position cannot be
+     * handed a regulation.
+     */
+    public static function owns(string $document, Department|Position $owner): bool
+    {
+        return in_array(self::column($owner), self::owners($document), true);
     }
 
     /**

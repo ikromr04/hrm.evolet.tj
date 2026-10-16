@@ -15,7 +15,7 @@ import {
     type ColumnDef as TableColumn,
     type FilterDef as TableFilter,
 } from '@/components/data-table';
-import { DepartmentName } from '@/components/department-name';
+import { DepartmentLink } from '@/components/department-name';
 import { EmployeeActions, type EmploymentStatus } from '@/components/employee-actions';
 import { LanguageBadges } from '@/components/language-badges';
 import { MobileFab } from '@/components/mobile-fab';
@@ -64,7 +64,23 @@ interface EmployeeRow {
     roles?: string[];
     /** Positions, shown as "Должность"; an employee can hold several. */
     positions?: string[];
-    departments?: { id: number; name: string; full_name: string; path: string; full_path: string; is_head: boolean }[];
+    /**
+     * Where the person is attached, one entry per placement — eight of them
+     * hold two, and two of those sit in units of different departments. Each
+     * entry carries the department above it, so the «Департамент» column and
+     * the «Отдел» column can print the same placements in the same order and
+     * be read across. `parent` is null for somebody attached straight to a
+     * department, which is then all there is to say about where they sit.
+     */
+    departments?: {
+        id: number;
+        name: string;
+        full_name: string;
+        path: string;
+        full_path: string;
+        is_head: boolean;
+        parent: { id: number; name: string; full_name: string } | null;
+    }[];
     /** Public, like positions; the best known first. */
     languages?: SpokenLanguage[];
     status: EmploymentStatus;
@@ -102,6 +118,7 @@ type ColumnKey =
     | 'role'
     | 'position'
     | 'department'
+    | 'unit'
     | 'languages'
     | 'birth_date'
     | 'sex'
@@ -166,6 +183,8 @@ interface ColumnDef {
     key: ColumnKey;
     label: string;
     width: number;
+    /** The column the table widens when the others leave room over; at most one. */
+    fill?: boolean;
     private: boolean;
     filter?: FilterDef;
     cell: (row: EmployeeRow, details: PrivateDetails) => ReactNode;
@@ -201,25 +220,78 @@ function PositionBadges({ titles }: { titles: string[] }) {
     );
 }
 
-function DepartmentBadges({ departments }: { departments: NonNullable<EmployeeRow['departments']> }) {
+/**
+ * How tall one placement stands where a person has more than one.
+ *
+ * An abbreviation and the one line under it are both written at a size of their
+ * own, so the pair is the same height wherever it is drawn; the block is held
+ * to that height whatever it holds, which is what lets a person's second
+ * placement stand beside their second unit. An entry with no name to spell out,
+ * or no unit at all, keeps the room rather than closing it up and carrying
+ * everything below it out of step with the column beside it.
+ */
+const PLACEMENT = 'h-10';
+
+/**
+ * The placements of one person, one per line, in the order the server sends.
+ *
+ * Both structure columns draw this over the same list, so the second line of
+ * «Департамент» is the department of the second line of «Отдел» and the two are
+ * read across as one placement. Eight people of seventy-two have two of them,
+ * and two of those sit in units of different departments, which is the whole
+ * reason the pairing has to hold rather than merely look tidy.
+ *
+ * Where a person has the one placement there is nothing to pair it with, so the
+ * name underneath is given the two lines the positions table gives it and the
+ * block is left to be as tall as it needs. Where there are several, each is cut
+ * to one line and held to a fixed height: the alternative is four lines of
+ * spelled-out names in each of two columns, which is a wall rather than a list,
+ * and lines that wrap in one column and not the other, which is worse — it
+ * would say somebody sits in a department they have never been near.
+ */
+function Placements({ departments, of }: { departments: NonNullable<EmployeeRow['departments']>; of: 'department' | 'unit' }) {
+    const stacked = departments.length > 1;
+
     return (
-        <div className="flex flex-wrap gap-1 whitespace-normal">
-            {departments.map((department) => (
-                <Link
-                    key={department.id}
-                    href={route('departments.show', department.id)}
-                    className="group focus-visible:ring-ring rounded-md outline-hidden focus-visible:ring-2"
-                >
-                    <StatusBadge
-                        tone="neutral"
-                        title={department.is_head ? `${department.full_path} · руководитель` : department.full_path}
-                        className="h-auto min-h-[22px] gap-1 py-0.5 whitespace-normal transition-colors group-hover:bg-[#E4E4E7] group-hover:text-[#18181B] dark:group-hover:bg-white/20 dark:group-hover:text-white"
-                    >
-                        {department.is_head && <Crown className="size-3 shrink-0 text-[#9A4A06] dark:text-[#F8C471]" aria-label="Руководитель" />}
-                        <DepartmentName name={department.name} full={department.full_name} tooltip={false} />
-                    </StatusBadge>
-                </Link>
-            ))}
+        <div className="flex flex-col gap-1">
+            {departments.map((placement) => {
+                // The department of a placement is the one above the unit, or
+                // the department itself where the person is attached to no unit.
+                // The crown marks where they are head, which is whichever of the
+                // two they are actually attached to.
+                const parent = placement.parent;
+                const shown = of === 'department' ? (parent ?? placement) : parent === null ? null : placement;
+
+                return (
+                    <div key={placement.id} className={cn('flex max-w-full items-start', stacked && PLACEMENT)}>
+                        {shown === null ? (
+                            // Attached straight to a department: there is no unit
+                            // to name, and the line says so the way the rest of
+                            // the table says it.
+                            <Empty />
+                        ) : (
+                            <DepartmentLink
+                                id={shown.id}
+                                name={shown.name}
+                                full={shown.full_name}
+                                lines={stacked ? 1 : 2}
+                                leading={
+                                    placement.is_head &&
+                                    shown === placement && (
+                                        // The link's own hover says which department
+                                        // this is; the crown's says what the crown
+                                        // means, which is the one thing the two lines
+                                        // do not spell out.
+                                        <span title="Руководитель" className="flex shrink-0">
+                                            <Crown className="size-3 text-[#9A4A06] dark:text-[#F8C471]" aria-label="Руководитель" />
+                                        </span>
+                                    )
+                                }
+                            />
+                        )}
+                    </div>
+                );
+            })}
         </div>
     );
 }
@@ -315,6 +387,9 @@ const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
     role: 'roles',
     position: 'positions',
     department: 'departments',
+    // Two columns over one field: a viewer who may not read where people are
+    // filed gets neither of them.
+    unit: 'departments',
 };
 
 /**
@@ -333,10 +408,48 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
 
     return (
         [
+            // The row opens where the person sits and then says who they are:
+            // the department, the unit inside it, the name, then the job and the
+            // access that goes with it. The two structure columns carry the same
+            // widths as the positions table, which is the other place the
+            // company is read down by its structure.
+            {
+                key: 'department',
+                label: 'Департамент',
+                width: 215,
+                private: false,
+                // The one funnel the two columns share, and the whole tree in
+                // it: picking a department takes in everyone in its units too,
+                // so this answers for both columns at once. A second funnel on
+                // «Отдел» would write the same parameter and quietly throw away
+                // whatever the first had chosen.
+                filter: {
+                    type: 'multi',
+                    param: 'department',
+                    options: options.departments.map((d) => ({
+                        value: d.id,
+                        label: d.name,
+                        hint: d.full_name === d.name ? undefined : d.full_name,
+                        depth: d.depth,
+                    })),
+                },
+                cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="department" /> : <Empty />),
+            },
+            {
+                key: 'unit',
+                label: 'Отдел',
+                width: 180,
+                private: false,
+                cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="unit" /> : <Empty />),
+            },
             {
                 key: 'name',
                 label: 'Сотрудник',
                 width: 320,
+                // The column that takes whatever room the others leave: a name
+                // with a face and an address beside it is the one cell here glad
+                // of it, and the width is the floor it fills up from.
+                fill: true,
                 private: false,
                 filter: { type: 'text', param: 'search', placeholder: 'ФИО или почта' },
                 cell: (row) => (
@@ -362,37 +475,20 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 ),
             },
             {
-                key: 'role',
-                label: 'Позиция',
-                width: 240,
-                private: false,
-                filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
-                cell: (row) => (row.roles?.length ? <RoleBadges titles={row.roles} /> : <Empty />),
-            },
-            {
-                key: 'department',
-                label: 'Отдел / Департамент',
-                width: 300,
-                private: false,
-                filter: {
-                    type: 'multi',
-                    param: 'department',
-                    options: options.departments.map((d) => ({
-                        value: d.id,
-                        label: d.name,
-                        hint: d.full_name === d.name ? undefined : d.full_name,
-                        depth: d.depth,
-                    })),
-                },
-                cell: (row) => (row.departments?.length ? <DepartmentBadges departments={row.departments} /> : <Empty />),
-            },
-            {
                 key: 'position',
                 label: 'Должность',
                 width: 240,
                 private: false,
                 filter: { type: 'multi', param: 'position', options: options.positions.map((t) => ({ value: t.id, label: t.name })) },
                 cell: (row) => (row.positions?.length ? <PositionBadges titles={row.positions} /> : <Empty />),
+            },
+            {
+                key: 'role',
+                label: 'Позиция',
+                width: 240,
+                private: false,
+                filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
+                cell: (row) => (row.roles?.length ? <RoleBadges titles={row.roles} /> : <Empty />),
             },
             {
                 key: 'languages',
@@ -523,13 +619,23 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
 
 // v5: the columns a viewer gets now depend on the fields they may read, so a
 // view saved under the old rules would hide the wrong ones.
-const STORAGE_KEY = 'employees.table.view.v5';
+// v6: «Отдел / Департамент» became two columns. A view saved under v5 names a
+// `department` column that is no longer the same column — it is half of it,
+// and 300 pixels wide in a saved width — and knows nothing of the «Отдел»
+// beside it. Applying the half of it that still fits would leave a table
+// nobody arranged, so the saved views start again here.
+const STORAGE_KEY = 'employees.table.view.v6';
 
 function defaultView() {
     return {
         // Nothing to hide by default: a column nobody may read is never built.
         hidden: [] as string[],
-        pinned: { left: ['name'], right: [] as string[] },
+        // Nothing pinned either. The name used to be held to the left edge, and
+        // a pinned column is drawn before every other whatever the order says —
+        // which would put «Сотрудник» in front of the two columns the list is
+        // now meant to open with. Whoever wants it stuck there still has the
+        // column's own menu.
+        pinned: { left: [] as string[], right: [] as string[] },
     };
 }
 

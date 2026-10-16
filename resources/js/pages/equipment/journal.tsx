@@ -126,7 +126,10 @@ const presets = [
     { days: 365, label: 'Год' },
 ];
 
-const defaultView = (): ViewState => ({ hidden: [], pinned: { left: ['at'], right: [] } });
+// Nothing is held to an edge: a pinned column is drawn before every other
+// whatever order a viewer has dragged their columns into, which is a surprise
+// nobody asked for. Whoever wants the date pinned pins it.
+const defaultView = (): ViewState => ({ hidden: [], pinned: { left: [], right: [] } });
 
 export default function EquipmentJournal({ events, names, filters, perPage, perPageOptions, options }: Props) {
     const columns = useMemo(() => buildColumns(options), [options]);

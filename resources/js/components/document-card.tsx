@@ -1,7 +1,6 @@
 import InputError from '@/components/input-error';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,8 +8,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { BODY, MEASURE, type Addresses, type DocumentSection, type Editing, type Paper } from '@/lib/document';
 import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
-import { ChevronDown, GripVertical, LoaderCircle, Pencil, Undo2 } from 'lucide-react';
-import { Suspense, lazy, useMemo, useRef, useState, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { LoaderCircle, Pencil, Undo2 } from 'lucide-react';
+import { Suspense, lazy, useState, type ReactNode } from 'react';
 
 /**
  * The two fields a section is written in, and the editor one of them needs.
@@ -47,21 +46,6 @@ function Body({ html }: { html: string | null }) {
     if (html === null || html.trim() === '') return <p className="text-muted-foreground text-sm">Раздел пока пуст.</p>;
 
     return <div className={cn(BODY, MEASURE)} dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-/**
- * Which block of the document a section is, rather than which row it is written
- * in: the owner's own wording of a standard section is read in that
- * section's place, so writing one — or putting the standard text back — swaps
- * the row underneath a block that was left open, and the block stays open.
- */
-function blockOf(section: DocumentSection): number {
-    return section.template_section_id ?? section.id;
-}
-
-/** '01', '02', … — how the document numbers its sections. */
-function numberAt(index: number): string {
-    return String(index + 1).padStart(2, '0');
 }
 
 /**
@@ -323,9 +307,6 @@ function DocumentTitle({ title, owner, addresses, canEdit }: { title: string; ow
     );
 }
 
-/** Which section a drag is over, and which of its edges the dragged one lands on. */
-type DropAt = { id: number; place: 'before' | 'after' } | null;
-
 /**
  * A document of fixed sections as its owner reads it: a heading it may correct,
  * and a list of blocks, each opening onto what the section says.
@@ -365,393 +346,106 @@ export function DocumentCard({
 }) {
     const { can_edit, title, sections } = paper;
 
-    // Everything closed: the card is then the document's contents, and what to
-    // read is chosen from it rather than scrolled past.
-    const [opened, setOpened] = useState<number[]>([]);
     const [editing, setEditing] = useState<Editing | null>(null);
     const [restoring, setRestoring] = useState<Restoring>(null);
-    const [orderError, setOrderError] = useState<string | null>(null);
-
-    /**
-     * The order the document is drawn in while the server's is not the one to
-     * draw: a section being carried by the keyboard, or a move already sent and
-     * not yet answered.
-     */
-    const [pending, setPending] = useState<DocumentSection[] | null>(null);
-    const [dragged, setDragged] = useState<number | null>(null);
-    const [dropAt, setDropAt] = useState<DropAt>(null);
-    /** The section the keyboard has picked up and is carrying, if any. */
-    const [held, setHeld] = useState<number | null>(null);
-
-    /** The header rows, so that a drag can carry the one it started from. */
-    const headers = useRef(new Map<number, HTMLDivElement>());
-
-    /**
-     * The document as it is drawn. Normally that is the order and the numbers
-     * the server sent; while a move is in flight it is the order asked for, with
-     * the numbers read off the new positions — the document's own rule, applied
-     * here for the moment it takes to answer so that a section does not sit in
-     * its new place under its old number.
-     */
-    const list = useMemo(
-        () => (pending === null ? sections : pending.map((section, index) => ({ ...section, number: numberAt(index) }))),
-        [pending, sections],
-    );
-
-    const toggle = (block: number) => setOpened((open) => (open.includes(block) ? open.filter((other) => other !== block) : [...open, block]));
-
-    /**
-     * The document in a new order. The whole list of ids goes up, because what
-     * the server writes down is the order the document is read in rather than
-     * the one section that moved.
-     */
-    const reorder = (next: DocumentSection[]) => {
-        setOrderError(null);
-        setPending(next);
-
-        router.put(
-            route(addresses.order, owner),
-            { ids: next.map((section) => section.id) },
-            {
-                preserveScroll: true,
-                // Either way the server's answer is the one on screen: on
-                // success it arrives renumbered, and on a refusal the document
-                // goes back to the order it was in and says why.
-                onSuccess: () => setPending(null),
-                onError: (errors) => {
-                    setPending(null);
-                    setOrderError(errors.ids ?? 'Не удалось переставить разделы.');
-                },
-            },
-        );
-    };
-
-    /**
-     * A section carried a step up or down. Nothing is sent yet: the keyboard
-     * carries a section past as many of its neighbours as it likes, and the
-     * document is written down once, where it is put back.
-     */
-    const carry = (index: number, to: number) => {
-        if (to < 0 || to >= list.length) return;
-
-        const next = [...list];
-        [next[index], next[to]] = [next[to], next[index]];
-
-        setPending(next);
-    };
-
-    /**
-     * A section picked up, carried and put down with the keyboard, which is the
-     * whole of reordering for anybody not holding a mouse: dragging is a mouse
-     * gesture and the browser offers no other way to begin one.
-     *
-     * Escape puts the document back exactly as it was, so that a section picked
-     * up by mistake costs nothing.
-     */
-    const keyboardMove = (event: ReactKeyboardEvent, section: DocumentSection, index: number) => {
-        if (event.key === ' ' || event.key === 'Enter') {
-            event.preventDefault();
-
-            if (held !== section.id) setHeld(section.id);
-            else {
-                setHeld(null);
-                if (pending !== null) reorder(pending);
-            }
-
-            return;
-        }
-
-        if (held !== section.id) return;
-
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            setHeld(null);
-            setPending(null);
-
-            return;
-        }
-
-        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            event.preventDefault();
-            carry(index, index + (event.key === 'ArrowUp' ? -1 : 1));
-        }
-    };
-
-    /** A section still in hand when the focus leaves is put down where it stands. */
-    const release = (section: DocumentSection) => {
-        if (held !== section.id) return;
-
-        setHeld(null);
-        if (pending !== null) reorder(pending);
-    };
-
-    const clearDrag = () => {
-        setDragged(null);
-        setDropAt(null);
-    };
-
-    const dragOver = (event: DragEvent<HTMLLIElement>, section: DocumentSection) => {
-        if (dragged === null) return;
-
-        // Over itself there is nothing on offer, and the cursor keeps its
-        // crossed circle because the drop is not taken.
-        if (section.id === dragged) {
-            setDropAt(null);
-
-            return;
-        }
-
-        // Taking the drop is also what turns the cursor from a crossed circle
-        // into a move arrow.
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-
-        // The nearer half of the block says which of its edges the section
-        // lands on.
-        const box = event.currentTarget.getBoundingClientRect();
-        const place = event.clientY < box.top + box.height / 2 ? 'before' : 'after';
-
-        setDropAt((current) => (current?.id === section.id && current.place === place ? current : { id: section.id, place }));
-    };
-
-    /** The dragged section lifted out of the list and put back at the edge it was dropped on. */
-    const drop = (at: { id: number; place: 'before' | 'after' }) => {
-        const moving = list.find((section) => section.id === dragged);
-        const target = list.find((section) => section.id === at.id);
-
-        clearDrag();
-
-        if (!moving || !target || moving === target) return;
-
-        const next = list.filter((section) => section !== moving);
-        next.splice(next.indexOf(target) + (at.place === 'after' ? 1 : 0), 0, moving);
-
-        reorder(next);
-    };
-
-    /**
-     * The line along the edge the section would land on, drawn inside the block
-     * rather than as its border.
-     *
-     * The blocks are separated by borders of their own and the first has none,
-     * so a border here would be the one the first block is told not to draw —
-     * and the top of the list, where a section is most often dropped, would be
-     * the one place with no sign of where it was going.
-     */
-    const dropLine = (section: DocumentSection) =>
-        dropAt?.id === section.id &&
-        (dropAt.place === 'before' ? 'shadow-[inset_0_2px_0_0_var(--color-ring)]' : 'shadow-[inset_0_-2px_0_0_var(--color-ring)]');
 
     return (
         <section className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
-            <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+            <header className="flex flex-wrap items-start gap-x-3 gap-y-2">
                 <DocumentTitle title={title} owner={owner} addresses={addresses} canEdit={can_edit} />
-
-                {list.length > 0 && (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0 max-md:h-10"
-                        onClick={() => setOpened(opened.length === list.length ? [] : list.map(blockOf))}
-                    >
-                        {opened.length === list.length ? 'Свернуть все' : 'Развернуть все'}
-                    </Button>
-                )}
             </header>
 
-            {list.length === 0 ? (
+            {sections.length === 0 ? (
                 // Every owner is seeded with its sections, so an empty document
                 // is not one waiting to be written — it is one that failed to
                 // arrive, and the page says which document it was.
                 <p className="text-muted-foreground max-w-[60ch] py-2 text-sm">{empty}</p>
             ) : (
                 <ul className="flex flex-col">
-                    {list.map((section, index) => {
-                        const open = opened.includes(blockOf(section));
+                    {sections.map((section) => (
+                        // A document, read down: every section open, one after
+                        // the other, the way it comes off a printer. The rule
+                        // above each heading and the room under each text are
+                        // what divide them now that nothing folds shut.
+                        <li key={section.id} className="border-t pt-4 pb-6 first:border-t-0 first:pt-0 last:pb-0">
+                            <div className="flex items-start gap-2">
+                                {/* A heading, not a button: there is nothing left
+                                    for it to open. The number keeps a column of
+                                    its own so the titles line up down the page. */}
+                                <h3 className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 py-1 text-sm font-semibold">
+                                    <span className="text-muted-foreground shrink-0 tabular-nums">{section.number}</span>
+                                    <span className="break-words">{section.title}</span>
+                                    <Badge origin={section.origin} />
+                                </h3>
 
-                        return (
-                            <li
-                                key={section.id}
-                                onDragOver={can_edit ? (event) => dragOver(event, section) : undefined}
-                                onDrop={
-                                    can_edit
-                                        ? (event) => {
-                                              event.preventDefault();
-                                              if (dropAt?.id === section.id) drop(dropAt);
-                                              else clearDrag();
-                                          }
-                                        : undefined
-                                }
-                                className={cn(
-                                    'border-t first:border-t-0',
-                                    // The one being dragged reads as already
-                                    // gone from where it stands.
-                                    dragged === section.id && 'opacity-40',
-                                    // The one in hand reads as lifted off the
-                                    // page, because nothing else on screen says
-                                    // that the arrow keys are moving it.
-                                    held === section.id && 'bg-accent/40 ring-ring rounded-md ring-2',
-                                    dropLine(section),
-                                )}
-                            >
-                                <Collapsible open={open} onOpenChange={() => toggle(blockOf(section))}>
-                                    <div ref={(row) => void (row ? headers.current.set(section.id, row) : headers.current.delete(section.id))}>
-                                        <div className="flex items-start gap-1">
-                                            {/* A grip of its own, rather than the whole
-                                                header: the header beside it is the button
-                                                that opens the block, and a press that
-                                                might turn into a drag would make opening
-                                                one a gamble.
-
-                                                A drag is a mouse gesture and the browser
-                                                knows no other way to begin one, so the
-                                                same grip is also a button: it picks the
-                                                section up, the arrow keys carry it, and
-                                                it is put down again — which is the whole
-                                                of reordering for anybody at a keyboard. */}
-                                            {can_edit && (
-                                                <button
+                                {/* A section the application writes itself has
+                                    nothing to type into it, so it carries no
+                                    pencil — the way to change what it says is to
+                                    change what it is drawn from. */}
+                                {can_edit && !section.computed && (
+                                    <TooltipProvider delayDuration={400}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
                                                     type="button"
-                                                    draggable
-                                                    onDragStart={(event) => {
-                                                        // Firefox begins no drag at all with an empty clipboard.
-                                                        event.dataTransfer.setData('text/plain', String(section.id));
-                                                        event.dataTransfer.effectAllowed = 'move';
-                                                        const row = headers.current.get(section.id);
-                                                        // The heading travels with the cursor, not the grip alone.
-                                                        if (row) event.dataTransfer.setDragImage(row, 24, 16);
-                                                        setDragged(section.id);
-                                                    }}
-                                                    onDragEnd={clearDrag}
-                                                    onKeyDown={(event) => keyboardMove(event, section, index)}
-                                                    onBlur={() => release(section)}
-                                                    aria-label={
-                                                        held === section.id
-                                                            ? `Раздел ${section.number} ${section.title} поднят: стрелками вверх и вниз — переместить, Enter — отпустить, Esc — отменить`
-                                                            : `Переместить раздел ${section.number} ${section.title}`
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-muted-foreground size-9 shrink-0 max-md:size-11"
+                                                    aria-label={`Изменить раздел ${section.number} ${section.title}`}
+                                                    onClick={() =>
+                                                        setEditing({
+                                                            mode: section.origin === 'template' ? 'standard' : 'theirs',
+                                                            section,
+                                                        })
                                                     }
-                                                    className={cn(
-                                                        // Not on a phone: a drag
-                                                        // is a mouse gesture and
-                                                        // touch begins none, so
-                                                        // there it would be a
-                                                        // dead target taking the
-                                                        // width a heading needs.
-                                                        'text-muted-foreground/60 hover:bg-accent hover:text-foreground mt-1.5 flex size-8 shrink-0 cursor-grab items-center justify-center rounded active:cursor-grabbing max-md:hidden',
-                                                        held === section.id && 'bg-accent text-foreground cursor-grabbing',
-                                                    )}
                                                 >
-                                                    <GripVertical className="size-4" />
-                                                </button>
-                                            )}
+                                                    <Pencil className="size-4" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="px-2 py-1 text-xs font-normal">Изменить</TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                )}
+                            </div>
 
-                                            <CollapsibleTrigger className="hover:text-foreground/80 flex min-w-0 flex-1 items-start gap-2.5 py-3 text-left max-md:min-h-12">
-                                                <ChevronDown
-                                                    className={cn(
-                                                        'text-muted-foreground mt-0.5 size-4 shrink-0 transition-transform',
-                                                        !open && '-rotate-90',
-                                                    )}
-                                                    aria-hidden="true"
-                                                />
-                                                <span className="text-muted-foreground w-6 shrink-0 text-sm font-semibold tabular-nums">
-                                                    {section.number}
-                                                </span>
-                                                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
-                                                    <span className="text-sm font-semibold break-words">{section.title}</span>
-                                                    <Badge origin={section.origin} />
-                                                </span>
-                                            </CollapsibleTrigger>
-
-                                            {/* A section the application writes itself has
-                                                nothing to type into it, so it carries no
-                                                pencil — the way to change what it says is to
-                                                change what it is drawn from. */}
-                                            {can_edit && !section.computed && (
-                                                <div className="flex shrink-0 items-center gap-0.5 py-2">
-                                                    {/* The pencil of the rest of the
-                                                        application, and beside the heading
-                                                        rather than inside it: the heading is
-                                                        the button that opens the block, and
-                                                        this one must not. The word it used
-                                                        to carry is in the hint and in the
-                                                        name a screen reader reads, which
-                                                        says which section it would open —
-                                                        six buttons called «Изменить» in a
-                                                        column tell nobody anything. */}
-                                                    <TooltipProvider delayDuration={400}>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="text-muted-foreground size-9 max-md:size-11"
-                                                                    aria-label={`Изменить раздел ${section.number} ${section.title}`}
-                                                                    onClick={() =>
-                                                                        setEditing({
-                                                                            mode: section.origin === 'template' ? 'standard' : 'theirs',
-                                                                            section,
-                                                                        })
-                                                                    }
-                                                                >
-                                                                    <Pencil className="size-4" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent className="px-2 py-1 text-xs font-normal">Изменить</TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <CollapsibleContent className="flex flex-col gap-4 pb-5 md:pl-[3.1rem]">
-                                        {/* A section written here says so where it is read, so
-                                            that nobody wonders why it differs from the sheet
-                                            next door. */}
-                                        {section.origin === 'override' && (
-                                            <div className="flex flex-col items-start gap-2 rounded-lg border border-[#F5A524]/50 bg-[#FBEFD9] p-3 text-[13px] leading-relaxed text-[#9A4A06] dark:bg-[#F5A524]/10 dark:text-[#F8C471]">
-                                                <p>
-                                                    {whose === null
-                                                        ? 'Раздел написан здесь: это собственный текст, а не стандартный.'
-                                                        : `Раздел написан для «${whose}»: это его собственный текст, а не стандартный.`}
-                                                </p>
-                                                {can_edit && (
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="bg-background max-md:h-11"
-                                                        onClick={() => setRestoring({ section })}
-                                                    >
-                                                        <Undo2 />
-                                                        Вернуть стандартный текст
-                                                    </Button>
-                                                )}
-                                            </div>
+                            {/* The text under its own heading rather than under
+                                the number, which is the column the headings are
+                                read down. */}
+                            <div className="mt-2 flex flex-col gap-4 md:pl-[1.75rem]">
+                                {/* A section written here says so where it is read, so
+                                    that nobody wonders why it differs from the sheet
+                                    next door. */}
+                                {section.origin === 'override' && (
+                                    <div className="flex flex-col items-start gap-2 rounded-lg border border-[#F5A524]/50 bg-[#FBEFD9] p-3 text-[13px] leading-relaxed text-[#9A4A06] dark:bg-[#F5A524]/10 dark:text-[#F8C471]">
+                                        <p>
+                                            {whose === null
+                                                ? 'Раздел написан здесь: это собственный текст, а не стандартный.'
+                                                : `Раздел написан для «${whose}»: это его собственный текст, а не стандартный.`}
+                                        </p>
+                                        {can_edit && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="bg-background max-md:h-11"
+                                                onClick={() => setRestoring({ section })}
+                                            >
+                                                <Undo2 />
+                                                Вернуть стандартный текст
+                                            </Button>
                                         )}
+                                    </div>
+                                )}
 
-                                        {/* A section the application fills in is drawn by
-                                            whoever knows what it is made of; everything
-                                            else is the text somebody wrote. */}
-                                        {fixed?.(section) ?? <Body html={section.body} />}
-                                    </CollapsibleContent>
-                                </Collapsible>
-                            </li>
-                        );
-                    })}
+                                {/* A section the application fills in is drawn by
+                                    whoever knows what it is made of; everything
+                                    else is the text somebody wrote. */}
+                                {fixed?.(section) ?? <Body html={section.body} />}
+                            </div>
+                        </li>
+                    ))}
                 </ul>
             )}
-
-            {/* A section carried by the keyboard moves without anything being
-                read out, so where it has got to is said here. */}
-            <p className="sr-only" aria-live="polite">
-                {held !== null &&
-                    `Раздел ${list.find((section) => section.id === held)?.title ?? ''}: место ${list.findIndex((section) => section.id === held) + 1} из ${list.length}`}
-            </p>
-
-            {orderError && <InputError message={orderError} />}
 
             {editing && <SectionDialog editing={editing} owner={owner} addresses={addresses} whose={whose} onClose={() => setEditing(null)} />}
 

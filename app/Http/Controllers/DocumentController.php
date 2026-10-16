@@ -19,30 +19,34 @@ use Illuminate\Validation\ValidationException;
  * one owner keeps of its own.
  *
  * It serves no address itself. «Положение о работе» belongs to a department and
- * «Профиль должности» to a position, and apart from that the two are written
- * the same way down to the sentence: the template is the document, an owner
- * rewrites a standard section and puts the standard text back, nobody adds a
- * section or takes one out, the body is cleaned to an allowlist once where it is
- * written, and where a section is read is the owner's own and kept apart from
- * what it says. So the two addresses are two subclasses of this, each saying
- * which document it writes, whose it is, and in what words it refuses — and a
- * correction to any of the rules below reaches both documents, which is the
- * whole point of their being one class.
+ * «Профиль должности» to a position and to a department alike, and apart from
+ * whose a document is the two are written the same way down to the sentence:
+ * the template is the document, an owner rewrites a standard section and puts
+ * the standard text back, nobody adds a section or takes one out, the body is
+ * cleaned to an allowlist once where it is written, and where a section is read
+ * is the owner's own and kept apart from what it says. So each address is a
+ * subclass of this, saying which document it writes, whose it is, and in what
+ * words it refuses — and a correction to any of the rules below reaches every
+ * one of them, which is the whole point of their being one class.
  *
- * Each subclass serves two addresses, as the regulation always did: the
- * document of no owner — the template, the sentences everybody reads, and the
- * only address the standard sections themselves are added to or dropped from —
- * and the document of one owner, its wording of the standard sections it
- * rewrote. Which address a section is written at decides who the change
- * reaches, and that is the whole difference between correcting a sentence for
- * the company and correcting it for one department or one position.
+ * A subclass serves the document of one owner — its wording of the standard
+ * sections somebody rewrote for it, its arrangement, its heading — and, where
+ * the document's standard text is written from, the document of no owner: the
+ * template, the sentences everybody reads, and the only address the standard
+ * sections themselves are added to or dropped from. The profile's template is
+ * written at one address for both kinds of owner, because there is one
+ * template: a department and a position read the same nine sections. Which
+ * address a section is written at decides who the change reaches, and that is
+ * the whole difference between correcting a sentence for the company and
+ * correcting it for one owner.
  */
 abstract class DocumentController extends Controller
 {
     /**
      * A section whose text is not written but read from the directory —
-     * «01 ОБЩАЯ ИНФОРМАЦИЯ» of «Профиль должности», which is a table of the
-     * position's department, name, category and grade.
+     * «01 ОБЩАЯ ИНФОРМАЦИЯ» of «Профиль должности», which is a table of where
+     * the position sits and what it is called, or, for a department's own
+     * profile, of where the unit sits, who leads it and what is under it.
      *
      * There is nothing to type in it and nothing to rewrite: a body under that
      * heading would be a second answer to the same question, disagreeing with
@@ -104,7 +108,9 @@ abstract class DocumentController extends Controller
 
         RegulationSection::create([
             'document' => $this->document(),
-            $this->owns() => $owner?->id,
+            // The template names no owner at all, in any of the columns an
+            // owner could be named in.
+            ...($owner === null ? [] : [Document::column($owner) => $owner->id]),
             'template_section_id' => $standard?->id,
             'title' => $data['title'] ?? $standard?->title,
             // Nothing was typed, so a new section starts empty — and a
@@ -208,7 +214,11 @@ abstract class DocumentController extends Controller
         }
 
         DB::transaction(function () use ($section) {
-            $section->overrides->each(fn (RegulationSection $instead) => RegulationOrder::where($this->owns(), $instead->ownerId())
+            // Each override says for itself which column its owner is named in:
+            // a profile is rewritten by departments and by positions alike, and
+            // the arrangement that has to be told is the one belonging to
+            // whoever wrote that particular wording.
+            $section->overrides->each(fn (RegulationSection $instead) => RegulationOrder::where($instead->ownerColumn(), $instead->ownerId())
                 ->where('regulation_section_id', $section->id)
                 ->update(['regulation_section_id' => $instead->id]));
 
@@ -269,10 +279,17 @@ abstract class DocumentController extends Controller
             // The whole arrangement is written at once, so what was there
             // before is not partly kept: this is the document as it is to be
             // read now, from the first section to the last.
-            RegulationOrder::where($this->owns(), $owner->id)->delete();
+            //
+            // Of this document, though, and not of everything this owner has
+            // arranged: a department arranges its regulation and its profile
+            // and is named in the same column in both, so the places taken off
+            // are the ones naming a section of the document being arranged.
+            RegulationOrder::where($this->column($owner), $owner->id)
+                ->whereIn('regulation_section_id', $sections->map(fn (RegulationSection $section) => $section->slot())->values())
+                ->delete();
 
             RegulationOrder::insert(array_map(fn (int $place, int $id) => [
-                $this->owns() => $owner->id,
+                $this->column($owner) => $owner->id,
                 // The place in the document, not the row read in it: an owner's
                 // wording of a standard section is read where that standard
                 // section is read, so a section rewritten later finds its place
@@ -285,10 +302,26 @@ abstract class DocumentController extends Controller
         return back();
     }
 
-    /** Which column names the owner of this document. */
-    protected function owns(): string
+    /**
+     * Which column names this owner. It depends on the owner and not on the
+     * document: a department is a department in its regulation and in its
+     * profile alike.
+     */
+    protected function column(Department|Position $owner): string
     {
-        return Document::owner($this->document());
+        return Document::column($owner);
+    }
+
+    /**
+     * Every column an owner of this document could be named in, which is what
+     * «belongs to nobody» has to be asked about: the template of a document two
+     * kinds of owner read fills in none of them.
+     *
+     * @return list<string>
+     */
+    protected function columns(): array
+    {
+        return Document::owners($this->document());
     }
 
     /**
@@ -301,11 +334,15 @@ abstract class DocumentController extends Controller
      * The section comes from the address, so there is always one; the parameter
      * is written as if there might not be because the two addresses name a
      * different number of things and the methods serve both.
+     *
+     * Whose it is is asked about the owner and not about its id, because the
+     * two owners of a profile are numbered apart: department 7's wording read
+     * at position 7's address is somebody else's section.
      */
     private function belongsHere(?RegulationSection $section, Department|Position|null $owner): RegulationSection
     {
         abort_if(
-            $section === null || $section->document !== $this->document() || $section->ownerId() !== $owner?->id,
+            $section === null || $section->document !== $this->document() || ! $section->ownedBy($owner),
             404,
         );
 
@@ -355,6 +392,26 @@ abstract class DocumentController extends Controller
 
         $refusals = $this->refusals();
 
+        // The section being rewritten is one of the template's — a row of this
+        // document that names no owner in any of the columns an owner of it
+        // could be named in — and this owner may have rewritten it only once.
+        // Asked at the template's address, where there is no owner, the second
+        // rule reads the same way: a row of the template rewrites nothing.
+        $standard = Rule::exists('regulation_sections', 'id')->where('document', $this->document());
+        $once = Rule::unique('regulation_sections', 'template_section_id')->where('document', $this->document());
+
+        foreach ($this->columns() as $column) {
+            $standard->whereNull($column);
+
+            if ($owner === null) {
+                $once->whereNull($column);
+            }
+        }
+
+        if ($owner !== null) {
+            $once->where($this->column($owner), $owner->id);
+        }
+
         $data = $request->validate([
             'template_section_id' => [
                 // Only ever said when a section is created, and then always by
@@ -368,12 +425,8 @@ abstract class DocumentController extends Controller
                 },
                 'nullable',
                 'integer',
-                Rule::exists('regulation_sections', 'id')
-                    ->where('document', $this->document())
-                    ->whereNull($this->owns()),
-                Rule::unique('regulation_sections', 'template_section_id')
-                    ->where('document', $this->document())
-                    ->where($this->owns(), $owner?->id),
+                $standard,
+                $once,
                 function (string $attribute, mixed $value, Closure $fail) use ($owner, $refusals) {
                     if ($value !== null && $owner === null) {
                         $fail($refusals['overridden']);

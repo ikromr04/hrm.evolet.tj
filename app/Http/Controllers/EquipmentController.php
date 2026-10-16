@@ -493,11 +493,24 @@ class EquipmentController extends Controller
             : collect();
 
         $sign = $direction === 'desc' ? -1 : 1;
-        // Whatever the rows are put in order by, a department comes before the
-        // people of its own block and ties read by name, so that paging never
-        // shows one row twice and never leaves one out.
+        // Ordered by where the rows stand, a department comes before the people
+        // of its own block; ordered by who holds the thing it has no name to
+        // stand among them with at all, and reads last. Either way ties read by
+        // name and then by id, so that paging never shows one row twice and
+        // never leaves one out.
         $compare = match ($sort) {
-            'holder' => fn (array $a, array $b) => $sign * self::compareNames($a['name'], $b['name']),
+            // A department is not a who. Its cell says «оборудование отдела»
+            // rather than naming anybody, so there is no name in it to put in
+            // order among the people's — and ranked by its own abbreviation it
+            // would land between two colleagues, which reads as a person
+            // nobody can find. The kind is compared before the name, so those
+            // rows read last whichever way the column is sorted, as everything
+            // a sorted column has nothing to show for does here.
+            'holder' => function (array $a, array $b) use ($sign) {
+                $named = ($a['kind'] === 'person' ? 0 : 1) <=> ($b['kind'] === 'person' ? 0 : 1);
+
+                return $named ?: $sign * self::compareNames($a['name'], $b['name']);
+            },
             'issued' => fn (array $a, array $b) => $sign * strcmp(
                 $handed->get(self::rowKey($a['kind'], $a['model']->id), ''),
                 $handed->get(self::rowKey($b['kind'], $b['model']->id), ''),

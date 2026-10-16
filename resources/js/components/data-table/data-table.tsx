@@ -400,10 +400,7 @@ export function DataTable<Row>({
         // stay at the edge, being narrow.
         return cn(
             'lg:sticky',
-            // The body's pinned cells follow their row into the hover: they are
-            // the one place in the table with a background of their own, and a
-            // row lit everywhere but at its two edges reads as a drawing error.
-            header ? 'bg-sidebar z-20' : 'bg-card group-hover/row:bg-accent group-focus-within/row:bg-accent z-[1]',
+            header ? 'bg-sidebar z-20' : 'bg-card z-[1]',
             side === 'left' && column === left[left.length - 1] && 'lg:shadow-[1px_0_0_var(--border)]',
             side === 'right' && column === right[0] && 'lg:shadow-[-1px_0_0_var(--border)]',
         );
@@ -468,8 +465,16 @@ export function DataTable<Row>({
                     <thead ref={head} className="bg-sidebar sticky top-0 z-30">
                         <tr className="text-muted-foreground text-left text-[13px] whitespace-nowrap">
                             {visible.map((column, index) => {
-                                const active = sort.key === column.key;
                                 const canSort = sortable.includes(column.key);
+                                // What the header announces as sorted, which is
+                                // only ever a column a viewer can sort. A list
+                                // may open in the order of a column it does not
+                                // offer to sort — the journals open newest
+                                // first — and a header that said «descending»
+                                // there would promise a control that is not on
+                                // it: read out, the column answers "sorted
+                                // descending" and then has nothing to press.
+                                const active = canSort && sort.key === column.key;
                                 const side = pinSide(column.key);
                                 const SortIcon = !active ? ArrowUpDown : sort.direction === 'asc' ? ArrowUp : ArrowDown;
 
@@ -735,30 +740,7 @@ export function DataTable<Row>({
                     </thead>
                     <tbody>
                         {rows.map((row) => (
-                            <tr
-                                key={rowKey(row)}
-                                // The row under the pointer is shaded, and so is the
-                                // one the keyboard has reached — a row holds links and
-                                // a menu button, and tabbing through them should light
-                                // the row the same way, since what the eye needs is
-                                // the same thing both times: a line of cells read
-                                // across a table wider than the screen.
-                                //
-                                // `accent` is what this app shades anything hovered
-                                // with, down to the rows of a list on a phone, and it
-                                // is opaque — which it has to be here, because a
-                                // pinned cell lays its own background over the content
-                                // scrolling under it and a see-through shade would
-                                // leave the pinned columns unlit while the rest of the
-                                // row was not. The pinned cells are told to take the
-                                // same colour from the row below.
-                                //
-                                // Hover is a pointer's word: the browser only honours
-                                // it where there is one, so nothing is left lit after
-                                // a tap — and below `md` this table is a list of its
-                                // own anyway.
-                                className="group/row focus-within:bg-accent hover:bg-accent border-t align-top transition-colors"
-                            >
+                            <tr key={rowKey(row)} className="border-t align-top">
                                 {visible.map((column, index) => {
                                     const span = rowSpan ? rowSpan(column, row) : 1;
 
@@ -799,9 +781,7 @@ export function DataTable<Row>({
                                     );
                                 })}
                                 {actions && (
-                                    <td className="bg-card group-hover/row:bg-accent group-focus-within/row:bg-accent sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">
-                                        {actions(row)}
-                                    </td>
+                                    <td className="bg-card sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">{actions(row)}</td>
                                 )}
                             </tr>
                         ))}

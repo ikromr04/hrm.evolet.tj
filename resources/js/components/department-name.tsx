@@ -1,4 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { Link } from '@inertiajs/react';
+import { type ReactNode } from 'react';
 
 /**
  * "Департамент маркетинга (ДМ)" — both names at once, for the two places with
@@ -54,5 +57,73 @@ export function DepartmentName({
             <TooltipTrigger asChild>{short}</TooltipTrigger>
             <TooltipContent>{full}</TooltipContent>
         </Tooltip>
+    );
+}
+
+/**
+ * A department as the tables of the app name it: the abbreviation on one line
+ * and, underneath it, quieter and smaller, what the abbreviation stands for —
+ * the whole of it the link to the department's own page.
+ *
+ * The org chart names departments this way, and a table that named them any
+ * other way would be teaching the same abbreviations twice. Both lines belong
+ * to the link, so the label reads out whole and the full name is not left
+ * waiting behind a hover or in a copy kept for a screen reader; only the
+ * abbreviation takes the underline, since two underlined lines read as two
+ * names rather than one.
+ *
+ * A department with no abbreviation is already named in full on the first line,
+ * so there is nothing left to spell out underneath — and that one line is then
+ * as long as «Отдел Развития Продуктового Портфеля» rather than three letters,
+ * which is why it is given what the second line is given: it wraps and is cut
+ * where the second line would be cut.
+ */
+export function DepartmentLink({
+    id,
+    name,
+    full,
+    leading,
+    lines = 2,
+    className,
+}: {
+    id: number;
+    /** What is shown: the abbreviation, or the full name where there is none. */
+    name: string;
+    full: string;
+    /** Something standing before the abbreviation, such as the crown of a head. */
+    leading?: ReactNode;
+    /**
+     * How many lines the name underneath may take. Two where a cell holds one
+     * department, which is the most these names need; one where a cell stacks
+     * several of them and the lines of two columns are read across each other,
+     * since a name that wrapped in one column would carry everything under it
+     * out of step with the other.
+     */
+    lines?: 1 | 2;
+    className?: string;
+}) {
+    const spelled = full !== name;
+    // Cut at the line the name is allowed to reach rather than stretching the
+    // column: what is cut off the hover still says, and the department's own
+    // page spells it out in its heading either way. A word longer than the
+    // column breaks rather than pushing the cell wider — and the wrapping is
+    // asked for, because a cell is cut off at its own edge unless its content
+    // says it wraps.
+    const clamped = cn(lines === 1 ? 'line-clamp-1' : 'line-clamp-2', 'break-words whitespace-normal');
+
+    return (
+        <Link
+            href={route('departments.show', id)}
+            className={cn('group flex min-w-0 flex-col gap-0.5', className)}
+            // The longest names do not fit even two lines, and a name cut short
+            // has to be readable without leaving the table.
+            title={`Открыть: ${full}`}
+        >
+            <span className="flex min-w-0 items-center gap-1">
+                {leading}
+                <span className={cn('min-w-0 group-hover:underline', !spelled && clamped)}>{name}</span>
+            </span>
+            {spelled && <span className={cn('text-muted-foreground text-[11px] leading-tight', clamped)}>{full}</span>}
+        </Link>
     );
 }

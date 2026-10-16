@@ -1,6 +1,8 @@
 import { MobileRow } from '@/components/data-table';
 import { DepartmentName, departmentTitle } from '@/components/department-name';
+import { DepartmentProfile, type Profile } from '@/components/department-profile';
 import { DepartmentRegulation, type Regulation } from '@/components/department-regulation';
+import { DocumentTabs } from '@/components/document-tabs';
 import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
@@ -14,8 +16,8 @@ import { peopleLabel } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronRight, ClipboardList, CornerDownRight, List, Mail, Users } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ChevronRight, CornerDownRight, List, Mail, Users } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 
 interface Person {
     id: number;
@@ -92,140 +94,17 @@ function savedView(): View {
 }
 
 /**
- * Which document the main column holds, as a real set of tabs: the arrow keys
- * walk them, only the open one is in the tab order, and the one that is open is
- * underlined as well as darker, so it is not colour alone that says so.
+ * «Профиль подразделения» — «СФД», the department's own nine-section sheet,
+ * kept and written here the way a position's is kept on its own page.
  *
- * The look is the application's own, from the strip over «Структура компании» —
- * but not its machinery: those are links to other addresses, remembered between
- * visits because they are a section of the application. These two swap a panel
- * inside one page and are forgotten when it is left.
- *
- * A phone never sees this: its segmented control already offers the same two
- * beside the list.
+ * It arrives after the page does, so the tab can be opened before it is here;
+ * until then it says so rather than drawing an empty document, which would read
+ * as a sheet that failed instead of one still on its way.
  */
-function DocumentTabs({ current, onChange }: { current: Document; onChange: (key: Document) => void }) {
-    const strip = useRef<HTMLDivElement>(null);
-    /** Whether the tab that just opened was reached by an arrow key. */
-    const walked = useRef(false);
+function DepartmentSheet({ profile, department }: { profile?: Profile; department: number }) {
+    if (!profile) return <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">Профиль загружается…</p>;
 
-    // The tab an arrow key opens takes the focus with it, which is what the
-    // arrow keys are expected to do — but only then, so that pressing one of
-    // these, or switching on a phone, does not pull the focus across the page.
-    // After the render rather than beside it: before it the tab that is to take
-    // the focus is still the one being left.
-    useEffect(() => {
-        if (!walked.current) return;
-
-        walked.current = false;
-        strip.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
-    }, [current]);
-
-    const walk = (event: KeyboardEvent<HTMLDivElement>) => {
-        const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-
-        if (step === 0) return;
-
-        event.preventDefault();
-        walked.current = true;
-        const at = DOCUMENTS.findIndex((tab) => tab.key === current);
-        onChange(DOCUMENTS[(at + step + DOCUMENTS.length) % DOCUMENTS.length].key);
-    };
-
-    return (
-        // Only the open tab is underlined; no rule runs under the strip. A line
-        // across the whole column would be a second edge directly above the
-        // card's own, and the card is what the tab opens onto.
-        <div
-            ref={strip}
-            role="tablist"
-            aria-label="Документы подразделения"
-            onKeyDown={walk}
-            className="flex gap-x-6 overflow-x-auto [scrollbar-width:none] max-md:hidden [&::-webkit-scrollbar]:hidden"
-        >
-            {DOCUMENTS.map((tab) => {
-                const active = tab.key === current;
-
-                return (
-                    <button
-                        key={tab.key}
-                        type="button"
-                        role="tab"
-                        id={`department-tab-${tab.key}`}
-                        aria-selected={active}
-                        aria-controls={`department-panel-${tab.key}`}
-                        tabIndex={active ? 0 : -1}
-                        onClick={() => onChange(tab.key)}
-                        className={cn(
-                            'shrink-0 border-b-2 px-1 pt-2 pb-2.5 text-sm whitespace-nowrap transition-colors',
-                            active
-                                ? 'border-brand text-foreground font-semibold'
-                                : 'text-muted-foreground hover:text-foreground border-transparent font-medium',
-                        )}
-                    >
-                        {tab.title}
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
-/**
- * The sheets of this department's own positions — «СФД», a profile per job.
- *
- * A profile belongs to a position rather than to the department, so this tab is
- * a way in rather than a document: the list of what there is, each line opening
- * the sheet it names.
- *
- * Three things it may have to say, and they are three different things. Who may
- * not read job titles at all is told that, not that the department has none —
- * a department's page is open to everybody signed in, and the list of its posts
- * is not, so «nothing here» would be a lie that sends somebody looking for a
- * department that does not exist.
- */
-function Profiles({ profiles }: { profiles: Profiles }) {
-    if (!profiles.can_read) {
-        return (
-            <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">Профили должностей доступны не всем — у вас нет доступа к ним.</p>
-        );
-    }
-
-    if (profiles.positions.length === 0) {
-        return <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">В этом подразделении пока нет должностей.</p>;
-    }
-
-    return (
-        <section className="flex flex-col gap-3 px-4 py-4 md:px-6 md:py-5">
-            <h2 className="text-[17px] leading-snug font-semibold">Профили должностей</h2>
-
-            <ul className="-mx-2 flex flex-col">
-                {profiles.positions.map((position) => (
-                    <li key={position.id}>
-                        <Link
-                            href={route('positions.show', position.id)}
-                            className="hover:bg-muted/60 flex items-start gap-3 rounded-md px-2 py-2.5 max-md:min-h-12"
-                        >
-                            <ClipboardList className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <span className="text-sm font-medium break-words">{position.name}</span>
-                                <span className="text-muted-foreground text-[13px] break-words">{position.title}</span>
-                            </span>
-                            <ChevronRight className="text-muted-foreground/60 mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                        </Link>
-                    </li>
-                ))}
-            </ul>
-        </section>
-    );
-}
-
-interface Profiles {
-    /** Whether this viewer may see job titles at all. */
-    can_read: boolean;
-    can_edit: boolean;
-    /** Empty both when there are none and when they are none of this viewer business. */
-    positions: { id: number; name: string; title: string }[];
+    return <DepartmentProfile department={department} profile={profile} />;
 }
 
 /** One unit of equipment as this tab names it; the holder only in the second half. */
@@ -431,13 +310,14 @@ function PhoneColleagueRow({ person, href }: { person: Colleague; href: string |
 export default function DepartmentPage({
     department,
     regulation,
-    profiles,
+    profile,
     equipment,
     equipmentUnits,
 }: {
     department: Department;
     regulation: Regulation;
-    profiles: Profiles;
+    /** «Профиль подразделения»: the sheet this department is described by. */
+    profile?: Profile;
     /** Whether this viewer may read equipment at all; the list is fetched apart. */
     equipment: { can_read: boolean };
     /** Absent until the tab is opened, which is when the page asks for it. */
@@ -609,7 +489,14 @@ export default function DepartmentPage({
                             view === 'list' && 'max-md:hidden',
                         )}
                     >
-                        <DocumentTabs current={open} onChange={changeView} />
+                        <DocumentTabs
+                            tabs={DOCUMENTS}
+                            current={open}
+                            onChange={changeView}
+                            label="Документы подразделения"
+                            name="department"
+                            className="max-md:hidden"
+                        />
 
                         <Card
                             role="tabpanel"
@@ -618,7 +505,7 @@ export default function DepartmentPage({
                             className="min-w-0 rounded-xl max-md:rounded-2xl max-md:border-0 max-md:shadow-none"
                         >
                             {open === 'regulation' && <DepartmentRegulation department={department.id} regulation={regulation} />}
-                            {open === 'sfd' && <Profiles profiles={profiles} />}
+                            {open === 'sfd' && <DepartmentSheet profile={profile} department={department.id} />}
                             {open === 'equipment' &&
                                 (equipment.can_read ? (
                                     <DepartmentEquipment units={equipmentUnits} loading={loading} />
@@ -637,7 +524,7 @@ export default function DepartmentPage({
 
                     {/* The column is narrow, so a colleague's address goes under
                         their name rather than at the right of their row. */}
-                    <aside className="flex min-w-0 flex-col gap-4 max-md:hidden">
+                    <aside className="flex min-w-0 flex-col gap-4 max-md:hidden lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto">
                         <Section title={department.heads.length > 1 ? 'Руководители' : 'Руководитель'}>
                             {department.heads.length === 0 ? (
                                 <p className="text-muted-foreground text-sm">Не назначен</p>

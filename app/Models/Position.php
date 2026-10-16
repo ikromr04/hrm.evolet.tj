@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Document;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,11 +20,6 @@ class Position extends Model
     protected $fillable = [
         'department_id',
         'name',
-        // The two words «Профиль должности» grades a position by, «КАТЕГОРИЯ»
-        // and «ГРАЙД». Nothing can work either out, so whoever keeps the list
-        // types them, and they stay empty until somebody does.
-        'category',
-        'grade',
         // The heading «Профиль должности» is printed under, typed by hand
         // because it needs the name of the position in a case nothing here
         // invents. Empty until somebody writes one, and then read in place of
@@ -96,10 +92,14 @@ class Position extends Model
      * the standard sections it rewrote. Everything it did not rewrite it reads
      * from the template, so this is never the whole document —
      * RegulationSection::forPosition() puts that together.
+     *
+     * The document is named although a position can own no other: the column
+     * is read the same way on a department, which owns two, and a relation that
+     * says which document it is about cannot be read as the wrong one.
      */
     public function profileSections(): HasMany
     {
-        return $this->hasMany(RegulationSection::class);
+        return $this->hasMany(RegulationSection::class)->where('document', Document::PROFILE);
     }
 
     /**

@@ -22,10 +22,16 @@ use InvalidArgumentException;
  * A section names the document it is part of and belongs either to nobody — the
  * shared template, the standard text every owner reads — or to one owner, and
  * then it is that owner's own wording of a standard section, which names the
- * template section it stands for. Who an owner is depends on the document: a
- * regulation belongs to a department and a profile to a position, which is the
- * one difference between them and the reason the document has to be written on
- * the row. Without it the two templates, both owned by nobody, would be one.
+ * template section it stands for. Which owners a document may have is the one
+ * thing that still tells the two apart: a regulation is a department's and
+ * nobody else's, while a profile is written for a position and for a
+ * department alike. That is why the document is written on the row — the two
+ * templates, both owned by nobody, would otherwise be one.
+ *
+ * One owner to a row, whichever document it is. A profile naming a department
+ * and a position at once would be a sheet about two things, and the database
+ * refuses it outright; the kind of owner it may name at all is a rule about
+ * meaning, which is kept here.
  *
  * A document is those standard sections and nothing else: an owner rewrites one
  * of them, and no page adds a section to the document or takes one out of it. A
@@ -84,21 +90,28 @@ class RegulationSection extends Model
     {
         // Keep the three shapes above the only ones there are, and keep each
         // document's rows its own: the template overrides nothing, nothing but
-        // an owner's section overrides, and an owner only ever owns the document
-        // that belongs to its kind.
+        // an owner's section overrides, an owner only ever owns a document its
+        // kind may own, and no row belongs to two owners at once.
         static::saving(function (self $section) {
-            $owns = Document::owner($section->document);
-            $foreign = $section->document === Document::REGULATION ? 'position_id' : 'department_id';
+            $owners = Document::owners($section->document);
+            $named = array_filter(
+                array_values(Document::COLUMNS),
+                fn (string $column) => $section->{$column} !== null,
+            );
 
-            if ($section->{$foreign} !== null) {
-                throw new InvalidArgumentException('«Положение о работе» принадлежит отделу, а «Профиль должности» — должности.');
+            if (array_diff($named, $owners) !== []) {
+                throw new InvalidArgumentException('«Положение о работе» принадлежит подразделению, а «Профиль должности» — подразделению или должности.');
+            }
+
+            if (count($named) > 1) {
+                throw new InvalidArgumentException('Раздел документа принадлежит одному владельцу: подразделению или должности, но не обоим сразу.');
             }
 
             if ($section->template_section_id === null) {
                 return;
             }
 
-            if ($section->{$owns} === null) {
+            if ($named === []) {
                 throw new InvalidArgumentException('Раздел шаблона не может быть переопределением: переопределение принадлежит владельцу документа.');
             }
 
@@ -110,13 +123,13 @@ class RegulationSection extends Model
         });
     }
 
-    /** Empty for the template, and for every section of a profile. */
+    /** Empty for the template, and for a profile written for a position. */
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
     }
 
-    /** Empty for the template, and for every section of a regulation. */
+    /** Empty for the template, for every section of a regulation, and for a department's profile. */
     public function position(): BelongsTo
     {
         return $this->belongsTo(Position::class);
@@ -135,17 +148,56 @@ class RegulationSection extends Model
     }
 
     /**
-     * Whose section this is, read through the document it belongs to: the
-     * department of a regulation, the position of a profile, nobody at all for
-     * a section of the template.
+     * Which column this row names its owner in, and nothing at all for a
+     * section of the template, which names none.
      *
-     * The two columns are asked one at a time rather than together, because a
-     * row that filled in both would be a row of two documents at once — which
-     * the database refuses outright.
+     * Only the columns this document may be owned through are looked at: a
+     * profile is read for a department as readily as for a position, and a
+     * regulation that somehow carried a position would be answered as the
+     * template rather than as that position's, which is the one reading that
+     * would be worse than saying nothing.
+     */
+    public function ownerColumn(): ?string
+    {
+        foreach (Document::owners($this->document) as $column) {
+            if ($this->{$column} !== null) {
+                return $column;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whose section this is: the department of a regulation, the department or
+     * the position a profile is written for, nobody at all for a section of the
+     * template.
+     *
+     * An id and not an owner, because what asks is comparing it with the owner
+     * of the address it was read at — and an id alone cannot tell a department
+     * from a position, so whatever compares them uses ownedBy() rather than
+     * this.
      */
     public function ownerId(): ?int
     {
-        return $this->{Document::owner($this->document)};
+        $column = $this->ownerColumn();
+
+        return $column === null ? null : $this->{$column};
+    }
+
+    /**
+     * Whether this section is this owner's — or, asked about nobody, whether it
+     * is the template's.
+     *
+     * The kind is asked along with the id, because the two owners of a profile
+     * are numbered apart: department 7 and position 7 both exist, and «is this
+     * section seven's?» has two answers.
+     */
+    public function ownedBy(Department|Position|null $owner): bool
+    {
+        return $owner === null
+            ? $this->ownerColumn() === null
+            : $this->{Document::column($owner)} === $owner->id && Document::owns($this->document, $owner);
     }
 
     /**
@@ -186,17 +238,28 @@ class RegulationSection extends Model
      * all of it in one order. Called with no owner it is the template itself,
      * which is how the same page edits the standard text.
      *
+     * The template is the rows of this document that name no owner of any kind,
+     * so one template serves every kind that may own the document: a department
+     * and a position read the same nine sections and rewrite them each for
+     * itself, and there is nothing in the standard text that is one kind's.
+     *
      * @return Collection<int, self>
      */
     public static function forOwner(string $document, Department|Position|null $owner): Collection
     {
-        $owns = Document::owner($document);
-        $template = static::where('document', $document)->whereNull($owns)->get();
+        $standard = static::where('document', $document);
+
+        foreach (Document::owners($document) as $column) {
+            $standard->whereNull($column);
+        }
+
+        $template = $standard->get();
 
         if ($owner === null) {
             return self::inOrder($template);
         }
 
+        $owns = Document::column($owner);
         $own = static::where('document', $document)->where($owns, $owner->id)->get();
         $instead = $own->whereNotNull('template_section_id')->keyBy('template_section_id');
 
@@ -204,7 +267,14 @@ class RegulationSection extends Model
             $template
                 ->map(fn (self $section) => $instead->get($section->id) ?? $section)
                 ->merge($own->whereNull('template_section_id')),
-            RegulationOrder::where($owns, $owner->id)->pluck('order', 'regulation_section_id')->all(),
+            // This document's places and not the owner's every place: a
+            // department arranges two documents and names itself in the same
+            // column in both, so the rows are narrowed to the sections this
+            // document is made of.
+            RegulationOrder::where($owns, $owner->id)
+                ->whereIn('regulation_section_id', $template->pluck('id')->merge($own->pluck('id')))
+                ->pluck('order', 'regulation_section_id')
+                ->all(),
         );
     }
 
@@ -228,6 +298,19 @@ class RegulationSection extends Model
     public static function forPosition(?Position $position): Collection
     {
         return self::forOwner(Document::PROFILE, $position);
+    }
+
+    /**
+     * The same nine sections as one department reads them, which is the sheet
+     * its «СФД» tab holds. Its regulation is a different document and is read
+     * by forDepartment(); both are the department's, and the arrangement of
+     * each is kept apart by the sections it names.
+     *
+     * @return Collection<int, self>
+     */
+    public static function profileForDepartment(?Department $department): Collection
+    {
+        return self::forOwner(Document::PROFILE, $department);
     }
 
     /**

@@ -407,7 +407,7 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('sort.key', 'name')
                 ->where('employees.data.0.surname', 'Азимов')
-                ->where('sortable', ['created', 'name', 'role', 'department', 'position', 'sex'])
+                ->where('sortable', ['created', 'name', 'role', 'department', 'unit', 'position', 'sex'])
             );
 
         $this->get('/employees?sort=name&direction=desc')
@@ -464,11 +464,69 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.id', $oldest->id)
                 ->where('employees.data.2.id', $youngest->id)
-                ->has('sortable', 14)
+                ->has('sortable', 15)
             );
 
         $this->get('/employees?sort=children&direction=desc')
             ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.id', $youngest->id));
+    }
+
+    public function test_the_citizenship_column_sorts_by_the_country_it_prints()
+    {
+        // Citizenships left `user_details` for a directory of their own, and
+        // the column kept its header: pressing it has to put the list in order
+        // rather than ask the database for a column that is not there.
+        $admin = User::factory()->create();
+        $admin->assignRole('sysadmin');
+        $russia = User::factory()->create();
+        $russia->citizenships()->sync(Citizenship::idsFor(['Россия']));
+        $afghanistan = User::factory()->create();
+        $afghanistan->citizenships()->sync(Citizenship::idsFor(['Афганистан']));
+
+        $this->actingAs($admin);
+
+        // The admin holds no citizenship and sorts first, before every country there is.
+        $this->get('/employees?sort=citizenship')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data.1.id', $afghanistan->id)
+                ->where('employees.data.2.id', $russia->id)
+            );
+
+        $this->get('/employees?sort=citizenship&direction=desc')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.id', $russia->id));
+    }
+
+    public function test_the_unit_column_sorts_by_the_unit_it_prints()
+    {
+        $analytics = Department::create(['name' => 'Департамент аналитики', 'abbreviation' => 'ДАС']);
+        $marketing = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $marketing->id]);
+        $analysis = Department::create(['name' => 'Отдел аналитики', 'abbreviation' => 'ОА', 'parent_id' => $analytics->id]);
+
+        $inDesign = User::factory()->create();
+        $inDesign->departments()->attach($design);
+        $inAnalysis = User::factory()->create();
+        $inAnalysis->departments()->attach($analysis);
+        // Attached to a department with no unit between: this column is empty
+        // for them, and nothing sorts before every name there is.
+        $inMarketing = User::factory()->create();
+        $inMarketing->departments()->attach($marketing);
+
+        $this->actingAs($this->colleague());
+
+        // «ОА» before «ОД», and the two with no unit — the viewer and the one
+        // attached to the department itself — ahead of both.
+        $this->get('/employees?sort=unit')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data.2.id', $inAnalysis->id)
+                ->where('employees.data.3.id', $inDesign->id)
+            );
+
+        $this->get('/employees?sort=unit&direction=desc')
+            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.id', $inDesign->id));
     }
 
     public function test_per_page_can_be_chosen_from_the_allowed_options()

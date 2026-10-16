@@ -27,10 +27,9 @@ use Illuminate\Http\Request;
  * for one job would no longer be the sheet the company wrote.
  *
  * The first section is the one nobody writes: it is a table of where the
- * position sits, what it is called and how it is graded, read from the
- * directory. A body typed into it would be a second answer to the same question,
- * so it is refused — see DocumentController, which holds every rule the two
- * documents share.
+ * position sits and what it is called, read from the directory. A body typed
+ * into it would be a second answer to the same question, so it is refused — see
+ * DocumentController, which holds every rule the two documents share.
  *
  * Keeping the profile is keeping the position, so it is guarded by
  * directories.edit.positions through the directories.manage.positions gate —

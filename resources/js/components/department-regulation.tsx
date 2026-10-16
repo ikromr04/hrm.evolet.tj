@@ -29,7 +29,6 @@ export function DepartmentRegulation({ department, regulation }: { department: n
                 store: 'departments.regulation.sections.store',
                 update: 'departments.regulation.sections.update',
                 destroy: 'departments.regulation.sections.destroy',
-                order: 'departments.regulation.order',
             }}
             paper={regulation}
             whose={regulation.names.nominative}

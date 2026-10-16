@@ -77,6 +77,10 @@ class EmployeeProfileTest extends TestCase
                     'path' => 'ДМ › Научный отдел',
                     'full_path' => 'Департамент маркетинга › Научный отдел',
                     'is_head' => false,
+                    // The one above it, named rather than left to be read out of
+                    // the path: the directory draws the two in columns of their
+                    // own and needs the department as something with an id.
+                    'parent' => ['id' => $marketing->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга'],
                 ])
                 ->where('employee.departments.1', [
                     'id' => $design->id,
@@ -85,6 +89,7 @@ class EmployeeProfileTest extends TestCase
                     'path' => 'ДМ › ОД',
                     'full_path' => 'Департамент маркетинга › Отдел Дизайна',
                     'is_head' => false,
+                    'parent' => ['id' => $marketing->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга'],
                 ])
             );
     }

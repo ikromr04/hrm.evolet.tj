@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Document;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -20,11 +21,12 @@ class Department extends Model
     protected $fillable = [
         'name',
         'abbreviation',
-        // The heading of «Положение о работе» as this department prints it,
-        // typed by hand because it needs the name in a case nothing here
-        // invents. Empty until somebody writes one, and then read in place of
-        // the heading worked out from the name.
+        // The headings of the two documents this department prints, as it
+        // prints them: typed by hand because each needs the name in a case
+        // nothing here invents. Empty until somebody writes one, and then read
+        // in place of the heading worked out from the name.
         'regulation_title',
+        'profile_title',
         'parent_id',
     ];
 
@@ -99,10 +101,24 @@ class Department extends Model
      * of the standard sections it rewrote. Everything it did not rewrite it
      * reads from the template, so this is never the whole document —
      * RegulationSection::forDepartment() puts that together.
+     *
+     * The document is named, because a department now keeps two of them in the
+     * same table under the same column and «its sections» without a document
+     * would be both documents at once.
      */
     public function regulationSections(): HasMany
     {
-        return $this->hasMany(RegulationSection::class);
+        return $this->hasMany(RegulationSection::class)->where('document', Document::REGULATION);
+    }
+
+    /**
+     * And what it keeps of its own «СФД»: the same thing for the other
+     * document, which the company writes about a unit as it writes it about a
+     * job. RegulationSection::profileForDepartment() reads the whole of it.
+     */
+    public function profileSections(): HasMany
+    {
+        return $this->hasMany(RegulationSection::class)->where('document', Document::PROFILE);
     }
 
     /**

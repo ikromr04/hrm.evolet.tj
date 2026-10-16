@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Department;
+use App\Models\RegulationSection;
 use App\Models\User;
 
 /**
@@ -105,6 +106,44 @@ final class Regulation
         return $own === ''
             ? self::TITLE.' '.mb_strtoupper($department->name)
             : (string) Document::resolve($own, self::values($department));
+    }
+
+    /**
+     * The document itself: its heading and its sections, read for this
+     * department. Two pages ask for it — the department's own, where it is also
+     * written, and a position's, where the regulation of the department the
+     * position belongs to is read and nothing more. Keeping it here is what
+     * stops the second page from growing a second idea of what the document is.
+     *
+     * @return array{title: string, sections: list<array<string, mixed>>}
+     */
+    public static function paper(Department $department): array
+    {
+        $values = self::values($department);
+
+        return [
+            'title' => self::title($department),
+            'sections' => RegulationSection::forDepartment($department)->map(fn (RegulationSection $section, int $place) => [
+                'id' => $section->id,
+                // "template" — the company's own text, read as it is written;
+                // "override" — this department's wording of a standard section;
+                // "own" — a section no template has.
+                'origin' => $section->origin(),
+                'template_section_id' => $section->template_section_id,
+                // Worked out here and stored nowhere: the number is the place
+                // the section is read in this department's document, and one
+                // section of the template is read at a different place in every
+                // department's.
+                'number' => RegulationSection::number($place),
+                'title' => $section->title,
+                'order' => $section->order,
+                // Sanitized where it was written, so it is already safe to put
+                // on the page as the markup it is.
+                'body' => Document::resolve($section->body, $values),
+                // The same body as somebody typed it, for the editor.
+                'body_written' => $section->body,
+            ])->values()->all(),
+        ];
     }
 
     /**

@@ -51,7 +51,7 @@ class EmployeeController extends Controller
 
     public const STATUSES = ['active', 'transferred', 'fired'];
 
-    private const PUBLIC_SORTS = ['created', 'name', 'role', 'department', 'position', 'sex'];
+    private const PUBLIC_SORTS = ['created', 'name', 'role', 'department', 'unit', 'position', 'sex'];
 
     /** @var Collection<int, Department>|null All departments keyed by id; the tree is small. */
     private ?Collection $departments = null;
@@ -70,7 +70,7 @@ class EmployeeController extends Controller
      *
      * @var array<string, string>
      */
-    private const SORT_FIELDS = ['role' => 'roles', 'position' => 'positions', 'department' => 'departments'];
+    private const SORT_FIELDS = ['role' => 'roles', 'position' => 'positions', 'department' => 'departments', 'unit' => 'departments'];
 
     private const PRIVATE_SORTS = [
         'birth_date', 'nationality', 'citizenship', 'home_address', 'phone', 'marital_status', 'children', 'hired_at',
@@ -740,14 +740,42 @@ class EmployeeController extends Controller
             'created' => $query->orderBy('users.created_at', $direction)->orderBy('users.id', $direction),
             'name' => $query->orderBy('surname', $direction)->orderBy('name', $direction),
             'sex' => $query->orderBy('sex', $direction),
+            // The two structure columns, each ordered by what it prints. For a
+            // person attached to a unit the department column prints the one
+            // above, so that is what it sorts by; the unit column prints the
+            // unit itself, and ties there are broken by the department, since
+            // two units of the same name in different departments are two
+            // different places. Somebody attached straight to a department has
+            // no unit and sorts as an empty one, which is how the other lists
+            // put the rows nobody has filed yet at one end.
             'department' => $query->orderBy(
                 DB::table('department_user')
                     ->join('departments', 'departments.id', '=', 'department_user.department_id')
+                    ->leftJoin('departments as parents', 'parents.id', '=', 'departments.parent_id')
                     ->whereColumn('department_user.user_id', 'users.id')
-                    // Ordered by what the column shows, which is the abbreviation.
-                    ->selectRaw('min(coalesce(departments.abbreviation, departments.name))'),
+                    ->selectRaw('min(coalesce(parents.abbreviation, parents.name, departments.abbreviation, departments.name))'),
                 $direction,
             ),
+            'unit' => $query
+                ->orderBy(
+                    DB::table('department_user')
+                        ->join('departments', 'departments.id', '=', 'department_user.department_id')
+                        ->whereColumn('department_user.user_id', 'users.id')
+                        // Only the departments that are units: one with nothing
+                        // above it is where somebody is attached without a unit
+                        // between, and this column is empty for them.
+                        ->whereNotNull('departments.parent_id')
+                        ->selectRaw('min(coalesce(departments.abbreviation, departments.name))'),
+                    $direction,
+                )
+                ->orderBy(
+                    DB::table('department_user')
+                        ->join('departments', 'departments.id', '=', 'department_user.department_id')
+                        ->leftJoin('departments as parents', 'parents.id', '=', 'departments.parent_id')
+                        ->whereColumn('department_user.user_id', 'users.id')
+                        ->selectRaw('min(coalesce(parents.abbreviation, parents.name, departments.abbreviation, departments.name))'),
+                    $direction,
+                ),
             'role' => $query->orderBy(
                 Role::select('roles.title')
                     ->join('model_has_roles', 'model_has_roles.role_id', '=', 'roles.id')
@@ -768,6 +796,17 @@ class EmployeeController extends Controller
                 UserChild::selectRaw('count(*)')->whereColumn('user_children.user_id', 'users.id'),
                 $direction,
             ),
+            // Citizenships are a list of their own since they were moved out of
+            // the card into a directory, so this sorts by the first country the
+            // column prints rather than by a `user_details` column — there has
+            // not been one of those to order by since the move.
+            'citizenship' => $query->orderBy(
+                DB::table('citizenship_user')
+                    ->join('citizenships', 'citizenships.id', '=', 'citizenship_user.citizenship_id')
+                    ->whereColumn('citizenship_user.user_id', 'users.id')
+                    ->selectRaw('min(citizenships.name)'),
+                $direction,
+            ),
             default => $query->orderBy($detail($sort), $direction),
         };
 
@@ -776,20 +815,38 @@ class EmployeeController extends Controller
     }
 
     /**
-     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, is_head: bool}>
+     * Where a person is attached, each placement whole: the department itself,
+     * and the one above it where there is one.
+     *
+     * The parent is named here rather than read off `path` on the page. The
+     * list has a column for the department and another for the unit inside it,
+     * and they are read across — the second line of one against the second line
+     * of the other — so the page needs the parent as a thing with an id to link
+     * to, not as half of a string that happens to be written with a « › » today.
+     *
+     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, is_head: bool, parent: null|array{id: int, name: string, full_name: string}}>
      */
     private function departmentList(User $user): array
     {
-        return $user->departments->map(fn (Department $d) => [
-            'id' => $d->id,
-            'name' => $d->display_name,
-            // The same two lines spelled out, for the hover and the screen
-            // reader that have to say what the short ones stand for.
-            'full_name' => $d->name,
-            'path' => $this->departmentPath($d->id),
-            'full_path' => $this->departmentPath($d->id, full: true),
-            'is_head' => (bool) $d->pivot->is_head,
-        ])->all();
+        return $user->departments->map(function (Department $d) {
+            $parent = $d->parent_id ? $this->allDepartments()->get($d->parent_id) : null;
+
+            return [
+                'id' => $d->id,
+                'name' => $d->display_name,
+                // The same two lines spelled out, for the hover and the screen
+                // reader that have to say what the short ones stand for.
+                'full_name' => $d->name,
+                'path' => $this->departmentPath($d->id),
+                'full_path' => $this->departmentPath($d->id, full: true),
+                'is_head' => (bool) $d->pivot->is_head,
+                'parent' => $parent === null ? null : [
+                    'id' => $parent->id,
+                    'name' => $parent->display_name,
+                    'full_name' => $parent->name,
+                ],
+            ];
+        })->all();
     }
 
     /**

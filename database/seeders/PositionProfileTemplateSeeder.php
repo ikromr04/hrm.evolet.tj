@@ -23,11 +23,10 @@ class PositionProfileTemplateSeeder extends Seeder
      * or on the position's own page where they are not.
      *
      * The first section is the exception twice over: it has no body and never
-     * gets one. «01 ОБЩАЯ ИНФОРМАЦИЯ» is a table of where the position sits,
-     * what it is called and how the company grades it, and all of that is
-     * already in the directory — so it is read from there every time the sheet
-     * is opened, rather than typed once and left to go stale the week somebody
-     * is moved.
+     * gets one. «01 ОБЩАЯ ИНФОРМАЦИЯ» is a table of where the position sits and
+     * what it is called, and both of those are already in the directory — so it
+     * is read from there every time the sheet is opened, rather than typed once
+     * and left to go stale the week somebody is moved.
      *
      * @var list<string>
      */

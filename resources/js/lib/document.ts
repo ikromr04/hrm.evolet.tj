@@ -61,16 +61,15 @@ export interface Paper {
 export type Editing = { mode: 'standard' | 'theirs'; section: DocumentSection };
 
 /**
- * Where a document's own addresses are: the five the card calls, by the names
- * the routes are registered under. Both documents answer the same five verbs,
- * so the card asks for them rather than knowing either.
+ * Where a document's own addresses are, by the names the routes are registered
+ * under. Both documents answer the same verbs, so the card asks for them rather
+ * than knowing either.
  */
 export interface Addresses {
     title: string;
     store: string;
     update: string;
     destroy: string;
-    order: string;
 }
 
 /**

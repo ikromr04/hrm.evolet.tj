@@ -10,6 +10,7 @@ import {
     type Sort,
     type ViewState,
 } from '@/components/data-table';
+import { DepartmentLink } from '@/components/department-name';
 import { searchBox } from '@/components/directory-manager';
 import InputError from '@/components/input-error';
 import { MobileFab } from '@/components/mobile-fab';
@@ -23,7 +24,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { plural } from '@/lib/plural';
-import { cn } from '@/lib/utils';
 import { Link, router, useForm } from '@inertiajs/react';
 import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEventHandler } from 'react';
@@ -55,14 +55,6 @@ interface Position {
     display_name: string;
     /** Where the position sits; null for the few nobody has filed yet. */
     department: Filing | null;
-    /**
-     * What the company grades the job by — «Менеджер» and «Менеджер 1» — the two
-     * fields «01 ОБЩАЯ ИНФОРМАЦИЯ» of «Профиль должности» opens with. Nothing
-     * here can work either of them out, so both are typed in this page's own
-     * editor and both are empty until somebody has.
-     */
-    category: string | null;
-    grade: string | null;
     /**
      * What the job is, a short line per duty, in the order they were entered.
      * One list: the position belongs to one department, so there is nothing
@@ -138,24 +130,17 @@ const collator = new Intl.Collator('ru');
 
 /**
  * The row reads along the structure and then down into the job: the department,
- * the unit inside it, the position itself, and what the company grades it by.
- * That is the order somebody says it out loud in — «в ДАС, в отделе аналитики,
- * аналитик» — and the two departments stand together because a position means
- * little without them: twenty of these names repeat, and «Аналитик» alone
- * answers nothing.
- *
- * The category and the grade follow the name because they qualify it — they are
- * the company's own answer to what the job is worth and where in its ladder it
- * stands. They are here at all because this table is the one place every
- * position is read beside every other: a value somebody can type in the editor
- * and never find in the list is one nobody will trust.
+ * the unit inside it, and the position itself. That is the order somebody says
+ * it out loud in — «в ДАС, в отделе аналитики, аналитик» — and the two
+ * departments stand together because a position means little without them:
+ * twenty of these names repeat, and «Аналитик» alone answers nothing.
  *
  * Neither who holds a position nor what it answers for is here any more. Those
  * were the two widest columns, and each of them said what the position's own
  * page says better — the holders with the duties each of them carries beside
- * their name, the duties themselves numbered and whole. What is left is five
- * short values, so the room the two of them took goes to the name: it is the
- * column that fills the table now, and it wraps.
+ * their name, the duties themselves numbered and whole. What is left is where
+ * the position sits and what it is called, so all the room goes to the name: it
+ * is the column that fills the table, and it wraps.
  */
 const columns: ColumnDef[] = [
     // Both are cut to their headers: «Департамент» has to stand beside its own
@@ -170,31 +155,21 @@ const columns: ColumnDef[] = [
     // The column that takes whatever room the others leave, and the width is the
     // floor it fills up from rather than what it is drawn at. A job title is the
     // point of the row and the one value here that is glad of the room: it wraps
-    // instead of being cut. Said outright, because otherwise the last of the
-    // columns would take it — and that is «Грайд», a word and a number handed
-    // the whole of the gap, with the rest of the table squeezed to its left.
+    // instead of being cut. Said outright rather than left to be the last column
+    // standing, because the three of them can be dragged into any order and the
+    // name is the one to hand the gap to wherever it ends up.
     { key: 'name', label: 'Должность', width: 245, fill: true },
-    // Narrow on purpose: a grade is a word and a number, and a category is a
-    // word more often than «Руководитель среднего звена». The longest of them
-    // wraps rather than widening the column — the name beside them has the
-    // better claim on the room. Each is cut to its own header rather than below
-    // it: unlike «Департамент» these two carry no funnel, so the label and the
-    // two controls after it are all the width has to hold, and a column headed
-    // «Гра…» would be a riddle.
-    { key: 'category', label: 'Категория', width: 175 },
-    { key: 'grade', label: 'Грайд', width: 145 },
 ];
 
 const columnKeys = columns.map((column) => column.key);
 
 /**
  * Every column of the table, each of them a value rows can be put in order by.
- * The two graded ones are read down to see who sits where in the ladder, which
- * is the whole reason a category is worth comparing across departments. Written
- * out rather than taken from the columns themselves, so that a column added
- * later has to say for itself whether it is a thing that can be sorted at all.
+ * Written out rather than taken from the columns themselves, so that a column
+ * added later has to say for itself whether it is a thing that can be sorted at
+ * all.
  */
-const sortable = ['department', 'unit', 'name', 'category', 'grade'];
+const sortable = ['department', 'unit', 'name'];
 
 const defaultView: ViewState = { hidden: [], pinned: { left: [], right: [] } };
 
@@ -326,11 +301,6 @@ function compare(a: Position, b: Position, sort: Sort): number {
     // meant to be read and the one place they cannot be scrolled past.
     const byDepartment = () => collator.compare(here.department?.name ?? '', there.department?.name ?? '');
     const byUnit = () => collator.compare(here.unit?.name ?? '', there.unit?.name ?? '');
-    // The same rule once more, and for the same reason: a position nobody has
-    // graded yet sorts before every word there is, so one press of the header
-    // gathers the rows somebody still has to fill in at the top of the list
-    // instead of burying them under the ones that are done.
-    const byGraded = (key: 'category' | 'grade') => () => collator.compare(a[key] ?? '', b[key] ?? '');
 
     // The structure read down — the department, its own positions, then the units
     // within it and the positions in each — and the «Департамент» column's own
@@ -343,12 +313,6 @@ function compare(a: Position, b: Position, sort: Sort): number {
     // By the unit the units stand together, but their departments are scattered
     // among them: a department holds units whose names begin anywhere.
     if (sort.key === 'unit') return sign * byUnit() || byDepartment() || byName();
-    // A grade is shared by positions all over the company, so a great many rows
-    // tie on it; they read down the structure they arrived in, and namesakes
-    // within it by name, rather than in whatever order the sort left them.
-    if (sort.key === 'category' || sort.key === 'grade') {
-        return sign * byGraded(sort.key)() || byDepartment() || byUnit() || byName();
-    }
 
     // Namesakes stand in the order the columns before them already read in.
     return sign * byName() || byDepartment() || byUnit();
@@ -357,81 +321,6 @@ function compare(a: Position, b: Position, sort: Sort): number {
 /** A value the row has not got, written the way the rest of the project writes it. */
 function Empty() {
     return <span className="text-muted-foreground">—</span>;
-}
-
-/**
- * What the company grades the job by, as it was typed: «Менеджер» in one column
- * and «Менеджер 1» in the next.
- *
- * Nothing in the application can work either value out — two positions in one
- * department sit in different grades — so a position nobody has graded yet is
- * an empty cell like any other and says so the way the rest of the table does.
- * It is not the amber of the unfiled rows: a grade that has not been decided is
- * not a row that was filed wrongly.
- *
- * The cell wraps rather than cutting the value off. The columns are narrow, and
- * «Руководитель среднего звена» is one of the categories the sheet prints
- * whole; a word longer than the column breaks instead of leaning into the one
- * beside it.
- */
-function Graded({ value }: { value: string | null }) {
-    if (value === null || value === '') return <Empty />;
-
-    return <span className="break-words whitespace-normal">{value}</span>;
-}
-
-/**
- * A department named as the org chart names it: the abbreviation leading, and
- * underneath it, quieter and smaller, what the abbreviation stands for.
- *
- * The chart and this table are the two places the structure itself is read, and
- * an abbreviation learned in one has to be the same thing in the other, so the
- * two lines stand in the same order and the same tone in both. Only the type is
- * this table's own: a column has a header naming the level above every cell in
- * it, so a cell needs no heading of its own the way a box on the chart does.
- *
- * Both lines belong to the link, so the label reads out whole and the full name
- * is no longer waiting behind a hover or in a copy kept for a screen reader.
- * Only the abbreviation takes the underline — two underlined lines would read as
- * two names rather than one.
- */
-function DepartmentLink({ department }: { department: Department }) {
-    // A department with no abbreviation is already named in full on the first
-    // line, so there is nothing left to spell out underneath it — and that one
-    // line is then as long as «Отдел Развития Продуктового Портфеля», which is
-    // the whole of what the cell holds rather than three letters.
-    const spelled = department.full_name !== department.name;
-
-    return (
-        <Link
-            href={route('departments.show', department.id)}
-            className="group flex min-w-0 flex-col gap-0.5"
-            // Two lines hold most of these names but not the longest, and a name
-            // cut off at the second has to be readable without leaving the table.
-            title={`Открыть: ${department.full_name}`}
-        >
-            {/* An abbreviation is three letters and needs nothing said about it.
-                A name standing here on its own is a whole name, and it is given
-                what the line below is given: it wraps, and stops at the second
-                line with an ellipsis rather than growing the row. */}
-            <span className={cn('group-hover:underline', !spelled && 'line-clamp-2 break-words whitespace-normal')}>{department.name}</span>
-            {spelled && (
-                // The columns are cut to the abbreviations, so a full name has to
-                // wrap — and then to stop, at two lines, rather than make every
-                // row of a department as tall as its name. What is cut off the
-                // hover still says, and the department's own page spells it out
-                // in its heading either way; a word longer than the column breaks
-                // rather than pushing the cell wider.
-                //
-                // The wrapping is asked for because the cell will not have it
-                // otherwise: a cell is cut off at its own edge unless its content
-                // says it wraps.
-                <span className="text-muted-foreground line-clamp-2 text-[11px] leading-tight break-words whitespace-normal">
-                    {department.full_name}
-                </span>
-            )}
-        </Link>
-    );
 }
 
 /**
@@ -512,13 +401,6 @@ interface EditorData {
     /** The picker writes strings; nothing chosen yet is an empty one. */
     department_id: string;
     name: string;
-    /**
-     * The two graded fields as they are typed. An empty box is an answer rather
-     * than a question left out: it is sent as it stands and clears the value,
-     * which is how a grade entered by mistake is taken back off a position.
-     */
-    category: string;
-    grade: string;
     duties: string[];
 }
 
@@ -529,12 +411,6 @@ interface EditorData {
  * involves. The duties are entered the way a person's citizenships are — value
  * by value, each its own chip — and what other positions already say is offered
  * as suggestions, so the same duty is written the same way twice.
- *
- * The category and the grade stand between the name and the duties, which is
- * the order «01 ОБЩАЯ ИНФОРМАЦИЯ» of the profile prints them in and the order
- * the table reads them in as far as it goes. Two boxes side by side rather than
- * one under the other: they are a pair read across — «Менеджер», «Менеджер 1» —
- * and neither is more than a few words.
  */
 function EditorDialog({
     position,
@@ -550,8 +426,6 @@ function EditorDialog({
     const form = useForm<EditorData>({
         department_id: position?.department === null || position === null ? '' : String(position.department.id),
         name: position?.name ?? '',
-        category: position?.category ?? '',
-        grade: position?.grade ?? '',
         duties: position?.duties ?? [],
     });
 
@@ -561,13 +435,6 @@ function EditorDialog({
         form.transform((data) => ({
             department_id: data.department_id === '' ? null : Number(data.department_id),
             name: data.name.trim(),
-            // Sent on both the new position and the changed one, and sent even
-            // when the box is empty: an empty box means "not graded", and the
-            // server reads it as nothing. Left out instead, it would mean
-            // "leave whatever is there alone" and a grade could never be
-            // cleared.
-            category: data.category.trim(),
-            grade: data.grade.trim(),
             duties: data.duties.map((name) => ({ name })),
         }));
         const options = { preserveScroll: true, onSuccess: onClose };
@@ -630,42 +497,6 @@ function EditorDialog({
                             onChange={(event) => form.setData('name', event.target.value)}
                         />
                         <InputError message={errors.name} />
-                    </div>
-
-                    <div className="grid content-start gap-2">
-                        {/* Side by side on anything wider than a phone, one
-                            under the other on one; `content-start` holds both
-                            boxes level when only one is complained about. */}
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="grid content-start gap-2">
-                                <Label htmlFor="position-category">Категория</Label>
-                                <Input
-                                    id="position-category"
-                                    className="max-md:h-11"
-                                    value={form.data.category}
-                                    onChange={(event) => form.setData('category', event.target.value)}
-                                />
-                                <InputError message={errors.category} />
-                            </div>
-
-                            <div className="grid content-start gap-2">
-                                <Label htmlFor="position-grade">Грайд</Label>
-                                <Input
-                                    id="position-grade"
-                                    className="max-md:h-11"
-                                    value={form.data.grade}
-                                    onChange={(event) => form.setData('grade', event.target.value)}
-                                />
-                                <InputError message={errors.grade} />
-                            </div>
-                        </div>
-                        {/* Neither is required, and nothing here can guess
-                            them: the company writes these words itself and
-                            plenty of the positions have not been graded yet. */}
-                        <p className="text-muted-foreground text-[13px]">
-                            Как должность оценена в профиле должности: например «Менеджер» и «Менеджер 1». Можно оставить пустыми — тогда в списке
-                            будет прочерк.
-                        </p>
                     </div>
 
                     <div className="grid content-start gap-2">
@@ -801,16 +632,10 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
             ? kept.filter((position) => {
                   const { department, unit } = filing(position);
                   const where = [department?.name, department?.full_name, unit?.name, unit?.full_name];
-                  // Both graded fields answer too, now that both are on screen:
-                  // «Менеджер 1» is as likely a thing to go looking for as a
-                  // job title, and it is the one way to pull a whole grade out
-                  // of the list without a funnel of its own.
-                  const graded = [position.category, position.grade];
 
                   return (
                       position.name.toLowerCase().includes(term) ||
                       where.some((name) => name?.toLowerCase().includes(term)) ||
-                      graded.some((value) => value?.toLowerCase().includes(term)) ||
                       position.duties.some((duty) => duty.toLowerCase().includes(term))
                   );
               })
@@ -835,22 +660,19 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
             // search, or sat on half way down the list — says where it sits
             // without anything above it having to be looked up.
             case 'department':
-                return department === null ? <Unfiled>Без департамента</Unfiled> : <DepartmentLink department={department} />;
+                return department === null ? (
+                    <Unfiled>Без департамента</Unfiled>
+                ) : (
+                    <DepartmentLink id={department.id} name={department.name} full={department.full_name} />
+                );
             case 'unit':
                 // A department may hold positions with no unit between — ДУЧР has
                 // no units at all — and that is nothing to fix, so the cell reads
                 // as an empty value rather than as the amber beside it. One with
                 // no department has no unit either, and says so.
-                if (unit !== null) return <DepartmentLink department={unit} />;
+                if (unit !== null) return <DepartmentLink id={unit.id} name={unit.name} full={unit.full_name} />;
 
                 return department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />;
-            // Two values of the job itself rather than of where it sits, which is
-            // all that sets them apart from the two columns before: every column
-            // of this table is a cell per row.
-            case 'category':
-                return <Graded value={position.category} />;
-            case 'grade':
-                return <Graded value={position.grade} />;
             default:
                 return (
                     <Link
@@ -875,7 +697,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     // that answers a question none of the funnels can. A row found by one is
     // still a row to follow rather than a puzzle: it opens the page that prints
     // the duties in full.
-    const searchHint = 'Поиск по названию, департаменту, отделу, категории, грайду и обязанностям';
+    const searchHint = 'Поиск по названию, департаменту, отделу и обязанностям';
 
     /**
      * An empty list has to say which of the two reasons emptied it. A department
@@ -973,14 +795,6 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                         // «ДАС › ОА» repeated down a list is what tells one run of
                         // rows from the next, and the order is the same structural
                         // one the table opens in, so those runs are there to read.
-                        //
-                        // The category and the grade stay off this line, for the
-                        // reason the full names do: it is shared with the duties
-                        // and cut at the edge of the screen, and two more words
-                        // in front of them would push the duties off it. The
-                        // sheet behind the button still sorts by either of them,
-                        // the search box still finds them, and the page this row
-                        // opens prints both in the profile table at the top.
                         subtitle={
                             <>
                                 <StructureLine position={position} />

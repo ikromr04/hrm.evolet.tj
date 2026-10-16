@@ -1455,7 +1455,13 @@ export default function EquipmentIndex({
                     <DataTable
                         columns={columns}
                         rows={holders.data}
-                        rowKey={(row) => row.id}
+                        // Two kinds of row on one table, each with ids of its
+                        // own: a colleague and a department can both be 29, and
+                        // keyed by the number alone the two are one row to
+                        // React — which it draws twice and then refuses to put
+                        // back in order. The kind is what tells them apart,
+                        // here as it does on the server.
+                        rowKey={(row) => `${row.kind}:${row.id}`}
                         renderCell={holderCell}
                         sort={sort}
                         sortable={sortable}

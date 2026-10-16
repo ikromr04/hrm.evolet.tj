@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\DepartmentProfileController;
 use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
 use App\Http\Controllers\EmployeeAccessController;
@@ -262,17 +263,39 @@ Route::middleware(['auth', 'can:directories.manage.departments'])->name('departm
     });
 });
 
+// «СФД» as a department keeps it: the same nine sections, written about the
+// unit. It has no template address of its own — the standard text is one text
+// and is written at /positions/profile below — so this is one department's
+// wording of those sections, its arrangement and its heading, and a correction
+// made here reaches that department and nobody else.
+//
+// Keeping it is keeping the department, so it is the gate the department's
+// «Положение о работе» uses and not the positions one: what is written here is
+// the department's own sheet. Reading takes nothing — the page it is read on is
+// open to everybody signed in.
+Route::middleware(['auth', 'can:directories.manage.departments'])->name('departments.profile.')->group(function () {
+    Route::prefix('departments/{department}/profile')->group(function () {
+        // The heading of the printed sheet, which belongs to the department and
+        // not to a section of the document, so it is written on its own.
+        Route::put('title', [DepartmentProfileController::class, 'title'])->name('title');
+        Route::post('sections', [DepartmentProfileController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [DepartmentProfileController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [DepartmentProfileController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [DepartmentProfileController::class, 'order'])->name('order');
+    });
+});
+
 // «Профиль должности», the sheet the company calls СФД: the same document in
 // the same two halves as the regulation above, one address further down the
 // structure. /positions/profile is the profile of no position — the nine
 // standard sections every profile is made of, and the only address they are
-// added to or dropped from — and /positions/{position}/profile is one
-// position's own wording of them, its arrangement and its heading. A
-// correction made there reaches that position and nobody else, on purpose.
+// added to or dropped from, for a department's sheet as much as for a
+// position's — and /positions/{position}/profile is one position's own wording
+// of them, its arrangement and its heading. A correction made there reaches
+// that position and nobody else, on purpose.
 //
 // The document has no page of its own: it is read, and edited, on the
-// position's page, and the department's page lists the positions whose profiles
-// it is the department of.
+// position's page, and a department reads its own on its own page.
 //
 // Keeping it is keeping the position, so it is the same gate as the list of job
 // titles, the pair of rights rather than the bare one. Reading it takes the
