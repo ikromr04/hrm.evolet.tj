@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Department;
 use App\Models\Equipment;
+use App\Models\Position;
 use App\Models\User;
+use App\Support\Directories;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentName;
@@ -48,7 +50,7 @@ class DepartmentController extends Controller
             'department' => fn () => $this->people($department),
             // The row as it came from the address, not the one out of the tree:
             // the tree reads the few columns a chart draws with, and the
-            // document needs the heading this department typed as well.
+            // document is read for this department by name.
             'regulation' => fn () => $this->regulation($department),
             // And the other document the department keeps: «СФД», the same nine
             // sections a position's profile is made of, written about the unit.
@@ -61,6 +63,17 @@ class DepartmentController extends Controller
             // query. The equipment itself costs a page of reads and is asked
             // for only by somebody who presses the tab.
             'equipment' => ['can_read' => EquipmentAccess::viewScopes($request->user()) !== []],
+            // Whether the column beside the document offers the way into
+            // «Изменить отдел», which is all the page needs before somebody
+            // presses it: the right, and not the list of everybody who could
+            // lead this department.
+            'editor' => ['can_edit' => Gate::allows('directories.manage.departments')],
+            // And that list, left out of every visit that does not ask for it
+            // by name — the same way the equipment below is. The window is
+            // opened by the few who keep the structure; the page is opened by
+            // everybody signed in, mostly to read a document, and every
+            // employee in the company is a heavy thing to send them.
+            'editorOptions' => Inertia::optional(fn () => $this->editor($department)),
             // And the list behind it, left out of every visit that does not
             // ask for it by name. This page is opened by everybody signed in,
             // mostly to read the regulation, and a department with a hundred
@@ -76,19 +89,16 @@ class DepartmentController extends Controller
     }
 
     /**
-     * «Положение о работе» as this department reads it: the standard sections of
-     * the shared template, each replaced by this department's wording where it
-     * wrote one — in one order, with the placeholders answered, under the
-     * heading this department prints it with.
+     * «Положение о работе» as this department reads it: the one text of the
+     * shared template, or this department's own wording of it, with the
+     * placeholders answered — the name of the sheet among them, because that is
+     * the first line of the text and not a heading kept anywhere else.
      *
      * The body comes twice: as it is read, with this department's name in the
      * place of the placeholders, and as it was written, braces and all, which is
      * what the editor has to put back in front of whoever edits it. A section
      * says which of the three it is, so the page can tell «this is the company's
-     * text» from «this department rewrote it» without working it out. And its
-     * number is the place it is read in, counted here, because one document is
-     * assembled out of two scopes and a number means nothing in either of them
-     * alone.
+     * text» from «this department rewrote it» without working it out.
      *
      * @return array<string, mixed>
      */
@@ -104,17 +114,16 @@ class DepartmentController extends Controller
             'names' => ['nominative' => $department->name],
             // What may be typed into the text, and what each one reads as here.
             'placeholders' => Regulation::offer($department),
-            // The heading and the sections, as a position's page reads them too.
+            // The document itself, as a position's page reads it too.
             ...Regulation::paper($department),
         ];
     }
 
     /**
-     * «СФД» as this department keeps it: the nine standard sections of the
-     * shared template, each replaced by this department's wording where it
-     * wrote one — in one order, under the heading the sheet is printed with,
-     * with «01 ОБЩАЯ ИНФОРМАЦИЯ» answered from what the application knows about
-     * the unit.
+     * «СФД» as this department keeps it: the one text of the shared template,
+     * or this department's own wording of it, opening with the name of the
+     * sheet — and beside it what the application knows about the unit, which
+     * the column at the side of the page reads.
      *
      * The document and not a list of the jobs under it. The tab listed this
      * department's positions until the company said that a unit's СФД is the
@@ -188,6 +197,50 @@ class DepartmentController extends Controller
                 'heads' => $this->heads($d)->map(fn (User $u) => $this->person($u))->values(),
             ])->values(),
             'members' => $members->map(fn (User $u) => $this->person($u, details: true)),
+        ];
+    }
+
+    /**
+     * What «Изменить отдел» needs and the page itself does not: this department
+     * as that window reads a record, with the positions filed in it, and the
+     * departments it could be put under.
+     *
+     * The window is the one «Подразделения» opens, and it saves through that
+     * same address, so it is given the same shape the list gives it — the full
+     * name among it, because the window is where the short name is written.
+     *
+     * Refused outright to anybody who may not keep the structure. The prop is
+     * asked for by name and a request can be written by hand, so the right is
+     * checked here and not only where the control is drawn: the answer names
+     * every position of the department and says which of them lead it.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function editor(Department $department): ?array
+    {
+        if (! Gate::allows('directories.manage.departments')) {
+            return null;
+        }
+
+        return [
+            'department' => [
+                'id' => $department->id,
+                'name' => $department->name,
+                'abbreviation' => $department->abbreviation,
+                'parent_id' => $department->parent_id,
+            ],
+            // Where it could sit. The whole tree rather than a list of
+            // candidates: the window works out for itself which placements the
+            // two levels allow, and it is the same window the list opens.
+            'departments' => Department::query()
+                ->orderBy('name')
+                ->get(['id', 'name', 'abbreviation', 'parent_id'])
+                ->map(fn (Department $d) => [
+                    'id' => $d->id,
+                    'name' => $d->name,
+                    'abbreviation' => $d->abbreviation,
+                    'parent_id' => $d->parent_id,
+                ]),
         ];
     }
 
@@ -305,7 +358,18 @@ class DepartmentController extends Controller
             'avatar' => EmployeeFields::showsAvatar(request()->user(), $user) ? $user->avatar : null,
             ...($details ? [
                 'email' => $user->email,
-                'positions' => $user->positions->pluck('name')->sort()->values(),
+                // Named and, for whoever may open one, linked: the page
+                // that listed this department's positions is gone, and a job
+                // title in a colleague's card is the way back to it. The id is
+                // withheld from somebody who may not read the list, so the
+                // badge stays a word rather than becoming a link into a 403.
+                'positions' => $user->positions
+                    ->sortBy('name')
+                    ->map(fn ($position) => [
+                        'id' => Gate::allows(Directories::viewPermission('positions')) ? $position->id : null,
+                        'name' => $position->name,
+                    ])
+                    ->values(),
             ] : []),
         ];
     }

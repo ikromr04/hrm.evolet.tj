@@ -272,23 +272,26 @@ class EmployeePersonalDataTest extends TestCase
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         $department = Department::create(['name' => 'Отдел продаж']);
         $other = Department::create(['name' => 'Отдел закупок']);
-        $employee->departments()->attach($department, ['is_head' => true]);
+        $leading = Position::create(['department_id' => $department->id, 'name' => 'Руководитель отдела продаж', 'is_head' => true]);
+        $elsewhere = Position::create(['department_id' => $other->id, 'name' => 'Снабженец']);
 
-        // Leading a department is recorded on the row that says they belong to
-        // it, so a save that rewrites those rows must not demote them.
+        // Leading a department follows from holding one of its leading
+        // positions, so a save that keeps the position must keep the leading
+        // with it.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
-                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+                'placements' => [['department_id' => $department->id, 'position_id' => $leading->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 
         $this->assertTrue((bool) $employee->refresh()->departments->first()->pivot->is_head);
 
         // Moved out of it, they do not lead it any more — and do not arrive at
-        // the next department as its head.
+        // the next department as its head, because the job they arrive in is an
+        // ordinary one.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
-                'placements' => [['department_id' => $other->id, 'position_id' => null, 'duty_ids' => []]],
+                'placements' => [['department_id' => $other->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 

@@ -21,12 +21,10 @@ class Department extends Model
     protected $fillable = [
         'name',
         'abbreviation',
-        // The headings of the two documents this department prints, as it
-        // prints them: typed by hand because each needs the name in a case
-        // nothing here invents. Empty until somebody writes one, and then read
-        // in place of the heading worked out from the name.
-        'regulation_title',
-        'profile_title',
+        // Neither document this department keeps has a heading of its own kept
+        // here. Each is one file, and the first line of that file is what the
+        // sheet is called, so the heading is written where the document is
+        // written.
         'parent_id',
     ];
 
@@ -91,9 +89,19 @@ class Department extends Model
         return $this->hasMany(Position::class)->orderBy('name');
     }
 
+    /**
+     * The people in this department — read freely, written in one place only.
+     *
+     * Somebody belongs to a department because they hold one of its positions,
+     * and the table behind this relation is worked out from that by
+     * App\Support\Membership. Everything that asks who is where goes on asking
+     * here: equipment access, the chart's counts, the staff lists, the filters,
+     * section 01 of a department's profile. Nothing attaches, detaches or syncs
+     * it — a change made that way is a change the next save undoes.
+     */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class)->withPivot('is_head')->withTimestamps();
+        return $this->belongsToMany(User::class)->withPivot('is_head', 'by_hand')->withTimestamps();
     }
 
     /**
@@ -123,6 +131,10 @@ class Department extends Model
 
     /**
      * Members who lead this department; there can be several.
+     *
+     * Whoever holds one of its leading positions, which is what the flag on
+     * this pivot is worked out from. Two departments are led by two people
+     * today, so «several» is the company as it is and not an oversight.
      */
     public function heads(): BelongsToMany
     {

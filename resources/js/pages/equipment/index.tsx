@@ -1158,8 +1158,14 @@ export default function EquipmentIndex({
      * being columns that ask nothing. The statuses and the dates it is not
      * shown are left out of the count too, so the button does not offer to
      * clear what it never offered.
+     *
+     * Both branches keep only the columns that actually ask something: the list
+     * draws plenty that narrow nothing — the inventory number, the dates — and
+     * a column with no filter has nothing to clear. Reset read the unfiltered
+     * list and threw on the first such column, which took the whole press with
+     * it and left the button looking dead.
      */
-    const narrowing = byHolder ? [...columns.filter((column) => column.filter), ...holderFilters] : columns;
+    const narrowing = byHolder ? [...columns.filter((column) => column.filter), ...holderFilters] : columns.filter((column) => column.filter);
     const activeFilters = countActiveFilters(narrowing, filters as unknown as Record<string, unknown>, () => true);
     // A sorting of the viewer's own counts as one more change to reset.
     const changed = activeFilters + (sortedByColumn ? 1 : 0);

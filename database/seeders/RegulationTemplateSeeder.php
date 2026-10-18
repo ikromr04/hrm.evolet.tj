@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\RegulationSection;
 use App\Support\Document;
+use App\Support\Regulation;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -11,17 +12,22 @@ class RegulationTemplateSeeder extends Seeder
 {
     /**
      * «Положение о работе» as the company wrote it, transcribed from the Word
-     * file it was passed around in: the standard sections every department
-     * reads, with the department's name left as a placeholder because one text
-     * serves them all.
+     * file it was passed around in: the parts of the document and the clauses
+     * under each, with the department's name left as a placeholder because one
+     * text serves them all.
      *
-     * This is the template — the sections that belong to no department. A
-     * department that needs its own wording of one of them rewrites it on its
-     * own page, which keeps a copy of its own and leaves the company's text
-     * alone; everywhere nobody has done that, this is what is read. Which is
-     * also why the text is written with {подразделение} in it rather than with
-     * anybody's name: the same sentence has to read correctly on twenty-six
-     * pages.
+     * The document is one text, and these are the headings inside it rather
+     * than sections of their own — the company writes it as one file and asked
+     * for one editor, so the parts are parts of a body and whoever writes it
+     * moves, renames and renumbers them like any other line of it. The numbers
+     * are typed in once, here, and nothing counts them afterwards.
+     *
+     * This is the template — the text that belongs to no department. A
+     * department that needs its own wording rewrites it on its own page, which
+     * keeps a copy of its own and leaves the company's text alone; everywhere
+     * nobody has done that, this is what is read. Which is also why the text is
+     * written with {подразделение} in it rather than with anybody's name: the
+     * same sentence has to read correctly on twenty-six pages.
      *
      * Only the numbered clauses of the document are here. Two of its parts are
      * left out on purpose: «ЗАДАЧИ И ЦЕННЫЙ КОНЕЧНЫЙ ПРОДУКТ», which is a
@@ -70,49 +76,70 @@ class RegulationTemplateSeeder extends Seeder
      * It is written once and then belongs to the company: every later run leaves
      * it exactly as it stands, because the sentences are theirs to correct and a
      * seeder that put its own wording back would undo that work on every update.
-     * A section they dropped stays dropped for the same reason.
+     * A part of it they dropped stays dropped for the same reason.
+     *
+     * One row, because the document is one text. The four parts of it are
+     * headings inside that text, so a department opens one editor and reads one
+     * file, which is how the company works on it.
      */
     public function run(): void
     {
-        // This document's own template, and not the other's: «Профиль
-        // должности» is kept in the same table and its standard sections belong
-        // to no department either, so without the document named here the
-        // regulation would be read as already written the moment a profile was
-        // seeded.
-        if (RegulationSection::where('document', Document::REGULATION)->whereNull('department_id')->exists()) {
+        // This document's own template, and nobody's: «Профиль должности» is
+        // kept in the same table and its standard text belongs to no department
+        // either, so without the document named here the regulation would be
+        // read as already written the moment a profile was seeded — and both
+        // columns are asked about, because a position keeps a regulation of its
+        // own now and such a row names no department at all. Asking about one
+        // column would read one job's own wording as the company's and seed
+        // nothing.
+        $template = RegulationSection::where('document', Document::REGULATION)
+            ->whereNull('department_id')
+            ->whereNull('position_id');
+
+        if ($template->exists()) {
             return;
         }
 
-        DB::transaction(function () {
-            foreach (array_keys(self::SECTIONS) as $place => $title) {
-                RegulationSection::create([
-                    'department_id' => null,
-                    'template_section_id' => null,
-                    'title' => $title,
-                    'body' => self::body(self::SECTIONS[$title]),
-                    // A hundred apart, which leaves room between any two
-                    // standard sections for a department's own.
-                    'order' => ($place + 1) * 100,
-                ]);
-            }
-        });
+        DB::transaction(fn () => RegulationSection::create([
+            'department_id' => null,
+            'template_section_id' => null,
+            // What the one section is called, which nothing draws: the document
+            // names itself in its own first line, and the parts of it have
+            // their own headings after that. So the row is called after the
+            // document it is the whole of.
+            'title' => Regulation::TITLE,
+            'body' => self::body(),
+            'order' => 100,
+        ]));
     }
 
     /**
-     * The clauses as the editor would have written them: one numbered list to a
-     * section, one paragraph to a clause.
+     * The document as the editor would have written it: its own name at the
+     * top, then each part under a heading of its own, numbered as the company
+     * numbers them, and its clauses as one numbered list, one paragraph to a
+     * clause.
      *
      * Through the same sanitizer every body written on the page goes through, so
      * the standard text is on file in exactly the shape somebody typing it would
      * have left — and the first person to correct a sentence in it is not handed
      * a document that quietly rewrites itself as they save.
-     *
-     * @param  list<string>  $clauses
      */
-    private static function body(array $clauses): string
+    private static function body(): string
     {
-        $lines = array_map(fn (string $clause) => "<li><p>{$clause}</p></li>", $clauses);
+        // The name of the sheet, which is the first line of it the way a
+        // printed document opens with its own name — written as the one
+        // placeholder that stands for the whole opening line, because this text
+        // is read by departments and by positions alike and each has to read
+        // its own there.
+        $parts = ['<h2>{заголовок}</h2>'];
 
-        return (string) Document::sanitize('<ol>'.implode('', $lines).'</ol>');
+        foreach (array_values(array_keys(self::SECTIONS)) as $place => $title) {
+            $clauses = array_map(fn (string $clause) => "<li><p>{$clause}</p></li>", self::SECTIONS[$title]);
+
+            $parts[] = '<h2>'.str_pad((string) ($place + 1), 2, '0', STR_PAD_LEFT).' '.$title.'</h2>'
+                .'<ol>'.implode('', $clauses).'</ol>';
+        }
+
+        return (string) Document::sanitize(implode('', $parts));
     }
 }

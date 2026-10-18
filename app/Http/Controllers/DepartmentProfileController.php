@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
  * standard sections, its arrangement of them and the heading it prints them
  * under.
  *
- * The same document a position carries, and the same nine sections: the company
+ * The same document a position carries, and the same one text: the company
  * writes one profile and the tab of a department holds it, rather than the list
  * of the jobs under it that stood there before. So there is no template address
  * here. The standard text is one text for both kinds of owner and is written
@@ -39,38 +39,37 @@ class DepartmentProfileController extends DocumentController
         return Document::PROFILE;
     }
 
-    protected function titleColumn(): string
+    /**
+     * No column and no field: the sheet is named in the first line of its own
+     * text, so there is nothing kept apart from the document and nothing to
+     * refuse a heading by.
+     */
+    protected function titleColumn(): ?string
     {
-        return 'profile_title';
+        return null;
     }
 
-    protected function heading(): string
+    protected function heading(): ?string
     {
-        return 'заголовок профиля подразделения';
+        return null;
     }
 
     /**
-     * @return array{added: string, taken_out: string, arranged: string, overridden: string, too_long: string}
+     * @return array{added: string, taken_out: string, arranged: string, overridden: string}
      */
     protected function refusals(): array
     {
         return [
-            'added' => 'Профиль подразделения состоит из девяти стандартных разделов — новые разделы в него не добавляются.',
-            'taken_out' => 'Профиль подразделения состоит из девяти стандартных разделов: раздел нельзя удалить, можно только вернуть его стандартный текст.',
+            'added' => 'Профиль подразделения — один текст: разделы в него не добавляются.',
+            'taken_out' => 'Профиль подразделения — один текст: его нельзя удалить, можно только вернуть стандартный.',
             'arranged' => 'Нужно перечислить все разделы профиля подразделения, каждый по одному разу.',
             'overridden' => 'Стандартный текст переопределяет подразделение, а не сам шаблон.',
-            'too_long' => 'Заголовок профиля подразделения не должен быть длиннее '.Document::TITLE_LENGTH.' символов.',
         ];
     }
 
     public function store(Request $request, Department $department): RedirectResponse
     {
         return $this->writeSection($request, $department);
-    }
-
-    public function title(Request $request, Department $department): RedirectResponse
-    {
-        return $this->nameDocument($request, $department);
     }
 
     public function update(Request $request, Department $department, ?RegulationSection $section = null): RedirectResponse

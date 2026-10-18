@@ -17,15 +17,16 @@ use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
- * «Положение о работе» on a department's page: the four sections of the
- * standard text, written in an editor and so written in HTML, what one
- * department keeps of its own wording of them, the heading it prints them
- * under, and who may write any of it.
+ * «Положение о работе» on a department's page: the standard text, written in an
+ * editor and so written in HTML, what one department keeps of its own wording
+ * of it, the heading it prints it under, and who may write any of it.
  *
- * The standard text is seeded, and one test is about exactly that. The rest
- * start from an empty document and write whatever template they need, because
- * what they are each about is one rule of the machinery rather than the
- * company's wording of a clause.
+ * The document is one text — the company writes it as one file, so the parts of
+ * it are headings in the body — and two tests are about exactly that and about
+ * the standard text being seeded. The rest start from an empty document and
+ * write whatever template they need, several sections of it, because what they
+ * are each about is one rule of the machinery, and that machinery is the one
+ * «Профиль должности» is kept by as well.
  */
 class DepartmentRegulationTest extends TestCase
 {
@@ -58,6 +59,11 @@ class DepartmentRegulationTest extends TestCase
      * The company's own document, transcribed once and theirs from then on: the
      * numbered clauses of «Положение о работе», written as the template, which
      * is what makes one text serve every department.
+     *
+     * One section, because the company writes this document as one file and
+     * works on it that way. Its parts — ОБЩЕЕ ПОЛОЖЕНИЕ and the three after it
+     * — are headings inside the body, numbered as the company numbers them,
+     * and from here on the numbering is whoever writes it's own business.
      */
     public function test_the_standard_text_is_written_once_and_is_then_the_company_s_own()
     {
@@ -65,37 +71,46 @@ class DepartmentRegulationTest extends TestCase
 
         $template = RegulationSection::forDepartment(null);
 
+        $this->assertCount(1, $template);
+        $this->assertSame(Regulation::TITLE, $template->first()->title);
+
+        // A heading with nothing under it is not a part of a document, and a
+        // count of anything would not have noticed — so every clause of every
+        // part is read back here, word for word and in order, under the heading
+        // it stood under.
+        //
         // Only the parts of the file that are numbered clauses: the two-column
-        // table of tasks is each department's to fill in and the signature sheet
-        // carries no text.
-        $this->assertSame(['ОБЩЕЕ ПОЛОЖЕНИЕ', 'ПРАВА', 'ОБЯЗАННОСТИ', 'ОТВЕТСТВЕННОСТЬ'], $template->pluck('title')->all());
+        // table of tasks is each department's to fill in and the signature
+        // sheet carries no text.
+        // The name of the sheet first, written with the placeholder, because
+        // one text is read by every department and by every position, and
+        // each of them reads its own opening line there.
+        $parts = ['<h2>{заголовок}</h2>'];
 
-        // A heading with nothing under it is not a section of a document, and a
-        // count of rows would not have noticed — so every clause of every
-        // section is read back here, word for word and in order.
-        foreach ($template as $section) {
-            $clauses = RegulationTemplateSeeder::SECTIONS[$section->title];
-
+        foreach (RegulationTemplateSeeder::SECTIONS as $title => $clauses) {
             $this->assertNotEmpty($clauses);
-            $this->assertSame(
-                '<ol>'.implode('', array_map(fn (string $clause) => "<li><p>{$clause}</p></li>", $clauses)).'</ol>',
-                $section->body,
-            );
 
-            // Which is one numbered list to a section and one paragraph to a
-            // clause — what the editor writes, and already in the shape the
-            // sanitizer leaves a body in, so the first person to correct a
-            // sentence is not handed a document that rewrites itself as they
-            // save.
-            $this->assertSame($section->body, Document::sanitize($section->body));
+            $parts[] = '<h2>'.RegulationSection::number(count($parts) - 1).' '.$title.'</h2>'
+                .'<ol>'.implode('', array_map(fn (string $clause) => "<li><p>{$clause}</p></li>", $clauses)).'</ol>';
         }
+
+        // One heading to a part, one numbered list under it and one paragraph
+        // to a clause — what the editor writes, and already in the shape the
+        // sanitizer leaves a body in, so the first person to correct a sentence
+        // is not handed a document that rewrites itself as they save.
+        $this->assertSame(implode('', $parts), $template->first()->body);
+        $this->assertSame($template->first()->body, Document::sanitize($template->first()->body));
 
         // And the document itself, as the company's file has it.
         $this->assertStringStartsWith(
-            '<ol><li><p>{подразделение} является самостоятельным структурным подразделением Представительства «Evolet Healthcare»',
+            '<h2>{заголовок}</h2><h2>01 ОБЩЕЕ ПОЛОЖЕНИЕ</h2><ol><li><p>{подразделение} является самостоятельным структурным подразделением Представительства «Evolet Healthcare»',
             $template->first()->body,
         );
-        $this->assertSame([7, 6, 6, 2], $template->map(fn (RegulationSection $section) => substr_count($section->body, '<li><p>'))->all());
+        $this->assertSame(
+            ['{заголовок}', '01 ОБЩЕЕ ПОЛОЖЕНИЕ', '02 ПРАВА', '03 ОБЯЗАННОСТИ', '04 ОТВЕТСТВЕННОСТЬ'],
+            $this->headings($template->first()->body),
+        );
+        $this->assertSame(21, substr_count($template->first()->body, '<li><p>'));
 
         // Every department reads it, with its own name where the shared text
         // leaves a placeholder — which is the whole reason the placeholders are
@@ -105,8 +120,7 @@ class DepartmentRegulationTest extends TestCase
 
         $sections = $this->regulation($this->colleague(), $design)['sections'];
 
-        $this->assertSame(['template', 'template', 'template', 'template'], array_column($sections, 'origin'));
-        $this->assertSame(['01', '02', '03', '04'], array_column($sections, 'number'));
+        $this->assertSame(['template'], array_column($sections, 'origin'));
         $this->assertStringContainsString('<li><p>Отдел Дизайна является самостоятельным', $sections[0]['body']);
         $this->assertStringContainsString('подразделения «Отдел Дизайна» определяется', $sections[0]['body']);
         $this->assertStringNotContainsString('{подразделение}', $sections[0]['body']);
@@ -115,16 +129,16 @@ class DepartmentRegulationTest extends TestCase
         // editor has to load.
         $this->assertStringContainsString('<li><p>{подразделение} является самостоятельным', $sections[0]['body_written']);
 
-        // Somebody has corrected a heading and dropped a section since the first
-        // day. A second run leaves both alone: the text belongs to them now, and
-        // an update that put our wording back would undo their work.
-        $template->first()->update(['title' => 'ОБЩИЕ ПОЛОЖЕНИЯ']);
-        $template->last()->delete();
+        // Somebody has rewritten a clause and dropped a part of it since the
+        // first day. A second run leaves the text exactly as it stands: it
+        // belongs to them now, and an update that put our wording back would
+        // undo their work.
+        $template->first()->update(['body' => '<h2>01 ОБЩИЕ ПОЛОЖЕНИЯ</h2><p>Своими словами.</p>']);
 
         $this->seed(RegulationTemplateSeeder::class);
 
-        $this->assertSame(count(RegulationTemplateSeeder::SECTIONS) - 1, RegulationSection::whereNull('department_id')->count());
-        $this->assertSame('ОБЩИЕ ПОЛОЖЕНИЯ', RegulationSection::find($template->first()->id)->title);
+        $this->assertCount(1, RegulationSection::forDepartment(null));
+        $this->assertSame('<h2>01 ОБЩИЕ ПОЛОЖЕНИЯ</h2><p>Своими словами.</p>', RegulationSection::find($template->first()->id)->body);
     }
 
     /** And until it is seeded, or where it has been dropped, nothing is read. */
@@ -240,9 +254,9 @@ class DepartmentRegulationTest extends TestCase
     }
 
     /**
-     * The document is the four sections of the standard text, and a department
-     * neither adds a section to it nor takes one out: it rewrites a section and
-     * puts the standard text back, and that is the whole of its half.
+     * The document is the standard text, and a department neither adds a
+     * section to it nor takes one out: it rewrites what is there and puts the
+     * standard text back, and that is the whole of its half.
      *
      * Both of those are one route each, and each route still does the half that
      * stays. A create names the standard section it is rewriting or it is
@@ -263,7 +277,7 @@ class DepartmentRegulationTest extends TestCase
                 'title' => 'ВЗАИМОДЕЙСТВИЕ',
                 'body' => '<p>Работает с типографией.</p>',
             ])
-            ->assertSessionHasErrors(['template_section_id' => 'Положение состоит из четырёх стандартных разделов — новые разделы в него не добавляются.']);
+            ->assertSessionHasErrors(['template_section_id' => 'Положение — один текст: разделы в него не добавляются.']);
 
         $this->assertSame(0, RegulationSection::where('department_id', $department->id)->count());
         $this->assertSame($template->count(), count($this->titles($department)));
@@ -321,125 +335,130 @@ class DepartmentRegulationTest extends TestCase
 
         $this->actingAs($keeper)
             ->delete("/departments/{$department->id}/regulation/sections/{$kept->id}")
-            ->assertSessionHasErrors(['section' => 'Положение состоит из четырёх стандартных разделов: раздел нельзя удалить, можно только вернуть его стандартный текст.']);
+            ->assertSessionHasErrors(['section' => 'Положение — один текст: его нельзя удалить, можно только вернуть стандартный.']);
 
         $this->assertNotNull(RegulationSection::find($kept->id));
         $this->assertSame('<p>Своими словами.</p>', $kept->fresh()->body);
     }
 
     /**
-     * What a department reads is the four sections of the standard text,
-     * numbered 01 to 04, in the order that department reads them in — however
-     * much of it it has rearranged or rewritten.
+     * What a department reads is the standard document, whole: one text with
+     * the four parts of it as headings inside it, and one pencil over the lot.
+     *
+     * The parts are not sections and nothing of ours numbers them — the numbers
+     * are typed into the headings, so a department that renames or renumbers a
+     * part is editing its text and nothing else has an opinion about it.
      */
-    public function test_a_department_reads_exactly_the_four_standard_sections()
+    public function test_a_department_reads_the_standard_document_as_one_text()
     {
         $this->seed(RegulationTemplateSeeder::class);
 
         $department = Department::create(['name' => 'Отдел Дизайна']);
+        $other = Department::create(['name' => 'Отдел аналитики']);
         $keeper = $this->keeper();
 
         $sections = $this->regulation($this->colleague(), $department)['sections'];
-        $ids = array_column($sections, 'id');
 
-        $this->assertCount(4, $sections);
-        $this->assertSame(['01', '02', '03', '04'], array_column($sections, 'number'));
-        $this->assertSame(['ОБЩЕЕ ПОЛОЖЕНИЕ', 'ПРАВА', 'ОБЯЗАННОСТИ', 'ОТВЕТСТВЕННОСТЬ'], array_column($sections, 'title'));
+        $this->assertCount(1, $sections);
+        $this->assertSame('template', $sections[0]['origin']);
+        // The name of the sheet, read with this department's name in it, and
+        // the parts of the document after it — every heading on the page is a
+        // line of the text.
+        $this->assertSame(
+            ['ПОЛОЖЕНИЕ О РАБОТЕ Отдел Дизайна', '01 ОБЩЕЕ ПОЛОЖЕНИЕ', '02 ПРАВА', '03 ОБЯЗАННОСТИ', '04 ОТВЕТСТВЕННОСТЬ'],
+            $this->headings($sections[0]['body']),
+        );
 
-        // Read back to front, which is this department's arrangement and still
-        // four sections numbered 01 to 04.
+        // Rewritten, which is the whole document rewritten, because the whole
+        // document is what is written: it is read in the same one place, and
+        // the parts of it are whatever this department now says they are.
         $this->actingAs($keeper)
-            ->put("/departments/{$department->id}/regulation/order", ['ids' => array_reverse($ids)])
-            ->assertRedirect();
-
-        $arranged = $this->regulation($this->colleague(), $department)['sections'];
-
-        $this->assertCount(4, $arranged);
-        $this->assertSame(['01', '02', '03', '04'], array_column($arranged, 'number'));
-        $this->assertSame(['ОТВЕТСТВЕННОСТЬ', 'ОБЯЗАННОСТИ', 'ПРАВА', 'ОБЩЕЕ ПОЛОЖЕНИЕ'], array_column($arranged, 'title'));
-
-        // And with one of them rewritten, which is read where that section was
-        // already read: still four, still 01 to 04, still that order.
-        $this->actingAs($keeper)
-            ->post("/departments/{$department->id}/regulation/sections", ['template_section_id' => $ids[1], 'body' => '<p>Своими словами.</p>'])
+            ->post("/departments/{$department->id}/regulation/sections", [
+                'template_section_id' => $sections[0]['id'],
+                'body' => '<h2>01 ОБЩИЕ ПОЛОЖЕНИЯ</h2><p>Своими словами.</p><h2>02 ПРАВА</h2><p>Свои права.</p>',
+            ])
             ->assertRedirect();
 
         $rewritten = $this->regulation($this->colleague(), $department)['sections'];
 
-        $this->assertCount(4, $rewritten);
-        $this->assertSame(['01', '02', '03', '04'], array_column($rewritten, 'number'));
-        $this->assertSame(['ОТВЕТСТВЕННОСТЬ', 'ОБЯЗАННОСТИ', 'ПРАВА', 'ОБЩЕЕ ПОЛОЖЕНИЕ'], array_column($rewritten, 'title'));
-        $this->assertSame('override', $rewritten[2]['origin']);
-        $this->assertSame('<p>Своими словами.</p>', $rewritten[2]['body']);
+        $this->assertCount(1, $rewritten);
+        $this->assertSame('override', $rewritten[0]['origin']);
+        $this->assertSame(['01 ОБЩИЕ ПОЛОЖЕНИЯ', '02 ПРАВА'], $this->headings($rewritten[0]['body']));
 
-        // Four in the company's own order for everybody who has arranged
-        // nothing.
-        $other = Department::create(['name' => 'Отдел аналитики']);
-
-        $this->assertSame(['ОБЩЕЕ ПОЛОЖЕНИЕ', 'ПРАВА', 'ОБЯЗАННОСТИ', 'ОТВЕТСТВЕННОСТЬ'], $this->titles($other));
-        $this->assertSame(['01', '02', '03', '04'], $this->numbers($other));
+        // And nobody else's document moved: the next department along still
+        // reads the company's text, parts and all.
+        $this->assertSame(
+            ['ПОЛОЖЕНИЕ О РАБОТЕ Отдел аналитики', '01 ОБЩЕЕ ПОЛОЖЕНИЕ', '02 ПРАВА', '03 ОБЯЗАННОСТИ', '04 ОТВЕТСТВЕННОСТЬ'],
+            $this->headings($this->regulation($this->colleague(), $other)['sections'][0]['body']),
+        );
+        $this->assertSame(['template'], array_column($this->regulation($this->colleague(), $other)['sections'], 'origin'));
     }
 
     /**
      * The heading of the printed sheet belongs to the department and is typed
-     * by hand: «ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ» wants
-     * the name in the genitive, and nothing here declines a Russian name.
+     * by hand — and it is typed into the document, because the document is one
+     * file and the first line of it is what the sheet is called.
      *
-     * What is read while nobody has typed anything is those words and the name
-     * upper-cased as it stands, which is one ending away from right and
-     * visibly so. That is the point of it: the ending is corrected in the field
-     * once, by somebody who knows, instead of guessed at by a rule that would
-     * get the next department's name wrong.
+     * So there is no heading beside the text, no column keeping one and no
+     * address writing one. «ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И
+     * СТАТИСТИКИ» wants the name in the genitive and nothing here declines a
+     * Russian name; the standard text asks for the name with a placeholder, and
+     * a department that wants the ending right writes the word it wants, in the
+     * one editor this document has.
      */
-    public function test_the_heading_of_the_sheet_is_the_department_s_own_and_is_typed_by_hand()
+    public function test_the_sheet_is_named_in_the_first_line_of_its_own_text()
     {
+        $this->seed(RegulationTemplateSeeder::class);
+
         $analytics = Department::create(['name' => 'Департамент аналитики и статистики']);
         $design = Department::create(['name' => 'Отдел Дизайна']);
         $keeper = $this->keeper();
 
-        $this->assertNull($analytics->regulation_title);
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТ АНАЛИТИКИ И СТАТИСТИКИ', $this->regulation($this->colleague(), $analytics)['title']);
+        // Nothing travels beside the document, and the document opens with its
+        // own name, read for the department reading it.
+        $read = $this->regulation($this->colleague(), $analytics);
 
-        // Typed once, and theirs from then on — ending and all.
+        $this->assertArrayNotHasKey('title', $read);
+        $this->assertSame(
+            'ПОЛОЖЕНИЕ О РАБОТЕ Департамент аналитики и статистики',
+            $this->headings($read['sections'][0]['body'])[0],
+        );
+        $this->assertSame('{заголовок}', $this->headings($read['sections'][0]['body_written'])[0]);
+
+        // The department that wants the ending right writes it, in the text,
+        // and it is theirs from then on — reaching that department's sheet and
+        // no other.
         $this->actingAs($keeper)
-            ->put("/departments/{$analytics->id}/regulation/title", ['title' => '  ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ  '])
+            ->post("/departments/{$analytics->id}/regulation/sections", [
+                'template_section_id' => $read['sections'][0]['id'],
+                'body' => '<h2>ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ</h2><p>Своими словами.</p>',
+            ])
             ->assertRedirect();
 
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ', $analytics->fresh()->regulation_title);
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ', $this->regulation($this->colleague(), $analytics)['title']);
-
-        // One department's heading reaches that department's sheet and no
-        // other.
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ОТДЕЛ ДИЗАЙНА', $this->regulation($this->colleague(), $design)['title']);
-
-        // The placeholders are answered here as in any other text of the
-        // document: it would be strange if the heading were the one place
-        // somebody was told they do not work.
-        $this->actingAs($keeper)
-            ->put("/departments/{$design->id}/regulation/title", ['title' => 'ПОЛОЖЕНИЕ О РАБОТЕ {подразделение}'])
-            ->assertRedirect();
-
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ Отдел Дизайна', $this->regulation($this->colleague(), $design)['title']);
-
-        // Cleared, the column is cleared and the default comes back: a heading
-        // is never stored as nothing, because a sheet is never printed without
-        // one.
-        $this->actingAs($keeper)->put("/departments/{$analytics->id}/regulation/title", ['title' => '   '])->assertRedirect();
-
-        $this->assertNull($analytics->fresh()->regulation_title);
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТ АНАЛИТИКИ И СТАТИСТИКИ', $this->regulation($this->colleague(), $analytics)['title']);
+        $this->assertSame(
+            'ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТА АНАЛИТИКИ И СТАТИСТИКИ',
+            $this->headings($this->regulation($this->colleague(), $analytics)['sections'][0]['body'])[0],
+        );
+        $this->assertSame(
+            'ПОЛОЖЕНИЕ О РАБОТЕ Отдел Дизайна',
+            $this->headings($this->regulation($this->colleague(), $design)['sections'][0]['body'])[0],
+        );
 
         // And the name the rest of the wording is written around is still sent
-        // beside it.
+        // beside the document.
         $this->assertSame('Департамент аналитики и статистики', $this->regulation($this->colleague(), $analytics)['names']['nominative']);
 
-        // A heading longer than the line it is printed on is refused, and what
-        // was there stays.
+        // There is no address for a heading any more, and no column behind one:
+        // the one way to name this sheet is to write the document.
+        $this->assertFalse(Schema::hasColumn('departments', 'regulation_title'));
         $this->actingAs($keeper)
-            ->put("/departments/{$design->id}/regulation/title", ['title' => str_repeat('а', Document::TITLE_LENGTH + 1)])
-            ->assertSessionHasErrors(['title' => 'Заголовок положения не должен быть длиннее '.Document::TITLE_LENGTH.' символов.']);
+            ->put("/departments/{$design->id}/regulation/title", ['title' => 'ПОЛОЖЕНИЕ О РАБОТЕ ОТДЕЛА ДИЗАЙНА'])
+            ->assertNotFound();
 
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ {подразделение}', $design->fresh()->regulation_title);
+        // And neither has «Профиль должности» beside it, which the company
+        // asked for in the same words a day later: both documents a department
+        // keeps are one file now, and each names itself in its own first line.
+        $this->assertFalse(Schema::hasColumn('departments', 'profile_title'));
     }
 
     /**
@@ -902,7 +921,7 @@ class DepartmentRegulationTest extends TestCase
      * The document is read by whoever may open the department's page, which is
      * everybody signed in, and written by whoever keeps the departments — the
      * same pair of rights as the list of units, for the template as much as for
-     * one department's own wording and its heading.
+     * one department's own wording of it.
      */
     public function test_everybody_reads_it_and_whoever_keeps_the_departments_writes_it()
     {
@@ -912,32 +931,26 @@ class DepartmentRegulationTest extends TestCase
         // the template's address writes is a standard section itself.
         $own = ['template_section_id' => $template->first()->id, 'body' => '<p>Своими словами.</p>'];
         $standard = ['title' => 'ОТВЕТСТВЕННОСТЬ'];
-        $heading = ['title' => 'ПОЛОЖЕНИЕ О РАБОТЕ ЧУЖОГО ОТДЕЛА'];
 
         $colleague = $this->colleague();
         $this->assertFalse($this->regulation($colleague, $department)['can_edit']);
         $this->actingAs($colleague)->post("/departments/{$department->id}/regulation/sections", $own)->assertForbidden();
         $this->actingAs($colleague)->post('/departments/regulation/sections', $standard)->assertForbidden();
-        $this->actingAs($colleague)->put("/departments/{$department->id}/regulation/title", $heading)->assertForbidden();
 
         // Reading the list of units is not keeping it.
         $reader = User::factory()->create()->givePermissionTo(Directories::viewPermission('departments'));
         $this->assertFalse($this->regulation($reader, $department)['can_edit']);
         $this->actingAs($reader)->post("/departments/{$department->id}/regulation/sections", $own)->assertForbidden();
-        $this->actingAs($reader)->put("/departments/{$department->id}/regulation/title", $heading)->assertForbidden();
 
         $this->assertSame(0, RegulationSection::where('department_id', $department->id)->count());
-        $this->assertNull($department->fresh()->regulation_title);
 
         $keeper = $this->keeper();
         $this->assertTrue($this->regulation($keeper, $department)['can_edit']);
         $this->actingAs($keeper)->post("/departments/{$department->id}/regulation/sections", $own)->assertRedirect();
         $this->actingAs($keeper)->post('/departments/regulation/sections', $standard)->assertRedirect();
-        $this->actingAs($keeper)->put("/departments/{$department->id}/regulation/title", $heading)->assertRedirect();
 
         $this->assertSame(1, RegulationSection::where('department_id', $department->id)->count());
         $this->assertSame($template->count() + 1, RegulationSection::whereNull('department_id')->count());
-        $this->assertSame('ПОЛОЖЕНИЕ О РАБОТЕ ЧУЖОГО ОТДЕЛА', $department->fresh()->regulation_title);
     }
 
     /**
@@ -1039,6 +1052,20 @@ class DepartmentRegulationTest extends TestCase
     private function titles(Department $department): array
     {
         return array_column($this->regulation($this->colleague(), $department)['sections'], 'title');
+    }
+
+    /**
+     * The headings a body is divided by, which is how the parts of the document
+     * are read now that it is one text: nothing stores them and nothing counts
+     * them, they are lines of the text like any other.
+     *
+     * @return list<string>
+     */
+    private function headings(?string $body): array
+    {
+        preg_match_all('/<h2>(.*?)<\/h2>/su', (string) $body, $found);
+
+        return $found[1];
     }
 
     /**

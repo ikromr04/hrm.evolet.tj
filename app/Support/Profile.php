@@ -9,8 +9,8 @@ use App\Models\User;
 
 /**
  * What «Профиль должности» says for itself — the sheet the company calls СФД:
- * the words its heading begins with, and the table of «01 ОБЩАЯ ИНФОРМАЦИЯ»,
- * which nobody types.
+ * the words it is named by, and the table of facts the directory answers,
+ * which nobody types and which is read beside the document now.
  *
  * The document is written for a position and for a department alike. The
  * company asked for a unit's СФД to be the same sheet as a job's rather than a
@@ -26,11 +26,14 @@ use App\Models\User;
  * has units of its own. Neither table says a word the application cannot
  * answer.
  *
- * It has no placeholders. The regulation needs them because one text is read on
- * twenty-six department pages and has to name each of them inside a sentence;
- * the profile says who it is about in a table at the top, filled from the
- * directory, so a body of it is read exactly as it was written and the editor
- * has no tokens to offer.
+ * It has one placeholder, and only since the sheet began naming itself in its
+ * own first line. It used to have none: the document said who it was about in
+ * the table at the top, filled from the directory, so a body of it was read
+ * exactly as it was written. That table has left the document for the column
+ * beside it, the heading has left its field for the text, and one template is
+ * read by both kinds of owner — so the first line has to say «ПРОФИЛЬ
+ * ДОЛЖНОСТИ Аналитик» to one reader and «ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ Отдел дизайна»
+ * to another, which is what {заголовок} is for and the whole of what it is for.
  */
 final class Profile
 {
@@ -45,37 +48,59 @@ final class Profile
     public const UNIT_TITLE = 'ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ';
 
     /**
-     * The heading of the printed sheet for one owner: what somebody typed for
-     * it, or — while nobody has — the name of the document followed by the
-     * owner's own name, upper-cased exactly as it stands.
+     * The one placeholder this document has, and what it stands for: not a
+     * name, but the whole opening line of the sheet — which kind of sheet it is
+     * and whose.
      *
-     * «ПРОФИЛЬ ДОЛЖНОСТИ РУКОВОДИТЕЛЬ» is the wrong case, and on purpose, for
-     * the same reason the regulation's heading is: Russian wants the genitive
-     * here, nothing in this application declines a name, and a rule that gets
-     * one name right gets another wrong on a sheet that is printed and signed.
-     * So the default is one ending away from correct and visibly so, and
-     * whoever reads it corrects the word in the field once.
+     * It is there because one template is read by both kinds of owner and the
+     * two openings differ: «ПРОФИЛЬ ДОЛЖНОСТИ Аналитик» for a job and «ПРОФИЛЬ
+     * ПОДРАЗДЕЛЕНИЯ Отдел дизайна» for a unit. The document names itself in its
+     * own first line now, so that line has to say two things at once, and a
+     * token is how this application already solved exactly that for «Положение
+     * о работе». The alternative was two templates, which is the one thing the
+     * design refuses to fork.
      *
-     * A department is named in full rather than by its abbreviation: this is
-     * the line a printed sheet is headed with, and «ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ ОД»
-     * is not how one is written.
+     * @var array<string, string>
      */
-    public static function title(Department|Position $owner): string
-    {
-        $own = trim((string) $owner->profile_title);
+    public const PLACEHOLDERS = [
+        '{заголовок}' => 'Заголовок листа: вид профиля и чей он',
+    ];
 
-        if ($own !== '') {
-            return $own;
+    /**
+     * What the placeholder reads as for this owner — the opening the sheet
+     * belongs to and the owner's name after it.
+     *
+     * Read with no owner it stands for itself, which is how the standard text
+     * is written and read: whoever edits the template sees the token.
+     *
+     * The name is the full one rather than the abbreviation, and it is read as
+     * it stands. «ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ ОД» is not how a printed sheet is
+     * headed, and «ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ ОТДЕЛ ДИЗАЙНА» is the nominative where
+     * Russian wants the genitive — one ending away from right. Nothing here
+     * declines a name, and now nothing has to: the line is a line of the text,
+     * so whoever wants the ending right writes the word they want.
+     *
+     * @return array<string, string> token => what is read in its place
+     */
+    public static function values(Department|Position|null $owner): array
+    {
+        if ($owner === null) {
+            return array_combine(array_keys(self::PLACEHOLDERS), array_keys(self::PLACEHOLDERS));
         }
 
         $opening = $owner instanceof Department ? self::UNIT_TITLE : self::TITLE;
 
-        return $opening.' '.mb_strtoupper($owner->name);
+        return ['{заголовок}' => $opening.' '.$owner->name];
     }
 
     /**
-     * «01 ОБЩАЯ ИНФОРМАЦИЯ» of a position's sheet — the one section of the
-     * document nobody writes.
+     * What a position's sheet used to open with — «01 ОБЩАЯ ИНФОРМАЦИЯ», the
+     * one section of the document nobody wrote.
+     *
+     * Not a section any more. It is read in the column beside the document,
+     * where the page was already saying most of it: the page's own heading is
+     * the job, and the card above the sheet is where it sits. So the fields go
+     * on travelling and nothing draws them twice.
      *
      * Five fields, and three of them are things the application already knows:
      * where the position sits, in both steps of the structure, and what it is
@@ -99,17 +124,16 @@ final class Profile
      * Two fields are left empty, and this is the honest part. «ПОДЧИНЕНИЕ» is
      * the position this one answers to and «ПОДЧИНЕННЫЕ» are the positions that
      * answer to it, and the application keeps no hierarchy of positions at all.
-     * What it keeps is which department sits inside which, and which *people*
-     * lead a department — the is_head flag on department_user, which is a fact
-     * about a person and not about a job.
+     * What it keeps is which department sits inside which, and which positions
+     * lead a department — the is_head flag on a position, which says that
+     * whoever holds it heads the unit.
      *
-     * A hierarchy read out of that would be read out of whoever happens to hold
-     * the job today: that one person may hold two positions and there is no
-     * saying which of them leads, that a department may have several heads or
-     * none, and above all that a position nobody holds would answer nothing —
-     * while a profile of a vacant position is exactly the one somebody opens,
-     * because it is what the job is advertised and hired against. A sheet that
-     * is printed and signed is the last place to guess, so these two wait for a
+     * That flag is nearer to an answer than the one it replaced, which was a
+     * fact about a person, but it is still not this one. A department may have
+     * several leading positions or none; one of them does not say which of the
+     * others answer to it; and nothing says what a leading position of a
+     * sub-department answers to in the department above. A sheet that is
+     * printed and signed is the last place to guess, so these two wait for a
      * hierarchy somebody writes down. The page draws them empty meanwhile,
      * because the table has those rows whatever we can say in them.
      *
@@ -136,9 +160,14 @@ final class Profile
     }
 
     /**
-     * And «01 ОБЩАЯ ИНФОРМАЦИЯ» of a department's sheet, which is the same
-     * section answered about a unit: five fields, every one of them something
-     * the application is told rather than something it works out.
+     * And the same for a department's sheet, answered about a unit: five
+     * fields, every one of them something the application is told rather than
+     * something it works out.
+     *
+     * On that page they were the column beside the document written out a
+     * second time — who leads the unit, what is under it and how many work
+     * there are three cards of it — so they are read there and nowhere else
+     * now.
      *
      * «ОТДЕЛ» and «ДЕПАРТАМЕНТ» are read exactly as the position's sheet reads
      * them, because they are the same two steps of the same structure: a
@@ -146,10 +175,10 @@ final class Profile
      * top-level one is the департамент itself and names no отдел rather than
      * naming itself twice.
      *
-     * Then three the unit answers and a job does not. «РУКОВОДИТЕЛЬ» is the
-     * is_head flag on department_user — the one piece of «who leads whom» the
-     * application actually keeps — read among the people who still work here,
-     * and a department may have several or none. «ЧИСЛЕННОСТЬ» is how many work
+     * Then three the unit answers and a job does not. «РУКОВОДИТЕЛЬ» is
+     * whoever holds a leading position of this department — the one piece of
+     * «who leads whom» the application actually keeps — read among the people
+     * who still work here, and a department may have several or none. «ЧИСЛЕННОСТЬ» is how many work
      * there, counted twice: the department itself, and the whole branch under
      * it, which differ only where it has units of its own. «ОТДЕЛЫ В СОСТАВЕ»
      * are those units.
@@ -209,17 +238,21 @@ final class Profile
      * grows an idea of its own about what the document is. It is the shape the
      * regulation travels in, with two differences: a section says whether it is
      * drawn from data rather than written, and the fields it is drawn from
-     * travel beside the sections as `general`, so the page draws the document's
-     * own table instead of reading a built one. The body comes twice, as the
-     * regulation's does, although here the two are the same string: there are
-     * no placeholders in this document, so what was written is what is read.
+     * travel as `general` — beside the document rather than inside it now, for
+     * the column at the side of the page to read. The body comes twice, as the
+     * regulation's does: once with the opening line answered for this owner,
+     * and once as it was written, which is what the editor puts back.
      *
-     * @return array{title: string, general: array<string, mixed>, sections: list<array<string, mixed>>}
+     * No heading travels with it. The sheet names itself in the first line of
+     * its own text, written and read like the rest of it.
+     *
+     * @return array{general: array<string, mixed>, sections: list<array<string, mixed>>}
      */
     public static function paper(Department|Position $owner): array
     {
+        $values = self::values($owner);
+
         return [
-            'title' => self::title($owner),
             'general' => $owner instanceof Department ? self::unit($owner) : self::general($owner),
             'sections' => RegulationSection::forOwner(Document::PROFILE, $owner)
                 ->map(fn (RegulationSection $section, int $place) => [
@@ -238,9 +271,10 @@ final class Profile
                     'order' => $section->order,
                     // Sanitized where it was written, so it is already safe to
                     // put on the page as the markup it is.
-                    'body' => $section->body,
-                    // The same body as somebody typed it, for the editor. The
-                    // profile has no placeholders, so it is the same body.
+                    'body' => Document::resolve($section->body, $values),
+                    // The same body as somebody typed it, braces and all, which
+                    // is what the editor has to put back in front of whoever
+                    // edits it.
                     'body_written' => $section->body,
                     // Drawn from the directory rather than written: the page
                     // reads `general` in its place, and the editor does not

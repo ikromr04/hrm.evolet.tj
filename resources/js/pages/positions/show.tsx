@@ -1,19 +1,19 @@
 import { departmentTitle } from '@/components/department-name';
-import { DepartmentRegulation } from '@/components/department-regulation';
+import { type Regulation } from '@/components/department-regulation';
 import { DocumentTabs } from '@/components/document-tabs';
 import { type EmploymentStatus } from '@/components/employee-actions';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
-import { PositionProfile, type Profile } from '@/components/position-profile';
+import { PositionProfile, type General, type Profile } from '@/components/position-profile';
+import { PositionRegulation } from '@/components/position-regulation';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
-import { type DocumentSection } from '@/lib/document';
 import { type Sex } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
-import { Building2 } from 'lucide-react';
+import { Building2, ChevronRight } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 interface PositionRef {
@@ -98,12 +98,18 @@ function Section({ title, count, children }: { title: string; count?: number; ch
  * one of the two with room to say what an abbreviation stands for, and it leads
  * to the department's own page as every abbreviation on screen does.
  *
+ * Both steps of the structure, because the sheet names both. «01 ОБЩАЯ
+ * ИНФОРМАЦИЯ» opened the profile with ОТДЕЛ and ДЕПАРТАМЕНТ and is not a
+ * section of it any more; this is where those two are read, and a position
+ * filed straight on a department has only the one step to show. The trail reads
+ * the way the department's own page reads it, outermost first.
+ *
  * One that nobody has filed says so outright, in the colour of something to be
  * dealt with: the name alone is what the rest of the app has to tell two
  * positions apart by, so an unplaced one is unfinished rather than ordinary, and
  * whoever may keep the list is told where it is finished.
  */
-function Placement({ department, canEdit }: { department: DepartmentRef | null; canEdit: boolean }) {
+function Placement({ general, department, canEdit }: { general: General; department: DepartmentRef | null; canEdit: boolean }) {
     if (department === null) {
         return (
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -117,12 +123,28 @@ function Placement({ department, canEdit }: { department: DepartmentRef | null; 
         );
     }
 
+    // Outermost first, and only the steps there are: a position filed on a
+    // department that has nothing above it names that one department rather
+    // than naming it twice.
+    const trail = [general.department, general.unit].filter((step) => step !== null);
+
     return (
-        <p className="text-muted-foreground flex items-center gap-1.5 text-sm">
-            <Building2 className="size-4" aria-hidden="true" />
-            <Link href={route('departments.show', department.id)} className="hover:text-foreground hover:underline">
-                {departmentTitle(department.full_name, department.name)}
-            </Link>
+        <p className="text-muted-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+            <Building2 className="size-4 shrink-0" aria-hidden="true" />
+            {trail.length === 0 ? (
+                <Link href={route('departments.show', department.id)} className="hover:text-foreground hover:underline">
+                    {departmentTitle(department.full_name, department.name)}
+                </Link>
+            ) : (
+                trail.map((step, index) => (
+                    <span key={step.id} className="flex items-center gap-1.5">
+                        {index > 0 && <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />}
+                        <Link href={route('departments.show', step.id)} className="hover:text-foreground hover:underline">
+                            {departmentTitle(step.full_name, step.name)}
+                        </Link>
+                    </span>
+                ))
+            )}
         </p>
     );
 }
@@ -246,72 +268,14 @@ function HolderRow({
     );
 }
 
-/**
- * The положение of the department this position is filed in, as this page needs
- * it: whose it is, so the tab can say so and link there, and the document
- * itself, which is the same payload the department's own page is given.
- *
- * No `can_edit`: it is read here and written there, and the page draws it
- * read-only itself rather than relying on a flag to arrive false.
- */
-export interface PositionRegulation {
-    department: { id: number; name: string; full_name: string };
-    paper: { title: string; sections: DocumentSection[] };
-}
-
 /** What the main column of a position's page can hold. */
 type Document = 'profile' | 'regulation';
 
+// In the order a department reads them, so the two pages open the same way.
 const DOCUMENTS: { key: Document; title: string }[] = [
-    { key: 'profile', title: 'СФД' },
     { key: 'regulation', title: 'Положение' },
+    { key: 'profile', title: 'СФД' },
 ];
-
-/**
- * «Положение о работе» of the department this position is filed in.
- *
- * A position has no положение of its own, and nothing here invents one: that
- * document describes a подразделение, and a second copy per position would be
- * two texts that must agree and will not. So the tab reads the department's —
- * and says whose it is before the first line of it, with the way to the page
- * where it is kept, because a document one cannot change should say where one
- * can rather than simply offering no pencils.
- */
-function DepartmentsRegulation({ regulation }: { regulation: PositionRegulation | null }) {
-    // Nothing to read, which today has one cause and will keep having it: a
-    // position filed in no department belongs to no подразделение, so there is
-    // no document of one to show it.
-    if (!regulation) {
-        return (
-            <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">
-                Должность не закреплена за отделом, поэтому читать нечего: положение о работе есть у подразделения, а не у должности.
-            </p>
-        );
-    }
-
-    const { department } = regulation;
-
-    return (
-        <div className="flex flex-col gap-4 px-4 py-4 md:px-6 md:py-5">
-            <p className="text-muted-foreground max-w-[72ch] text-[13px] leading-relaxed">
-                Это положение подразделения{' '}
-                <Link href={route('departments.show', department.id)} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
-                    {departmentTitle(department.full_name, department.name)}
-                </Link>
-                . Здесь его можно только прочитать — изменяют его на странице подразделения.
-            </p>
-
-            {/* Read-only is said here as well as by the payload: the card hides
-                every affordance behind this one flag, and this page must not
-                offer a second place to write a text that is kept elsewhere. */}
-            <DepartmentRegulation
-                department={department.id}
-                regulation={{ ...regulation.paper, can_edit: false, names: { nominative: department.full_name }, placeholders: [] }}
-            />
-        </div>
-    );
-}
-
 export default function PositionPage({
     position,
     profile,
@@ -325,8 +289,8 @@ export default function PositionPage({
     position: Position;
     /** «Профиль должности»: the sheet this position is described by. */
     profile: Profile;
-    /** The положение of the department it is filed in; null where it is filed nowhere. */
-    regulation: PositionRegulation | null;
+    /** «Положение о работе» this position keeps, read and written here. */
+    regulation: Regulation;
     employees: Holder[];
     /** Renaming the position, re-filing it and changing its duties stays on the directory page. */
     canEdit: boolean;
@@ -341,7 +305,7 @@ export default function PositionPage({
 }) {
     // «СФД» opens the page: the sheet is why somebody comes to a position at
     // all, and the department's положение is a step aside from it.
-    const [open, setOpen] = useState<Document>('profile');
+    const [open, setOpen] = useState<Document>('regulation');
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Должности', href: route('positions.index') },
@@ -365,11 +329,23 @@ export default function PositionPage({
                     position stands beside them rather than in place of them. Both
                     columns are told they may be narrower than their contents: a
                     grid track otherwise stands as wide as the longest line in it,
-                    and a job title would push a phone screen sideways. */}
-                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_24rem]">
-                    <div className="flex min-w-0 flex-col gap-3">
-                        <DocumentTabs tabs={DOCUMENTS} current={open} onChange={setOpen} label="Документы должности" name="position" />
+                    and a job title would push a phone screen sideways.
 
+                    The strip of tabs is a row of the grid in its own right, above
+                    both columns, the way a department's page has it: the document
+                    and the column beside it begin at the same line, and a strip
+                    that wraps to two lines moves both of them down together. */}
+                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_24rem]">
+                    <DocumentTabs
+                        tabs={DOCUMENTS}
+                        current={open}
+                        onChange={setOpen}
+                        label="Документы должности"
+                        name="position"
+                        className="lg:col-span-2"
+                    />
+
+                    <div className="flex min-w-0 flex-col">
                         <Card
                             role="tabpanel"
                             id={`position-panel-${open}`}
@@ -379,7 +355,7 @@ export default function PositionPage({
                             {open === 'profile' ? (
                                 <PositionProfile position={position.id} profile={profile} />
                             ) : (
-                                <DepartmentsRegulation regulation={regulation} />
+                                <PositionRegulation position={position.id} regulation={regulation} />
                             )}
                         </Card>
                     </div>
@@ -390,7 +366,7 @@ export default function PositionPage({
                         scrolls itself rather than losing its last card. */}
                     <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto">
                         <Section title="Подразделение">
-                            <Placement department={position.department} canEdit={canEdit} />
+                            <Placement general={profile.general} department={position.department} canEdit={canEdit} />
                         </Section>
 
                         <Section title="Сотрудники на должности" count={showsEmployees ? employees.length : undefined}>

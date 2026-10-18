@@ -18,15 +18,22 @@ use Symfony\Component\HtmlSanitizer\HtmlSanitizerConfig;
  * what is expected of the thing it is written for — of a position, and of a
  * department, which keeps one of its own. They are written, kept and printed
  * the same way — a template of standard sections every owner reads, one owner's
- * wording in the place of a standard section it rewrote, that owner's own
- * arrangement of the whole, and a heading of its own — and so they are one
- * piece of machinery with two names rather than two copies of one.
+ * wording in the place of a standard section it rewrote, and that owner's own
+ * arrangement of the whole — and so they are one piece of machinery with two
+ * names rather than two copies of one.
+ *
+ * How many sections, and whether the sheet is headed apart from its text, is
+ * where they part — or rather where they used to. Both are one file now,
+ * naming themselves in their own first lines; what the profile keeps that the
+ * regulation never had is a table drawn from the directory, which is read
+ * beside the document rather than in it. Neither is anything to the machinery:
+ * a section is a heading and a body either way.
  *
  * This is the half of it that has no opinion about which document it is serving:
  * what a body may be made of, how long it may be, and how a text is read once
  * the placeholders in it are answered. What each document says for itself — its
- * placeholders, the words its heading begins with, the table it draws from data
- * — is in Regulation and Profile.
+ * placeholders, the words it is named by, the table it draws from data — is in
+ * Regulation and Profile.
  */
 final class Document
 {
@@ -35,8 +42,8 @@ final class Document
      *
      * A section of the template belongs to no owner at all, so the owner cannot
      * be what tells the two documents apart: without this the standard text of
-     * «Положение» and the standard text of «СФД» would be the same four rows of
-     * nothing in particular.
+     * «Положение» and the standard text of «СФД» would be one template of
+     * nothing in particular, ten sections of two different sheets.
      */
     public const REGULATION = 'regulation';
 
@@ -59,17 +66,20 @@ final class Document
     ];
 
     /**
-     * Who may own each document.
+     * Who may own each document: both of them, both kinds.
      *
-     * «Положение о работе» is a department's and nobody else's: it is how a unit
-     * of the company works, and a job has none of its own. «Профиль должности»
-     * is owned by a position and by a department alike — the company writes the
-     * same nine sections about a job and about a unit, and asked for the unit's
-     * sheet to be that sheet rather than a list of the jobs under it.
+     * «Профиль должности» was first — the company writes the same sheet about a
+     * job and about a unit, and asked for the unit's sheet to be that sheet
+     * rather than a list of the jobs under it. «Положение о работе» was a
+     * department's and nobody else's until the company asked for a job to keep
+     * one too, in the same words: «у должности свои Положение и СФД».
      *
-     * One template serves both: the standard text is a section owned by nobody,
-     * so there is nothing in it that belongs to one kind of owner, and a second
-     * set of nine would be the same nine sentences drifting apart.
+     * One template serves each document whoever owns it: the standard text is a
+     * section owned by nobody, so there is nothing in it that belongs to one
+     * kind of owner, and a second copy per kind would be the same sentences
+     * drifting apart. What the two kinds do not share is how the sheet names
+     * itself, and that is one line answered by a placeholder rather than a
+     * second template.
      *
      * A row still belongs to exactly one owner. That is the database's rule as
      * much as this one's, and this only says which column such a row may use.
@@ -77,7 +87,7 @@ final class Document
      * @var array<string, list<class-string>> document => the kinds that may own it
      */
     public const OWNERS = [
-        self::REGULATION => [Department::class],
+        self::REGULATION => [Department::class, Position::class],
         self::PROFILE => [Department::class, Position::class],
     ];
 
@@ -98,7 +108,9 @@ final class Document
     /**
      * How long a heading may be: room for the longest owner's name after the
      * words in front of it and no more, because this is one line on a printed
-     * sheet. Both columns that keep a heading hold exactly this much.
+     * sheet. Every column that keeps a heading holds exactly this much — which
+     * is «Профиль должности» and nothing else now, since «Положение о работе»
+     * names itself in the first line of its own text.
      */
     public const TITLE_LENGTH = 200;
 
@@ -111,14 +123,19 @@ final class Document
      * tags than text. So the limit is room for several pages of a document
      * rather than of plain sentences, and it is said out loud so the editor can
      * show it and the validator can refuse by it.
+     *
+     * Several pages is why one limit still serves both documents now that
+     * «Положение о работе» is one body rather than four: the company's text of
+     * it, markup and all, is some three thousand characters.
      */
     public const BODY_LENGTH = 50_000;
 
     /**
      * The whole of what a section's body may be made of: paragraphs, line
-     * breaks and the two headings under the section's own, the four marks of
-     * emphasis, a quotation and a rule, the two kinds of list, a link, a run of
-     * words picked out in colour, and a table.
+     * breaks and the two headings a text is divided by — the parts of
+     * «Положение о работе» among them, which is written as one body — the four
+     * marks of emphasis, a quotation and a rule, the two kinds of list, a link,
+     * a run of words picked out in colour, and a table.
      *
      * The document is written in an editor, so its text arrives as HTML — and
      * HTML from a browser is HTML somebody can also write by hand, which is why

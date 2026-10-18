@@ -182,10 +182,13 @@ class User extends Authenticatable
 
     /**
      * None, one or several departments (public, like positions).
+     *
+     * Worked out from the positions this person holds, and written only by
+     * App\Support\Membership — see Department::users() for the whole of it.
      */
     public function departments(): BelongsToMany
     {
-        return $this->belongsToMany(Department::class)->withPivot('is_head')->withTimestamps()->orderBy('name');
+        return $this->belongsToMany(Department::class)->withPivot('is_head', 'by_hand')->withTimestamps()->orderBy('name');
     }
 
     /**

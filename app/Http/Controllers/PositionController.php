@@ -8,12 +8,14 @@ use App\Models\PositionDuty;
 use App\Models\User;
 use App\Support\Directories;
 use App\Support\EmployeeFields;
+use App\Support\Membership;
 use App\Support\Profile;
 use App\Support\Regulation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -56,10 +58,14 @@ class PositionController extends Controller
                 // itself, so this is only a settled order to hand it over in: a
                 // list the server leaves alone comes out differently run to run.
                 ->orderBy('name')
-                ->get(['id', 'department_id', 'name', 'created_at'])
+                ->get(['id', 'department_id', 'name', 'is_head', 'created_at'])
                 ->map(fn (Position $position) => [
                     'id' => $position->id,
                     'name' => $position->name,
+                    // Whether whoever holds this heads the department it sits
+                    // in. The list says so beside the name, because a flag
+                    // nobody can see on the list is one nobody knows is there.
+                    'is_head' => $position->is_head,
                     // «Аналитик (ОПР)», for the places with room for one line and
                     // no column beside it to put the department in.
                     'display_name' => $position->display_name,
@@ -97,8 +103,8 @@ class PositionController extends Controller
         // that names them.
         $showsEmployees = $this->showsEmployees($user);
 
-        // The department above this one travels too: «01 ОБЩАЯ ИНФОРМАЦИЯ» of
-        // the profile names both steps of the structure.
+        // The department above this one travels too: the column beside the
+        // sheet names both steps of the structure.
         $position->load(['department.parent', 'duties']);
 
         return Inertia::render('positions/show', [
@@ -118,11 +124,10 @@ class PositionController extends Controller
             // is this position's: the department's page lists the positions and
             // sends nobody's profile with the list.
             'profile' => $this->profile($position, $user),
-            // The regulation of the department this position belongs to, read
-            // here and written on the department's page: a position has no
-            // regulation of its own, and two copies of one text would be two
-            // texts the day somebody edited either.
-            'regulation' => $this->regulation($position),
+            // And the other document this position carries, kept and written
+            // here the same way: the company asked for a job to have its own
+            // «Положение о работе» rather than reading the department's.
+            'regulation' => $this->regulation($position, $user),
             'employees' => $showsEmployees ? $this->holders($position, $user, $showsPositions) : [],
             'canEdit' => Directories::canEdit($user, 'positions'),
             'canOpenCards' => $showsEmployees,
@@ -135,9 +140,15 @@ class PositionController extends Controller
     {
         $data = $this->validated($request);
 
+        // Nobody holds a position that has just been written down, so there is
+        // no membership to work out: whoever is given it later arrives through
+        // their own card, and that is where it is worked out.
         $position = Position::create([
             'department_id' => $data['department_id'],
             'name' => $data['name'],
+            // Unticked unless the form said otherwise: a position is an
+            // ordinary one until somebody says it leads.
+            'is_head' => $data['is_head'] ?? false,
         ]);
         $this->writeDuties($position, $data['duties'] ?? []);
 
@@ -148,17 +159,29 @@ class PositionController extends Controller
     {
         $data = $this->validated($request, $position);
 
-        $position->update([
-            'department_id' => $data['department_id'],
-            'name' => $data['name'],
-        ]);
+        // The holders are read before the save, because two of the three things
+        // it may change are changes of membership: moving the position to
+        // another department moves everybody holding it, and marking it leading
+        // makes them heads of it. They are the same people either way, and
+        // where they belong is worked out again from scratch.
+        $holders = Membership::behind($position);
 
-        // Saying nothing about the duties leaves them alone; sending a list —
-        // even an empty one — is what replaces them, because the form hands back
-        // the whole list and a duty it no longer shows is one somebody deleted.
-        if (array_key_exists('duties', $data)) {
-            $this->writeDuties($position, $data['duties']);
-        }
+        DB::transaction(function () use ($position, $data, $holders) {
+            $position->update([
+                'department_id' => $data['department_id'],
+                'name' => $data['name'],
+                ...array_key_exists('is_head', $data) ? ['is_head' => $data['is_head']] : [],
+            ]);
+
+            // Saying nothing about the duties leaves them alone; sending a list —
+            // even an empty one — is what replaces them, because the form hands back
+            // the whole list and a duty it no longer shows is one somebody deleted.
+            if (array_key_exists('duties', $data)) {
+                $this->writeDuties($position, $data['duties']);
+            }
+
+            Membership::refresh($holders);
+        });
 
         return back();
     }
@@ -166,8 +189,16 @@ class PositionController extends Controller
     public function destroy(Position $position): RedirectResponse
     {
         // Employees keep their other positions; only this link goes, and the
-        // duties of the position go with it.
-        $position->delete();
+        // duties of the position go with it. Read the holders first: the link
+        // goes with the position, and afterwards there is nothing left to say
+        // who was on it.
+        $holders = Membership::behind($position);
+
+        DB::transaction(function () use ($position, $holders) {
+            $position->delete();
+
+            Membership::refresh($holders);
+        });
 
         return back();
     }
@@ -193,9 +224,9 @@ class PositionController extends Controller
             // the list of job titles writes this down too. Reading it is reading
             // the position's page, which asks for its own right already.
             'can_edit' => Directories::canEdit($viewer, 'positions'),
-            // The heading, the table of «01 ОБЩАЯ ИНФОРМАЦИЯ» and the sections,
-            // put together where a department's page puts its own: the two
-            // pages read one document and one shape of it.
+            // The text and the table the directory answers, put together where
+            // a department's page puts its own: the two pages read one document
+            // and one shape of it.
             ...Profile::paper($position),
         ];
     }
@@ -222,26 +253,33 @@ class PositionController extends Controller
      * @return array{id: int, name: string, full_name: string}
      */
     /**
-     * The department's «Положение о работе» as a position reads it: the
-     * document, and the department it belongs to so the page can say whose it
-     * is and link there. A position filed in no department reads nothing —
-     * there is no document to show, which the page says in its own words.
+     * «Положение о работе» as this position keeps it: the one text of the
+     * shared template, or this position's own wording of it, with the
+     * placeholders answered — the name of the sheet among them, because that is
+     * the first line of the text and not a heading kept anywhere else.
      *
-     * @return array<string, mixed>|null
+     * Its own, and written here. It used to be the department's, read-only,
+     * with a line saying where to go to change it; the company asked for a job
+     * to keep one of its own, so the page that reads it writes it. A position
+     * filed in no department keeps one all the same — the document no longer
+     * depends on having a unit, although the sentences in the standard text
+     * are about one until somebody rewrites them.
+     *
+     * @return array<string, mixed>
      */
-    private function regulation(Position $position): ?array
+    private function regulation(Position $position, User $viewer): array
     {
-        $department = $position->department;
-
-        if ($department === null) {
-            return null;
-        }
-
         return [
-            'department' => $this->departmentRef($department),
-            // No «can_edit» and no placeholders: this page only reads, and the
-            // page that writes is one link away.
-            'paper' => Regulation::paper($department),
+            // Keeping the regulation is keeping the position: the right that
+            // writes the list of job titles writes this down too, the way it
+            // writes the profile beside it.
+            'can_edit' => Directories::canEdit($viewer, 'positions'),
+            // The one name the document needs for the sentences about whose
+            // wording it is.
+            'names' => ['nominative' => $position->display_name],
+            // What may be typed into the text, and what each one reads as here.
+            'placeholders' => Regulation::offer($position),
+            ...Regulation::paper($position),
         ];
     }
 
@@ -420,13 +458,20 @@ class PositionController extends Controller
     }
 
     /**
-     * @return array{department_id: int, name: string, duties?: list<array{name: string}>}
+     * @return array{department_id: int, name: string, is_head: bool, duties?: list<array{name: string}>}
      */
     private function validated(Request $request, ?Position $position = null): array
     {
         $this->trimDuties($request);
 
         $data = $request->validate([
+            // Whether this is a leading position of its department: whoever
+            // holds it heads the department. Left out of a request it is left
+            // alone, the way the duties below are — a save that was about
+            // something else is not a save that un-leads a department, and the
+            // department's own dialog decides the same flag from the other
+            // side.
+            'is_head' => ['sometimes', 'boolean'],
             // Where the position sits. The column allows nothing there, because
             // the data could not place a handful of the positions already on
             // file; a position somebody is adding by hand is one they know the
@@ -461,10 +506,15 @@ class PositionController extends Controller
         ], attributes: [
             'department_id' => 'отдел',
             'name' => 'название',
+            'is_head' => 'руководящая должность',
             'duties' => 'обязанности',
             'duties.*' => 'обязанность',
             'duties.*.name' => 'обязанность',
         ]);
+
+        if (array_key_exists('is_head', $data)) {
+            $data['is_head'] = (bool) $data['is_head'];
+        }
 
         return $data;
     }

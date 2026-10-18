@@ -167,11 +167,17 @@ final class Placements
      * are the whole of it, so the three tables behind them are replaced rather
      * than added to.
      *
-     * Leading a department is recorded on the very row that says somebody
-     * belongs to it, so syncing the departments plainly would quietly demote
-     * every head in the company. Whoever still belongs to a department they led
-     * keeps it; whoever is taken out of it does not lead it any more, which is
-     * the same thing the directory's own form does.
+     * The departments are not written here any more. Belonging to one follows
+     * from holding one of its positions, and Membership works that out from the
+     * positions this save has just filed — including who leads what, which used
+     * to be a flag on the membership row this method had to carry by hand to
+     * keep from demoting every head in the company.
+     *
+     * What the form still says on its own is a department named with no
+     * position in it. Nothing accounts for such a membership, and it is handed
+     * over as one written by hand: the form may file somebody in a department
+     * without giving them a job there, as it always could, and Membership keeps
+     * those rows apart from the ones it derives.
      *
      * @param  array<array-key, mixed>  $sent
      */
@@ -179,15 +185,15 @@ final class Placements
     {
         $placements = self::read($sent)->filter(fn (array $placement) => $placement['department_id'] !== null);
 
-        $heads = $employee->departments()->wherePivot('is_head', true)->pluck('departments.id')->all();
-
-        $employee->departments()->sync($placements
-            ->pluck('department_id')
-            ->unique()
-            ->mapWithKeys(fn (int $id) => [$id => ['is_head' => in_array($id, $heads, true)]])
-            ->all());
-
         $employee->positions()->sync($placements->pluck('position_id')->filter()->unique()->values()->all());
+
+        $named = $placements->pluck('department_id')->unique();
+        $withAPosition = $placements
+            ->filter(fn (array $placement) => $placement['position_id'] !== null)
+            ->pluck('department_id')
+            ->unique();
+
+        Membership::refresh($employee, byHand: $named->diff($withAPosition)->values()->all());
 
         // The duties of a position that is no longer held go with it: they were
         // picked out of its list and there is no list to pick from any more.

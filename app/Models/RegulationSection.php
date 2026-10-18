@@ -10,9 +10,16 @@ use Illuminate\Support\Collection;
 use InvalidArgumentException;
 
 /**
- * One block of one of the company's documents: «01 ОБЩЕЕ ПОЛОЖЕНИЕ», «02
- * ПРАВА», «03 ОБЯЗАННОСТИ», «04 ОТВЕТСТВЕННОСТЬ» of «Положение о работе»; «01
- * ОБЩАЯ ИНФОРМАЦИЯ» and the eight sections after it of «Профиль должности».
+ * One block of one of the company's documents: the whole of «Положение о
+ * работе» and the whole of «Профиль должности», each of which is one text and
+ * so one section of one.
+ *
+ * How many a document is made of is nothing to do with this. The regulation's
+ * own parts — ОБЩЕЕ ПОЛОЖЕНИЕ, ПРАВА, ОБЯЗАННОСТИ, ОТВЕТСТВЕННОСТЬ — are
+ * headings inside its body, because the company writes that document as one
+ * file, and the profile is one for the same reason. Either way a section is a
+ * heading and a body and is read, rewritten and restored the same way, which is
+ * why the two are one piece of machinery.
  *
  * A heading and a body, the same shape for every one of them: the body is the
  * text as the editor wrote it, so a numbered list, a table of tasks and a line
@@ -100,7 +107,7 @@ class RegulationSection extends Model
             );
 
             if (array_diff($named, $owners) !== []) {
-                throw new InvalidArgumentException('«Положение о работе» принадлежит подразделению, а «Профиль должности» — подразделению или должности.');
+                throw new InvalidArgumentException('Документ принадлежит подразделению или должности.');
             }
 
             if (count($named) > 1) {
@@ -240,8 +247,8 @@ class RegulationSection extends Model
      *
      * The template is the rows of this document that name no owner of any kind,
      * so one template serves every kind that may own the document: a department
-     * and a position read the same nine sections and rewrite them each for
-     * itself, and there is nothing in the standard text that is one kind's.
+     * and a position read the same standard text and rewrite it each for
+     * itself, and there is nothing in it that is one kind's.
      *
      * @return Collection<int, self>
      */
@@ -291,7 +298,7 @@ class RegulationSection extends Model
 
     /**
      * «Профиль должности» as it is read for one position, or the standard
-     * nine sections themselves.
+     * standard text itself.
      *
      * @return Collection<int, self>
      */
@@ -301,7 +308,23 @@ class RegulationSection extends Model
     }
 
     /**
-     * The same nine sections as one department reads them, which is the sheet
+     * «Положение о работе» as one position reads it — its own now, kept and
+     * written on its own page, the way its «СФД» is.
+     *
+     * The same template as a department's, because it is the same document: one
+     * standard text, read by both kinds of owner, each of which rewrites it for
+     * itself. The four helpers here are the four pairs of (document, kind) and
+     * nothing more.
+     *
+     * @return Collection<int, self>
+     */
+    public static function regulationForPosition(?Position $position): Collection
+    {
+        return self::forOwner(Document::REGULATION, $position);
+    }
+
+    /**
+     * The same standard text as one department reads it, which is the sheet
      * its «СФД» tab holds. Its regulation is a different document and is read
      * by forDepartment(); both are the department's, and the arrangement of
      * each is kept apart by the sections it names.

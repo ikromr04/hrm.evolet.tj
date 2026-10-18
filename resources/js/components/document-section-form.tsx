@@ -738,6 +738,17 @@ function blank(html: string): boolean {
  * document numbers its sections by where they stand, so moving one is what
  * changes its number and nothing is typed.
  *
+ * One field where the document is one text, which is «Положение о работе»: the
+ * one section it is made of has a name nothing draws, the headings in it are
+ * typed into the text like any other line, and a box for a heading nobody reads
+ * would be a thing to fill in for no reason. The save then carries the body
+ * alone and the server leaves the name of the section as it found it.
+ *
+ * And the text is written at the width it is read at. A document of sections
+ * keeps the measure of a printed page on both sides of the save; one that is
+ * read across its card is written across the box, or somebody would be typing
+ * into a column half the width of the page they are writing.
+ *
  * The dialog around this is drawn by the page; what is here is only the part
  * that needs the editor, so that the dialog is already open and titled while
  * this is still on its way.
@@ -746,11 +757,18 @@ export default function SectionForm({
     editing,
     owner,
     addresses,
+    whole,
     onClose,
 }: {
     editing: Editing;
     owner: number;
     addresses: Addresses;
+    /**
+     * Whether the document is one text rather than a list of sections: then it
+     * has no heading of its own to type and is written at the full width of the
+     * box, the way it is read.
+     */
+    whole: boolean;
     onClose: () => void;
 }) {
     const section = editing.section;
@@ -768,7 +786,7 @@ export default function SectionForm({
         content: section.body_written ?? '',
         editorProps: {
             attributes: {
-                class: cn(BODY, MEASURE_BLOCKS, 'min-h-40 px-3 py-2.5 outline-none'),
+                class: cn(BODY, !whole && MEASURE_BLOCKS, 'min-h-40 px-3 py-2.5 outline-none'),
                 'aria-labelledby': 'document-body-label',
             },
         },
@@ -779,7 +797,9 @@ export default function SectionForm({
         event.preventDefault();
 
         form.transform((data) => ({
-            title: data.title.trim(),
+            // A field the form does not have is a field the save does not
+            // carry, and what the request leaves out the server leaves alone.
+            ...(whole ? {} : { title: data.title.trim() }),
             // The text exactly as it was typed, braces and all: whatever the
             // server still answers in it, it answers when the document is read
             // rather than when it is written.
@@ -801,22 +821,24 @@ export default function SectionForm({
 
     return (
         <form onSubmit={submit} className="flex flex-col gap-5">
-            <div className="grid content-start gap-2">
-                <Label htmlFor="document-section-title">Заголовок</Label>
-                {/* A section is called «ВЗАИМОДЕЙСТВИЕ», not a sentence, so the
-                    box stops where a heading does: the dialog is as wide as the
-                    toolbar needs, and nothing else grows with it. */}
-                <Input
-                    id="document-section-title"
-                    className="max-md:h-11 sm:max-w-xl"
-                    autoFocus
-                    value={form.data.title}
-                    placeholder="ВЗАИМОДЕЙСТВИЕ"
-                    onChange={(event) => form.setData('title', event.target.value)}
-                    aria-invalid={!!form.errors.title}
-                />
-                <InputError message={form.errors.title} />
-            </div>
+            {!whole && (
+                <div className="grid content-start gap-2">
+                    <Label htmlFor="document-section-title">Заголовок</Label>
+                    {/* A section is called «ВЗАИМОДЕЙСТВИЕ», not a sentence, so the
+                        box stops where a heading does: the dialog is as wide as the
+                        toolbar needs, and nothing else grows with it. */}
+                    <Input
+                        id="document-section-title"
+                        className="max-md:h-11 sm:max-w-xl"
+                        autoFocus
+                        value={form.data.title}
+                        placeholder="ВЗАИМОДЕЙСТВИЕ"
+                        onChange={(event) => form.setData('title', event.target.value)}
+                        aria-invalid={!!form.errors.title}
+                    />
+                    <InputError message={form.errors.title} />
+                </div>
+            )}
 
             <div className="grid content-start gap-2">
                 <Label id="document-body-label">Содержание</Label>

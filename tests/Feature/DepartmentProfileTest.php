@@ -14,6 +14,7 @@ use Database\Seeders\PermissionSeeder;
 use Database\Seeders\PositionProfileTemplateSeeder;
 use Database\Seeders\RegulationTemplateSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use Tests\TestCase;
 
@@ -43,32 +44,45 @@ class DepartmentProfileTest extends TestCase
     }
 
     /**
-     * A department reads the nine standard sections — the same nine, from the
-     * same template, numbered down its own page.
+     * A department reads the standard text — the same text, from the same
+     * template, opening with its own kind of heading.
      */
-    public function test_a_department_reads_the_nine_standard_sections()
+    public function test_a_department_reads_the_standard_text_as_one_sheet()
     {
         $this->seed(PositionProfileTemplateSeeder::class);
         $department = $this->department();
 
         $profile = $this->profile($this->anybody(), $department);
 
-        $this->assertCount(count(PositionProfileTemplateSeeder::SECTIONS), $profile['sections']);
-        $this->assertSame(PositionProfileTemplateSeeder::SECTIONS, array_column($profile['sections'], 'title'));
-        $this->assertSame(['01', '02', '03', '04', '05', '06', '07', '08', '09'], array_column($profile['sections'], 'number'));
-        $this->assertSame(array_fill(0, 9, 'template'), array_column($profile['sections'], 'origin'));
+        $this->assertCount(1, $profile['sections']);
+        $this->assertSame('template', $profile['sections'][0]['origin']);
+        $this->assertSame(
+            [
+                Profile::UNIT_TITLE.' '.$department->name,
+                '01 ДОЛЖНОСТНЫЕ ОБЯЗАННОСТИ',
+                '02 ОБРАЗОВАНИЕ И ОПЫТ РАБОТЫ',
+                '03 ЗНАНИЕ ЯЗЫКОВ',
+                '04 ЖЕСТКИЕ НАВЫКИ',
+                '05 МЯГКИЕ НАВЫКИ',
+                '06 КРИТЕРИИ ОЦЕНКИ ЭФФЕКТИВНОСТИ РАБОТЫ',
+                '07 ОТВЕТСТВЕННОСТЬ ЗА ДОКУМЕНТЫ ФАЙЛЫ',
+                '08 ОЗНАКОМЛЕНИЕ',
+            ],
+            $this->headings($profile['sections'][0]['body']),
+        );
 
         // The same shape a position's page sends, so one component reads
-        // either, and the first section says it is drawn from data.
+        // either — and no heading beside the document, because the sheet names
+        // itself in its own first line.
         $this->assertSame(
             ['id', 'origin', 'template_section_id', 'number', 'title', 'order', 'body', 'body_written', 'computed'],
             array_keys($profile['sections'][0]),
         );
-        $this->assertSame(['can_edit', 'title', 'general', 'sections'], array_keys($profile));
-        $this->assertTrue($profile['sections'][0]['computed']);
+        $this->assertSame(['can_edit', 'general', 'sections'], array_keys($profile));
+        $this->assertFalse($profile['sections'][0]['computed']);
 
-        // One template and not two: the nine a department reads are the nine a
-        // position reads, the very same rows.
+        // One template and not two: the text a department reads is the text a
+        // position reads, the very same row.
         $this->assertSame(
             RegulationSection::forPosition(null)->pluck('id')->all(),
             array_column($profile['sections'], 'id'),
@@ -76,12 +90,16 @@ class DepartmentProfileTest extends TestCase
     }
 
     /**
-     * «01 ОБЩАЯ ИНФОРМАЦИЯ» of a unit's sheet is answered from what the
+     * What a unit's sheet used to open with is answered from what the
      * application knows about the unit: where it sits, who leads it, how many
      * work there and what is under it. Nothing in it is typed, and nothing in
      * it is guessed.
+     *
+     * It is not a section of the document any anymore — on this page it was the
+     * column beside it written out a second time — so it travels as `general`
+     * for that column to read.
      */
-    public function test_the_first_section_is_read_from_the_structure()
+    public function test_what_the_structure_answers_is_sent_beside_the_document()
     {
         $this->seed(PositionProfileTemplateSeeder::class);
 
@@ -153,34 +171,30 @@ class DepartmentProfileTest extends TestCase
         $department = $this->department();
         $other = Department::create(['name' => 'Отдел регистрации']);
         $position = Position::create(['department_id' => $department->id, 'name' => 'Аналитик']);
-        $standard = RegulationSection::forPosition(null)->firstWhere('title', 'ЗНАНИЕ ЯЗЫКОВ');
+        $standard = RegulationSection::forPosition(null)->first();
 
         $this->actingAs($this->keeper())
             ->post("/departments/{$department->id}/profile/sections", [
                 'template_section_id' => $standard->id,
-                'body' => '<p>Английский для всего отдела.</p>',
+                'body' => '<h2>{заголовок}</h2><p>Английский для всего отдела.</p>',
             ])
             ->assertRedirect();
 
-        $own = RegulationSection::profileForDepartment($department)->firstWhere('title', 'ЗНАНИЕ ЯЗЫКОВ');
+        $own = RegulationSection::profileForDepartment($department)->first();
 
         $this->assertSame('override', $own->origin());
-        $this->assertSame('<p>Английский для всего отдела.</p>', $own->body);
+        $this->assertStringContainsString('Английский для всего отдела.', $own->body);
         $this->assertSame($department->id, $own->department_id);
         $this->assertNull($own->position_id);
-        // Read where the standard section is read, so the document is still
-        // nine sections in the same order.
-        $this->assertCount(9, RegulationSection::profileForDepartment($department));
-        $this->assertSame(
-            RegulationSection::forPosition(null)->pluck('title')->all(),
-            RegulationSection::profileForDepartment($department)->pluck('title')->all(),
-        );
+        // Read in the place of the standard text, so the document is still one
+        // text.
+        $this->assertCount(1, RegulationSection::profileForDepartment($department));
 
         // Nobody else reads it: not the template, not the department next door,
         // not a position of this very department.
-        $this->assertNull(RegulationSection::forPosition(null)->firstWhere('title', 'ЗНАНИЕ ЯЗЫКОВ')->body);
-        $this->assertNull(RegulationSection::profileForDepartment($other)->firstWhere('title', 'ЗНАНИЕ ЯЗЫКОВ')->body);
-        $this->assertNull(RegulationSection::forPosition($position)->firstWhere('title', 'ЗНАНИЕ ЯЗЫКОВ')->body);
+        foreach ([RegulationSection::forPosition(null), RegulationSection::profileForDepartment($other), RegulationSection::forPosition($position)] as $elsewhere) {
+            $this->assertStringNotContainsString('Английский для всего отдела.', (string) $elsewhere->first()->body);
+        }
 
         // And a department's «Положение о работе» is untouched by any of it:
         // the two documents share a column and nothing else.
@@ -211,8 +225,8 @@ class DepartmentProfileTest extends TestCase
             ->post("/positions/{$position->id}/profile/sections", ['template_section_id' => $standard->id, 'body' => '<p>Должность.</p>'])
             ->assertRedirect();
 
-        $this->assertSame('<p>Отдел.</p>', RegulationSection::profileForDepartment($department)->last()->body);
-        $this->assertSame('<p>Должность.</p>', RegulationSection::forPosition($position)->last()->body);
+        $this->assertSame('<p>Отдел.</p>', RegulationSection::profileForDepartment($department)->first()->body);
+        $this->assertSame('<p>Должность.</p>', RegulationSection::forPosition($position)->first()->body);
 
         // Twice for the same owner is still once: the second attempt is the
         // same section rewritten, which the document has no room for.
@@ -235,15 +249,15 @@ class DepartmentProfileTest extends TestCase
             ->post("/departments/{$department->id}/profile/sections", ['template_section_id' => $standard->id, 'body' => '<p>Наше.</p>'])
             ->assertRedirect();
 
-        $own = RegulationSection::profileForDepartment($department)->last();
+        $own = RegulationSection::profileForDepartment($department)->first();
 
         $this->actingAs($this->keeper())
             ->delete("/departments/{$department->id}/profile/sections/{$own->id}")
             ->assertRedirect();
 
         $this->assertNull(RegulationSection::find($own->id));
-        $this->assertSame($standard->id, RegulationSection::profileForDepartment($department)->last()->id);
-        $this->assertCount(9, RegulationSection::forPosition(null));
+        $this->assertSame($standard->id, RegulationSection::profileForDepartment($department)->first()->id);
+        $this->assertCount(1, RegulationSection::forPosition(null));
     }
 
     /**
@@ -277,41 +291,42 @@ class DepartmentProfileTest extends TestCase
     }
 
     /**
-     * The heading of the sheet is the department's own, with a default in the
-     * spirit of every other heading here: the name of the document and the name
-     * of the unit, one ending away from correct and corrected in the field.
+     * The sheet is named in the first line of its own text, and a unit's sheet
+     * opens as a unit's: one template, read through the one token this document
+     * has, answering «ПРОФИЛЬ ПОДРАЗДЕЛЕНИЯ» here and «ПРОФИЛЬ ДОЛЖНОСТИ» on a
+     * position's page.
      */
-    public function test_the_heading_of_the_sheet_is_the_department_s_own()
+    public function test_the_sheet_is_named_in_the_first_line_of_its_own_text()
     {
         $this->seed(PositionProfileTemplateSeeder::class);
         $department = $this->department();
         $keeper = $this->keeper();
 
-        $this->assertSame(
-            Profile::UNIT_TITLE.' '.mb_strtoupper($department->name),
-            $this->profile($this->anybody(), $department)['title'],
-        );
+        $profile = $this->profile($this->anybody(), $department);
 
+        $this->assertArrayNotHasKey('title', $profile);
+        $this->assertSame(Profile::UNIT_TITLE.' '.$department->name, $this->headings($profile['sections'][0]['body'])[0]);
+
+        // The department that wants the ending right writes it, in the text.
         $this->actingAs($keeper)
-            ->put("/departments/{$department->id}/profile/title", ['title' => 'ПРОФИЛЬ ОТДЕЛА АНАЛИТИКИ'])
+            ->post("/departments/{$department->id}/profile/sections", [
+                'template_section_id' => $profile['sections'][0]['id'],
+                'body' => '<h2>ПРОФИЛЬ ОТДЕЛА АНАЛИТИКИ</h2>',
+            ])
             ->assertRedirect();
 
-        $this->assertSame('ПРОФИЛЬ ОТДЕЛА АНАЛИТИКИ', $this->profile($this->anybody(), $department)['title']);
-        // The other document's heading is a line of its own and did not move.
-        $this->assertNull($department->fresh()->regulation_title);
-
-        // Emptied means «back to the default», never «no heading».
-        $this->actingAs($keeper)->put("/departments/{$department->id}/profile/title", ['title' => ''])->assertRedirect();
-
-        $this->assertNull($department->fresh()->profile_title);
         $this->assertSame(
-            Profile::UNIT_TITLE.' '.mb_strtoupper($department->name),
-            $this->profile($this->anybody(), $department)['title'],
+            'ПРОФИЛЬ ОТДЕЛА АНАЛИТИКИ',
+            $this->headings($this->profile($this->anybody(), $department)['sections'][0]['body'])[0],
         );
 
+        // Neither document this department keeps has a column for a heading any
+        // more, and neither has an address for one.
+        $this->assertFalse(Schema::hasColumn('departments', 'regulation_title'));
+        $this->assertFalse(Schema::hasColumn('departments', 'profile_title'));
         $this->actingAs($keeper)
-            ->put("/departments/{$department->id}/profile/title", ['title' => str_repeat('а', Document::TITLE_LENGTH + 1)])
-            ->assertSessionHasErrors('title');
+            ->put("/departments/{$department->id}/profile/title", ['title' => 'ПРОФИЛЬ ОТДЕЛА АНАЛИТИКИ'])
+            ->assertNotFound();
     }
 
     /**
@@ -330,10 +345,6 @@ class DepartmentProfileTest extends TestCase
             ->post("/departments/{$department->id}/profile/sections", ['template_section_id' => $standard->id])
             ->assertForbidden();
 
-        $this->actingAs($this->positionKeeper())
-            ->put("/departments/{$department->id}/profile/title", ['title' => 'ЧУЖОЕ'])
-            ->assertForbidden();
-
         $this->actingAs(User::factory()->create())
             ->post("/departments/{$department->id}/profile/sections", ['template_section_id' => $standard->id])
             ->assertForbidden();
@@ -349,40 +360,38 @@ class DepartmentProfileTest extends TestCase
     }
 
     /**
-     * The nine sections are the whole document for a department too: nothing is
-     * added to it, nothing is taken out of it, and the section that is drawn
-     * from data is not rewritten.
+     * One text is the whole document for a department too: nothing is added to
+     * it and nothing is taken out of it.
      */
-    public function test_the_document_is_the_nine_sections_and_nothing_else()
+    public function test_the_document_is_one_text_and_nothing_else()
     {
         $this->seed(PositionProfileTemplateSeeder::class);
         $department = $this->department();
         $keeper = $this->keeper();
-        $general = RegulationSection::forPosition(null)->firstWhere('computed', true);
+        $standard = RegulationSection::forPosition(null)->first();
 
         // A section of its own.
         $this->actingAs($keeper)
             ->post("/departments/{$department->id}/profile/sections", ['title' => 'НАШ РАЗДЕЛ'])
             ->assertSessionHasErrors('template_section_id');
 
-        // The one that is read from the structure.
+        // The company's own text taken out of the document from a department's
+        // address.
         $this->actingAs($keeper)
-            ->post("/departments/{$department->id}/profile/sections", ['template_section_id' => $general->id, 'body' => '<p>Отдел: ОД.</p>'])
-            ->assertSessionHasErrors('template_section_id');
-
-        // A standard section taken out of the company's own document from a
-        // department's address.
-        $this->actingAs($keeper)
-            ->delete("/departments/{$department->id}/profile/sections/{$general->id}")
+            ->delete("/departments/{$department->id}/profile/sections/{$standard->id}")
             ->assertNotFound();
 
-        $this->assertCount(9, RegulationSection::profileForDepartment($department));
+        $this->assertCount(1, RegulationSection::profileForDepartment($department));
     }
 
     /**
-     * What the owner rules refused before, they refuse still: a regulation is a
-     * department's and nobody else's, an override belongs to an owner, and a
-     * row belongs to one owner at a time.
+     * The owner rules, now that both documents take both kinds of owner: a row
+     * belongs to one owner at a time, an override belongs to an owner, and an
+     * override stands for a standard section of its own document.
+     *
+     * The one rule that went is the one that said a regulation is a
+     * department's and nobody else's. What is left is about shape rather than
+     * about which document it is.
      */
     public function test_the_owner_rules_still_refuse_what_they_refused()
     {
@@ -390,10 +399,11 @@ class DepartmentProfileTest extends TestCase
         $department = $this->department();
         $position = Position::create(['department_id' => $department->id, 'name' => 'Аналитик']);
 
-        // A regulation of a position: the document has one kind of owner.
-        $this->assertThrows(
-            fn () => RegulationSection::create(['document' => Document::REGULATION, 'position_id' => $position->id, 'title' => 'ЧУЖОЕ']),
-            InvalidArgumentException::class,
+        // A regulation of a position is no longer one of them: the company
+        // asked for a job to keep one of its own, so both documents take both
+        // kinds of owner now.
+        $this->assertNotNull(
+            RegulationSection::create(['document' => Document::REGULATION, 'position_id' => $position->id, 'title' => 'СВОЁ'])->fresh(),
         );
 
         // A profile of both at once.
@@ -497,6 +507,19 @@ class DepartmentProfileTest extends TestCase
      *
      * @return array<string, mixed>
      */
+    /**
+     * The headings a body is divided by, which is how the parts of the document
+     * are read now that it is one text.
+     *
+     * @return list<string>
+     */
+    private function headings(?string $body): array
+    {
+        preg_match_all('/<h2>(.*?)<\/h2>/su', (string) $body, $found);
+
+        return $found[1];
+    }
+
     private function profile(User $user, Department $department): array
     {
         return $this->actingAs($user)

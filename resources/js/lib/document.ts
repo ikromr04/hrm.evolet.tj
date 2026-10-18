@@ -7,6 +7,12 @@
  * own, a heading of its own, and no way to add or lose a section. So the shapes
  * are said once here and both pages speak them.
  *
+ * How many sections is all that differs. The profile is nine, which the company
+ * fills in one at a time; the regulation is one, because the company writes it
+ * as one file, and the parts of it are headings in the body rather than sections
+ * around it. Both arrive in the shape below, and the card is told which it is
+ * drawing.
+ *
  * This is the half everybody loads: the payload and the stylesheet a section is
  * read through. The editor is the other half, fetched only by somebody who opens
  * one — which is why none of it lives beside this.
@@ -17,7 +23,11 @@ export interface DocumentSection {
     /** The standard text, this owner's wording of it, or a section only it has. */
     origin: 'template' | 'override' | 'own';
     template_section_id: number | null;
-    /** Where the section stands in the document, said as the document says it. */
+    /**
+     * Where the section stands in the document, said as the document says it.
+     * Drawn where the document is a list of sections; where it is one text the
+     * numbers a reader sees are the ones typed into the headings of it.
+     */
     number: string;
     title: string;
     order: number;
@@ -41,8 +51,12 @@ export interface Paper {
      * it already defaulted, so there is always something to draw, and the
      * capitals in it are the owner's own — never added here, or what somebody
      * typed and what they read back would differ.
+     *
+     * Absent where the document is one file: «Положение о работе» names itself
+     * in its own first line, so there is no heading kept apart from the text
+     * and nothing to draw above it.
      */
-    title: string;
+    title?: string;
     sections: DocumentSection[];
 }
 
@@ -66,7 +80,8 @@ export type Editing = { mode: 'standard' | 'theirs'; section: DocumentSection };
  * than knowing either.
  */
 export interface Addresses {
-    title: string;
+    /** Where the heading is written — absent for a document that has none of its own. */
+    title?: string;
     store: string;
     update: string;
     destroy: string;
@@ -85,8 +100,10 @@ export interface Addresses {
 export const BODY = [
     'text-sm leading-relaxed',
     '[&_p]:my-0 [&_p+p]:mt-2',
-    // Headings inside a section, so they are smaller than the section's own
-    // title: this is the third level of a document, not the first.
+    // Headings inside the text: the parts of «Положение о работе», which is one
+    // body, and whatever a section of «Профиль должности» is divided into. So
+    // they are set a little above the text and well below a document's own
+    // heading, which is the line at the top of the card either way.
     '[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:first:mt-0',
     '[&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-sm [&_h3]:font-semibold',
     '[&_ol]:my-2 [&_ol]:list-outside [&_ol]:list-decimal [&_ol]:pl-6',
@@ -105,7 +122,15 @@ export const BODY = [
     '[&_strong]:font-semibold',
 ].join(' ');
 
-/** The measure of a line of the document, read or written. */
+/**
+ * The measure of a line of the document, read or written.
+ *
+ * «Профиль должности» alone now. Its sections are a few lines each, read one
+ * after another down a sheet, and a line of ninety words is one nobody
+ * finishes. «Положение о работе» is read and written across the whole card: the
+ * company looked at it full width and asked for the width, and nothing else
+ * shares the row with it there.
+ */
 export const MEASURE = 'max-w-[72ch]';
 
 /**

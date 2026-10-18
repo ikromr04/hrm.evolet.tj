@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
+use App\Models\Position;
 use App\Models\User;
 use App\Notifications\EmployeeAdded;
 use App\Notifications\EquipmentMoved;
@@ -420,25 +421,43 @@ class NotificationsTest extends TestCase
         $this->assertSame(0, DatabaseNotification::count());
     }
 
-    public function test_being_put_into_a_department_from_the_directory_is_told_too()
+    /**
+     * Nobody is put into a department from «Подразделения» any more — the
+     * dialog marks which of its positions lead and writes no membership at all
+     * — but a save there still works everybody it touches out from their
+     * positions, and whoever that moves is told.
+     */
+    public function test_a_save_from_the_directory_tells_whoever_it_moves()
     {
         $admin = $this->sysadmin();
-        [$stays, $joins, $leaves] = [$this->colleague(), $this->colleague(), $this->colleague()];
+        [$stays, $moves] = [$this->colleague(), $this->colleague()];
         $department = Department::create(['name' => 'Отдел продаж']);
-        $department->users()->attach([$stays->id, $leaves->id]);
+        $somewhereElse = Department::create(['name' => 'Отдел закупок']);
+        $leading = Position::create(['department_id' => $department->id, 'name' => 'Руководитель']);
+        $plain = Position::create(['department_id' => $department->id, 'name' => 'Менеджер']);
+        $stays->positions()->attach($plain);
+        $moves->positions()->attach($leading);
+        $department->users()->attach([$stays->id, $moves->id]);
+        // A department no position of theirs accounts for, filed before the
+        // rule changed and never marked as written by hand: the save is the
+        // moment it is worked out again and dropped.
+        $moves->departments()->attach($somewhereElse);
 
         $this->actingAs($admin)
             ->put("/departments/units/{$department->id}", [
                 // Renamed in the same save: a new name alone is not a move.
                 'name' => 'Отдел сбыта',
-                'head_ids' => [],
-                'member_ids' => [$stays->id, $joins->id],
+                'leading_position_ids' => [$leading->id],
             ])
             ->assertSessionHasNoErrors();
 
+        // Where they belong did not change, so they are told nothing — not
+        // even by the crown, which says how they stand in the department and
+        // not which department they are in.
         $this->assertSame([], $this->lines($stays));
-        $this->assertSame(['Вам изменили отдел: Отдел сбыта'], $this->lines($joins));
-        $this->assertSame(['Вам изменили отдел: не указан'], $this->lines($leaves));
+        $this->assertSame(['Вам изменили отдел: Отдел сбыта'], $this->lines($moves));
+        $this->assertSame([$department->id], $moves->refresh()->departments->pluck('id')->all());
+        $this->assertSame([$moves->id], $department->heads()->pluck('users.id')->all());
     }
 
     // --- Новый сотрудник ---

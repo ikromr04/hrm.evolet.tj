@@ -20,12 +20,21 @@ class Position extends Model
     protected $fillable = [
         'department_id',
         'name',
-        // The heading «Профиль должности» is printed under, typed by hand
-        // because it needs the name of the position in a case nothing here
-        // invents. Empty until somebody writes one, and then read in place of
-        // the heading worked out from the name.
-        'profile_title',
+        // Whether this is a leading position of its department: whoever holds
+        // it heads the department, and a department may have several.
+        'is_head',
+        // No heading among them. «Профиль должности» is one file, and the first
+        // line of that file is what the sheet is called, so the heading is
+        // written where the document is written.
     ];
+
+    /**
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return ['is_head' => 'boolean'];
+    }
 
     protected static function booted(): void
     {

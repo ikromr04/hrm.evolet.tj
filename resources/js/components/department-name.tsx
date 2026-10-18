@@ -4,6 +4,17 @@ import { Link } from '@inertiajs/react';
 import { type ReactNode } from 'react';
 
 /**
+ * A department as a field of a page names it: the short form it is known by,
+ * the full name along for whoever needs it, and the id, so the field can be a
+ * way back to the department it names.
+ */
+export interface Filing {
+    id: number;
+    name: string;
+    full_name: string;
+}
+
+/**
  * "Департамент маркетинга (ДМ)" — both names at once, for the two places with
  * room to say what an abbreviation stands for: the «Подразделения» list and a
  * department's own page. One that has no abbreviation is just its name, with no

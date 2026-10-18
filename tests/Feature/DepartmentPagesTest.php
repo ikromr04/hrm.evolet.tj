@@ -81,8 +81,27 @@ class DepartmentPagesTest extends TestCase
                 'name' => 'Бобоев Фаррух',
                 'avatar' => null,
                 'email' => $member->email,
-                'positions' => ['Дизайнер'],
+                // A job title is named to everybody and numbered only for
+                // whoever may open the job: this colleague may not, so the
+                // badge stays a word.
+                'positions' => [['id' => null, 'name' => 'Дизайнер']],
             ])
+        );
+    }
+
+    public function test_a_job_title_in_a_card_is_a_way_to_the_job_for_whoever_may_read_the_jobs()
+    {
+        $unit = Department::create(['name' => 'Отдел']);
+        $member = User::factory()->create();
+        $position = Position::create(['name' => 'Дизайнер']);
+        $member->positions()->attach($position);
+        $unit->users()->attach($member, ['is_head' => false]);
+
+        $viewer = $this->colleague();
+        $viewer->givePermissionTo(Directories::viewPermission('positions'));
+
+        $this->actingAs($viewer)->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('department.members.0.positions', [['id' => $position->id, 'name' => 'Дизайнер']])
         );
     }
 
@@ -231,6 +250,144 @@ class DepartmentPagesTest extends TestCase
 
         $this->assertSame(['Мой ноутбук'], array_column($units['people'], 'name'));
         $this->assertSame([], $units['own']);
+    }
+
+    /**
+     * The way into «Изменить отдел» from the department's own page: offered to
+     * whoever keeps the structure, and not drawn at all for everybody else.
+     *
+     * What the window chooses from — every department and every working
+     * employee — is left out of an ordinary visit and asked for by name when
+     * the control is pressed, the way the equipment is: this page is opened by
+     * everybody signed in, mostly to read a document.
+     */
+    public function test_the_page_offers_the_editing_window_to_whoever_keeps_the_structure()
+    {
+        $this->seed(PermissionSeeder::class);
+        $top = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
+        $unit = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД', 'parent_id' => $top->id]);
+        $head = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
+        $member = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
+        $fired = User::factory()->create(['status' => 'fired']);
+        $leading = Position::create(['department_id' => $unit->id, 'name' => 'Руководитель отдела дизайна', 'is_head' => true]);
+        $plain = Position::create(['department_id' => $unit->id, 'name' => 'Дизайнер']);
+        $head->positions()->attach($leading);
+        $member->positions()->attach($plain);
+        $fired->positions()->attach($plain);
+        $unit->users()->attach([$head->id => ['is_head' => true], $member->id => ['is_head' => false], $fired->id => ['is_head' => false]]);
+
+        $colleague = $this->colleague();
+        $keeper = $this->keeper();
+
+        // Open to everybody as it was, and with no way in: not a refused
+        // control but no control, and none of the staff of the company sent to
+        // somebody who came to read the regulation.
+        $this->actingAs($colleague)->get("/departments/{$unit->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('editor.can_edit', false)->missing('editorOptions'));
+
+        $this->actingAs($keeper)->get("/departments/{$unit->id}")->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('editor.can_edit', true)->missing('editorOptions'));
+
+        // The visit the control makes when it is pressed: that one prop, and
+        // the record in the shape «Подразделения» keeps it in.
+        $options = $this->windowOpened($keeper, $unit)['editorOptions'];
+
+        $this->assertSame('Отдел Дизайна', $options['department']['name']);
+        $this->assertSame('ОД', $options['department']['abbreviation']);
+        $this->assertSame($top->id, $options['department']['parent_id']);
+        // The two names and the placement are the whole of what the window
+        // writes. Nobody is chosen in it: who belongs to a department and who
+        // leads it both follow from its positions, so the staff of the company
+        // is not sent — and neither is anything for choosing a head, because
+        // that is decided where a position is kept and not in a department's
+        // form.
+        $this->assertArrayNotHasKey('employees', $options);
+        $this->assertArrayNotHasKey('heads', $options['department']);
+        // Where it could sit.
+        $this->assertEqualsCanonicalizing([$top->id, $unit->id], array_column($options['departments'], 'id'));
+
+        // Asked for by somebody without the right, it answers with nothing: the
+        // control is not drawn for them, and a request written by hand is not a
+        // way round that.
+        $this->assertNull($this->windowOpened($colleague, $unit)['editorOptions']);
+    }
+
+    /**
+     * The control on the page writes through the one set of rules, because it
+     * is the same form saving to the same address: moving the crown moves who
+     * heads the department, the former head stays in it as an ordinary member
+     * because he still holds his position, and the page is redrawn from the
+     * answer.
+     */
+    public function test_the_page_writes_who_leads_through_the_one_set_of_rules()
+    {
+        $this->seed(PermissionSeeder::class);
+        $unit = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
+        $former = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
+        $promoted = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
+        $wasLeading = Position::create(['department_id' => $unit->id, 'name' => 'Ведущий дизайнер', 'is_head' => true]);
+        $takesOver = Position::create(['department_id' => $unit->id, 'name' => 'Арт-директор']);
+        $former->positions()->attach($wasLeading);
+        $promoted->positions()->attach($takesOver);
+        $unit->users()->attach([$former->id => ['is_head' => true], $promoted->id => ['is_head' => false]]);
+
+        $keeper = $this->keeper();
+
+        // Exactly what the window sends: the two names, the placement, and
+        // which of the department's positions carry the crown.
+        $this->actingAs($keeper)->put("/departments/units/{$unit->id}", [
+            'name' => 'Отдел Дизайна',
+            'abbreviation' => 'ОД',
+            'parent_id' => null,
+            'leading_position_ids' => [$takesOver->id],
+        ])->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame([$promoted->id], $unit->heads()->pluck('users.id')->all());
+        // The former head keeps the position he holds, so he keeps the
+        // department: losing the crown is not losing the job.
+        $this->assertEqualsCanonicalizing([$former->id, $promoted->id], $unit->users()->pluck('users.id')->all());
+
+        // And the page that follows the save shows both, without a reload by
+        // hand: the new head, and the former one among the staff.
+        $this->actingAs($keeper)->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('department.heads', fn ($heads) => collect($heads)->pluck('id')->all() === [$promoted->id])
+            ->where('department.members', fn ($members) => collect($members)->pluck('id')->all() === [$former->id])
+        );
+
+        // The address is the one the list saves through, so it is shut to
+        // somebody without the right wherever the window was opened from.
+        $this->actingAs($this->colleague())->put("/departments/units/{$unit->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
+    }
+
+    /**
+     * Whoever keeps the structure: the pair of rights «Подразделения» is kept
+     * by, which is what the window on a department's page asks for too.
+     */
+    private function keeper(): User
+    {
+        return User::factory()->create()->givePermissionTo([
+            Directories::viewPermission('departments'),
+            Directories::editPermission('departments'),
+        ]);
+    }
+
+    /**
+     * The visit the control makes when it is pressed: that one prop by name,
+     * which is what `router.reload({ only: [...] })` sends.
+     *
+     * @return array<string, mixed>
+     */
+    private function windowOpened(User $viewer, Department $department): array
+    {
+        return $this->actingAs($viewer)
+            ->get("/departments/{$department->id}", [
+                'X-Inertia' => true,
+                'X-Inertia-Partial-Data' => 'editorOptions',
+                'X-Inertia-Partial-Component' => 'departments/show',
+                'X-Inertia-Version' => Inertia::getVersion(),
+            ])
+            ->assertOk()
+            ->json('props');
     }
 
     public function test_the_chart_is_open_to_everybody_and_the_list_is_not()

@@ -15,6 +15,7 @@ use App\Models\UserWorkExperience;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class UserSeeder extends Seeder
 {
@@ -84,6 +85,7 @@ class UserSeeder extends Seeder
         $this->assignPositions();
         $this->assignDuties();
         $this->assignDepartmentHeads();
+        $this->sayWhichPositionsLead();
         $this->assignLanguages();
         $this->addChildren();
         $this->addEducation();
@@ -375,6 +377,50 @@ class UserSeeder extends Seeder
      * with a head role there. Everyone else gets one regular title, about one
      * in eight a second one. The admin account holds no position.
      */
+    /**
+     * The last word on the structure, so that seeded data obeys the rule the
+     * application now runs on: somebody belongs to a department because they
+     * hold one of its positions, and leads it because that position is a
+     * leading one.
+     *
+     * Everything above assigns departments and positions separately, the way
+     * the company's own data grew, so neither agrees with the other by itself.
+     * This is the same pair of answers the two migrations write on the real
+     * rows: the position a head holds in the unit they lead is marked leading,
+     * and whatever membership no position accounts for is marked as written by
+     * hand, which is what keeps App\Support\Membership from deleting it on the
+     * first save that touches that person.
+     *
+     * Simpler than the migrations on purpose. They refuse to guess because the
+     * rows are the company's; these are made up, so a head holding two
+     * positions in their own unit simply has both marked.
+     */
+    private function sayWhichPositionsLead(): void
+    {
+        // Read first and update after: MySQL will not have the table it is
+        // updating named again inside the same statement.
+        $leading = DB::table('position_user')
+            ->join('positions', 'positions.id', '=', 'position_user.position_id')
+            ->join('department_user', 'department_user.user_id', '=', 'position_user.user_id')
+            ->where('department_user.is_head', true)
+            ->whereColumn('positions.department_id', 'department_user.department_id')
+            ->distinct()
+            ->pluck('positions.id');
+
+        if ($leading->isNotEmpty()) {
+            DB::table('positions')->whereIn('id', $leading)->update(['is_head' => true]);
+        }
+
+        DB::table('department_user')
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('position_user')
+                ->join('positions', 'positions.id', '=', 'position_user.position_id')
+                ->whereColumn('position_user.user_id', 'department_user.user_id')
+                ->whereColumn('positions.department_id', 'department_user.department_id'))
+            ->update(['by_hand' => true]);
+    }
+
     private function assignPositions(): void
     {
         $titles = Position::all()->keyBy('name');

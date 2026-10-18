@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\RegulationSection;
 use App\Support\Document;
+use App\Support\Profile;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -50,37 +51,80 @@ class PositionProfileTemplateSeeder extends Seeder
     public const FROM_DATA = 'ОБЩАЯ ИНФОРМАЦИЯ';
 
     /**
-     * The nine sections, written while there are none.
+     * The document, written while there is none.
      *
      * Written once and then the company's own: every later run leaves the
      * template exactly as it stands, because the headings are theirs to correct
-     * and the bodies theirs to write, and a seeder that put its own version back
-     * would undo that work on every update. A section they dropped stays
+     * and the text theirs to write, and a seeder that put its own version back
+     * would undo that work on every update. A part of it they dropped stays
      * dropped for the same reason.
+     *
+     * One row, because the document is one text. Its first line is the name of
+     * the sheet, written with the one placeholder this document has — both
+     * kinds of owner read the same template and each has to read its own
+     * opening there — and the parts after it are the headings the company's
+     * contents page lists, with nothing under any of them.
+     *
+     * «01 ОБЩАЯ ИНФОРМАЦИЯ» is not among them any more. It was never text: it
+     * is where the thing sits, who leads it and how many work there, and all of
+     * that is in the column beside the document now, read from the directory
+     * every time the page is opened.
      */
     public function run(): void
     {
-        $template = RegulationSection::where('document', Document::PROFILE)->whereNull('position_id');
+        $template = RegulationSection::where('document', Document::PROFILE)
+            ->whereNull('department_id')
+            ->whereNull('position_id');
 
         if ($template->exists()) {
             return;
         }
 
-        DB::transaction(function () {
-            foreach (self::SECTIONS as $place => $title) {
-                RegulationSection::create([
-                    'document' => Document::PROFILE,
-                    'title' => $title,
-                    // Nothing under any of them: the text of a profile is the
-                    // company's to write, and «01 ОБЩАЯ ИНФОРМАЦИЯ» has no text
-                    // to write at all.
-                    'body' => null,
-                    'computed' => $title === self::FROM_DATA,
-                    // A hundred apart, which leaves room between any two
-                    // standard sections for one written later.
-                    'order' => ($place + 1) * 100,
-                ]);
-            }
-        });
+        DB::transaction(fn () => RegulationSection::create([
+            'document' => Document::PROFILE,
+            // What the one section is called, which nothing draws: the document
+            // names itself in its own first line. A job's sheet and a unit's
+            // are one template, so the row is called after the document the
+            // company lists it as.
+            'title' => Profile::TITLE,
+            'body' => self::body(),
+            'computed' => false,
+            'order' => 100,
+        ]));
+    }
+
+    /**
+     * The document as the editor would have written it: the name of the sheet,
+     * then a heading for each part the company's contents page lists.
+     *
+     * Nothing under any of them. What belongs under «МЯГКИЕ НАВЫКИ» is
+     * different for every position in the company, and a seeder that invented a
+     * paragraph of it would be putting words the company never wrote into a
+     * sheet somebody signs.
+     *
+     * Through the same sanitizer every body written on the page goes through,
+     * so the standard text is on file in exactly the shape somebody typing it
+     * would have left.
+     */
+    private static function body(): string
+    {
+        $parts = ['<h2>{заголовок}</h2>'];
+
+        foreach (self::written() as $place => $title) {
+            $parts[] = '<h2>'.str_pad((string) ($place + 1), 2, '0', STR_PAD_LEFT).' '.$title.'</h2>';
+        }
+
+        return (string) Document::sanitize(implode('', $parts));
+    }
+
+    /**
+     * The parts of the document that are written: every heading the company
+     * lists except the one that was never text.
+     *
+     * @return list<string>
+     */
+    public static function written(): array
+    {
+        return array_values(array_filter(self::SECTIONS, fn (string $title) => $title !== self::FROM_DATA));
     }
 }

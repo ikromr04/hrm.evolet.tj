@@ -3,12 +3,13 @@
 namespace App\Support;
 
 use App\Models\Department;
+use App\Models\Position;
 use App\Models\RegulationSection;
 use App\Models\User;
 
 /**
- * What «Положение о работе» says for itself: the words its heading begins with,
- * and what the standard text puts in the place of a department's name.
+ * What «Положение о работе» says for itself: the words it is named by, and what
+ * the standard text puts in the place of a department's name.
  *
  * The document is one text read for every department, so the sentence on file
  * says «{подразделение} является самостоятельным структурным подразделением…»
@@ -22,9 +23,23 @@ use App\Models\User;
  * дизайна», so the one name in the nominative is the whole of it and nobody
  * is asked to type their department's name twice more.
  *
- * Everything this document shares with «Профиль должности» — what a body may be
- * made of, how long it may be, how a placeholder is answered — is in Document,
- * because the two are one piece of machinery with two names.
+ * The document is one text, and the whole of it is in that text. The company
+ * writes it as one file, so the name of the sheet is its first line and its
+ * parts — ОБЩЕЕ ПОЛОЖЕНИЕ, ПРАВА, ОБЯЗАННОСТИ, ОТВЕТСТВЕННОСТЬ — are headings
+ * after it, and whoever writes it moves, renames and renumbers any of them like
+ * any other line. Nothing here draws a heading around it or works one out: the
+ * standard text names itself «ПОЛОЖЕНИЕ О РАБОТЕ {подразделение}», which reads
+ * as the department's own name like every other placeholder in it, and a
+ * department that wants it in the genitive writes the word it wants.
+ *
+ * Which is the one thing it does not share with «Профиль должности», where the
+ * company fills in nine sections one at a time under a heading kept in a field:
+ * a regulation is a document of one section, read and written by exactly the
+ * machinery the nine are.
+ *
+ * Everything else it shares with that document — what a body may be made of,
+ * how long it may be, how a placeholder is answered — is in Document, because
+ * the two are one piece of machinery with two names.
  */
 final class Regulation
 {
@@ -35,6 +50,7 @@ final class Regulation
      * @var array<string, string>
      */
     public const PLACEHOLDERS = [
+        '{заголовок}' => 'Заголовок листа: вид положения и чьё оно',
         '{подразделение}' => 'Название подразделения',
         '{аббревиатура}' => 'Аббревиатура подразделения',
         '{руководитель}' => 'Руководитель подразделения',
@@ -43,26 +59,37 @@ final class Regulation
 
     /**
      * The words the heading of the sheet begins with, before the name of the
-     * department it is written for.
+     * thing it is written for.
      */
     public const TITLE = 'ПОЛОЖЕНИЕ О РАБОТЕ';
 
     /**
-     * What each placeholder reads as for this department.
+     * What each placeholder reads as for this owner.
      *
-     * For the template there is no department to ask, so every placeholder
-     * stands for itself: the standard text is written and read with the braces
-     * showing, which is exactly what whoever edits it needs to see.
+     * For the template there is nobody to ask, so every placeholder stands for
+     * itself: the standard text is written and read with the braces showing,
+     * which is exactly what whoever edits it needs to see.
+     *
+     * A position answers the department's placeholders out of the unit it is
+     * filed in. The standard text is written about a подразделение — «{подразделение}
+     * является самостоятельным структурным подразделением…» — and a job filed
+     * in a unit is a job in that unit, so the sentences read about the unit
+     * until somebody writes the job its own. A position filed nowhere answers
+     * them with the dash a printed sheet uses for what nobody has filled in.
      *
      * @return array<string, string> token => what is read in its place
      */
-    public static function values(?Department $department): array
+    public static function values(Department|Position|null $owner): array
     {
-        if ($department === null) {
+        if ($owner === null) {
             return array_combine(array_keys(self::PLACEHOLDERS), array_keys(self::PLACEHOLDERS));
         }
 
-        $heads = $department->heads()
+        // The unit the sentences are about: the department itself, or the one a
+        // position is filed in.
+        $department = $owner instanceof Department ? $owner : $owner->department;
+
+        $heads = $department === null ? collect() : $department->heads()
             ->active()
             ->orderBy('surname')
             ->orderBy('name')
@@ -70,70 +97,71 @@ final class Regulation
             ->map(fn (User $head) => "{$head->surname} {$head->name}");
 
         return [
+            '{заголовок}' => self::TITLE.' '.self::whose($owner),
             // The full name, not the abbreviation: this is a document, and
             // «ОЦМ является самостоятельным структурным подразделением» is not
             // how one is written.
-            '{подразделение}' => $department->name,
-            '{аббревиатура}' => $department->abbreviation ?: $department->name,
+            '{подразделение}' => $department?->name ?: Document::UNKNOWN,
+            '{аббревиатура}' => $department === null ? Document::UNKNOWN : ($department->abbreviation ?: $department->name),
             '{руководитель}' => $heads->implode(', ') ?: Document::UNKNOWN,
-            '{департамент}' => $department->parent?->name ?: Document::UNKNOWN,
+            '{департамент}' => $department?->parent?->name ?: Document::UNKNOWN,
         ];
     }
 
     /**
-     * The heading of the printed sheet for one department: what that department
-     * typed, or — while nobody has typed anything — the name of the document
-     * followed by the department's own name, upper-cased exactly as it stands.
+     * Whose sheet it is, as the opening line names it.
      *
-     * «ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТ АНАЛИТИКИ И СТАТИСТИКИ» is the wrong
-     * case, and on purpose. Russian wants the genitive of the name here, and
-     * nothing in this application declines a name: a rule that gets «Отдела
-     * дизайна» right gets somebody else's name wrong, and this is printed and
-     * signed. So the default is one ending away from correct and visibly so —
-     * whoever reads it fixes the word in the field, once, and the heading is
-     * theirs from then on. Obviously wrong where somebody can correct it beats
-     * quietly wrong where nobody looks.
-     *
-     * A heading goes through the placeholders like any other text of the
-     * document, so somebody who writes {подразделение} into it reads the name
-     * there and is not the one person told that the tokens work everywhere
-     * else.
+     * A department is named in full: this is the line a printed sheet is headed
+     * with, and «ПОЛОЖЕНИЕ О РАБОТЕ ОД» is not how one is written. A position is
+     * named as every screen names it — the job and the unit it is filed in,
+     * «Аналитик (ОАП)» — because two departments may both have an «Аналитик»
+     * and a sheet that is printed and signed has to say which one this is.
      */
-    public static function title(Department $department): string
+    private static function whose(Department|Position $owner): string
     {
-        $own = trim((string) $department->regulation_title);
-
-        return $own === ''
-            ? self::TITLE.' '.mb_strtoupper($department->name)
-            : (string) Document::resolve($own, self::values($department));
+        return $owner instanceof Department ? $owner->name : $owner->display_name;
     }
 
     /**
-     * The document itself: its heading and its sections, read for this
-     * department. Two pages ask for it — the department's own, where it is also
-     * written, and a position's, where the regulation of the department the
-     * position belongs to is read and nothing more. Keeping it here is what
-     * stops the second page from growing a second idea of what the document is.
+     * The document itself: the one section its text is, read for this owner.
      *
-     * @return array{title: string, sections: list<array<string, mixed>>}
+     * Two pages ask for it, and each asks about itself now — a department's own
+     * and a position's own. A position used to read the regulation of the
+     * department it was filed in, read-only; the company asked for a job to
+     * keep one of its own, so the page that reads it is the page that writes
+     * it, and this is where both of them get the same shape of answer.
+     *
+     * No heading travels with it, because there is nothing left to head: the
+     * name of the sheet is the first line of the text, written like the rest of
+     * it and read like the rest of it. «ПОЛОЖЕНИЕ О РАБОТЕ ДЕПАРТАМЕНТ
+     * АНАЛИТИКИ И СТАТИСТИКИ» used to be worked out from the name, in the
+     * nominative where Russian wants the genitive, and offered in a field for
+     * somebody to correct; now the word somebody wants is a word they type into
+     * the document, in the one place the document is written.
+     *
+     * @return array{sections: list<array<string, mixed>>}
      */
-    public static function paper(Department $department): array
+    public static function paper(Department|Position $owner): array
     {
-        $values = self::values($department);
+        $values = self::values($owner);
+        $read = $owner instanceof Department
+            ? RegulationSection::forDepartment($owner)
+            : RegulationSection::regulationForPosition($owner);
 
         return [
-            'title' => self::title($department),
-            'sections' => RegulationSection::forDepartment($department)->map(fn (RegulationSection $section, int $place) => [
+            'sections' => $read->map(fn (RegulationSection $section, int $place) => [
                 'id' => $section->id,
                 // "template" — the company's own text, read as it is written;
-                // "override" — this department's wording of a standard section;
+                // "override" — this owner's wording of the standard text;
                 // "own" — a section no template has.
                 'origin' => $section->origin(),
                 'template_section_id' => $section->template_section_id,
                 // Worked out here and stored nowhere: the number is the place
-                // the section is read in this department's document, and one
-                // section of the template is read at a different place in every
-                // department's.
+                // the section is read in. The page does not draw it — this
+                // document is one text, and the numbers a reader sees are the
+                // ones typed into its headings — but it is part of what a
+                // section is, and «Профиль должности» travels in the same
+                // shape and does draw it.
                 'number' => RegulationSection::number($place),
                 'title' => $section->title,
                 'order' => $section->order,
@@ -152,9 +180,9 @@ final class Regulation
      *
      * @return list<array{token: string, title: string, value: string}>
      */
-    public static function offer(?Department $department): array
+    public static function offer(Department|Position|null $owner): array
     {
-        $values = self::values($department);
+        $values = self::values($owner);
 
         $offer = [];
 

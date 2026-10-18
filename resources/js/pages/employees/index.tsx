@@ -150,7 +150,8 @@ interface EmployeesProps {
     sortable: ColumnKey[];
     options: {
         roles: { name: string; title: string }[];
-        positions: { id: number; name: string }[];
+        /** With «display_name» — «Администратор (ОАП)» — since one name may now be filed in several departments. */
+        positions: { id: number; name: string; display_name: string }[];
         /** The department tree flattened, parents first. */
         departments: { id: number; name: string; full_name: string; depth: number }[];
         languages: { id: number; name: string }[];
@@ -479,7 +480,10 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 label: 'Должность',
                 width: 240,
                 private: false,
-                filter: { type: 'multi', param: 'position', options: options.positions.map((t) => ({ value: t.id, label: t.name })) },
+                // Named with the department in brackets: the list offered
+                // «Администратор» four times over, and nothing in it said which
+                // of the four was being ticked.
+                filter: { type: 'multi', param: 'position', options: options.positions.map((t) => ({ value: t.id, label: t.display_name })) },
                 cell: (row) => (row.positions?.length ? <PositionBadges titles={row.positions} /> : <Empty />),
             },
             {

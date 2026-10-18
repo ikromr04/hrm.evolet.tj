@@ -212,37 +212,62 @@ class DirectoriesTest extends TestCase
         );
     }
 
-    public function test_department_heads_are_chosen_from_working_staff_and_join_the_department()
+    /**
+     * Who heads a department is not chosen from a list of people any more: the
+     * crowns go on the department's positions, and whoever holds a crowned one
+     * heads it. Several may be crowned at once — two departments are led by two
+     * people today — and somebody who no longer works here is not made a head
+     * by a position, exactly as they could not be named one before.
+     */
+    public function test_department_heads_follow_the_positions_marked_as_leading()
     {
         $this->actingAs($this->admin);
         $department = Department::create(['name' => 'Отдел Дизайна']);
         $first = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина']);
         $second = User::factory()->create(['surname' => 'Бобоев', 'name' => 'Фаррух']);
         $fired = User::factory()->create(['status' => 'fired']);
+        $hers = Position::create(['department_id' => $department->id, 'name' => 'Ведущий дизайнер']);
+        $his = Position::create(['department_id' => $department->id, 'name' => 'Арт-директор']);
+        $gone = Position::create(['department_id' => $department->id, 'name' => 'Дизайнер']);
+        $first->positions()->attach($hers);
+        $second->positions()->attach($his);
+        $fired->positions()->attach($gone);
 
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$fired->id]])
-            ->assertSessionHasErrors('head_ids.0');
+        // A position of somebody else's department cannot be crowned from here.
+        $elsewhere = Position::create(['department_id' => Department::create(['name' => 'Отдел сбыта'])->id, 'name' => 'Менеджер']);
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'leading_position_ids' => [$elsewhere->id]])
+            ->assertSessionHasErrors('leading_position_ids.0');
 
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$second->id, $first->id]])
-            ->assertSessionHasNoErrors();
+        $this->put("/departments/units/{$department->id}", [
+            'name' => 'Отдел Дизайна',
+            'parent_id' => null,
+            'leading_position_ids' => [$his->id, $hers->id, $gone->id],
+        ])->assertSessionHasNoErrors();
+
+        // Both working holders lead it; the one who no longer works here is not
+        // made a head by the crown on his old job, and keeps what he had.
         $this->assertEqualsCanonicalizing([$first->id, $second->id], $department->heads()->pluck('users.id')->all());
+        $this->assertFalse($department->users()->whereKey($fired->id)->exists());
 
         $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
             ->where('items.0.heads', [['id' => $first->id, 'name' => 'Азимова Нигина'], ['id' => $second->id, 'name' => 'Бобоев Фаррух']])
-            ->where('employees', fn ($people) => collect($people)->doesntContain('id', $fired->id))
+            // The list no longer carries the staff of the company: nobody is
+            // picked from it.
+            ->missing('employees')
         );
 
         $this->get('/employees')->assertInertia(fn (Assert $page) => $page
             ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $first->id)['departments'][0]['is_head'] === true)
         );
 
-        // A former head stays in the department as an ordinary member.
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => [$first->id]])
+        // A former head stays in the department as an ordinary member: she
+        // still holds the position, and losing the crown is not losing the job.
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'leading_position_ids' => [$hers->id]])
             ->assertSessionHasNoErrors();
         $this->assertSame([$first->id], $department->heads()->pluck('users.id')->all());
         $this->assertTrue($department->users()->whereKey($second->id)->exists());
 
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'head_ids' => []])
+        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел Дизайна', 'parent_id' => null, 'leading_position_ids' => []])
             ->assertSessionHasNoErrors();
         $this->assertFalse($department->heads()->exists());
         $this->assertSame(2, $department->users()->count());
@@ -274,81 +299,73 @@ class DirectoriesTest extends TestCase
         $this->get('/positions')->assertInertia(fn (Assert $page) => $page->where('positions.0.employees_count', 1));
     }
 
-    public function test_department_members_are_edited_from_the_directory()
+    /**
+     * Marking which positions lead is all this address does to a department's
+     * people. The window stopped naming positions at all — they are crowned
+     * where they are written, under «Должности» — but the address still takes
+     * the marks, and still writes no membership: a request carrying the lists
+     * the old form sent changes nobody.
+     */
+    public function test_the_directory_marks_positions_and_writes_no_membership()
     {
         $this->actingAs($this->admin);
         $department = Department::create(['name' => 'Отдел']);
-        [$head, $stays, $leaves, $joins] = User::factory(4)->create();
-        $fired = User::factory()->create(['status' => 'fired']);
-        $department->users()->attach([$head->id => ['is_head' => true], $stays->id => ['is_head' => false], $leaves->id => ['is_head' => false], $fired->id => ['is_head' => false]]);
+        [$head, $member, $outsider] = User::factory(3)->create();
+        $leading = Position::create(['department_id' => $department->id, 'name' => 'Руководитель']);
+        $plain = Position::create(['department_id' => $department->id, 'name' => 'Специалист']);
+        $head->positions()->attach($leading);
+        $member->positions()->attach($plain);
+        $department->users()->attach([$head->id => ['is_head' => false], $member->id => ['is_head' => false]]);
 
-        $this->get('/departments/units')->assertInertia(fn (Assert $page) => $page
-            ->where('items.0.member_ids', fn ($ids) => collect($ids)->sort()->values()->all() === [$stays->id, $leaves->id])
-        );
-
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$fired->id]])
-            ->assertSessionHasErrors('member_ids.0');
-
-        $this->put("/departments/units/{$department->id}", ['name' => 'Отдел', 'parent_id' => null, 'member_ids' => [$stays->id, $joins->id]])
-            ->assertSessionHasNoErrors();
-
-        // Heads stay when only members are sent; people who left stay on record.
-        $this->assertEqualsCanonicalizing([$head->id, $stays->id, $joins->id, $fired->id], $department->users()->pluck('users.id')->all());
-        $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
-    }
-
-    public function test_heads_and_members_are_saved_together()
-    {
-        $this->actingAs($this->admin);
-        $department = Department::create(['name' => 'Отдел']);
-        [$former, $promoted, $member] = User::factory(3)->create();
-        $department->users()->attach([$former->id => ['is_head' => true], $promoted->id => ['is_head' => false]]);
-
-        // The form moves a former head to the members and a new head out of them.
         $this->put("/departments/units/{$department->id}", [
             'name' => 'Отдел',
             'parent_id' => null,
-            'head_ids' => [$promoted->id],
-            'member_ids' => [$former->id, $member->id],
+            'leading_position_ids' => [$leading->id],
+            // What the old form used to send. It is no longer a field of this
+            // address, so it is ignored rather than obeyed: nobody joins a
+            // department by being named in a request.
+            'member_ids' => [$outsider->id],
+            'head_ids' => [$outsider->id],
         ])->assertSessionHasNoErrors();
 
-        $this->assertSame([$promoted->id], $department->heads()->pluck('users.id')->all());
-        $this->assertEqualsCanonicalizing([$former->id, $promoted->id, $member->id], $department->users()->pluck('users.id')->all());
-
-        // Left out of both lists: leaves the department.
-        $this->put("/departments/units/{$department->id}", [
-            'name' => 'Отдел',
-            'parent_id' => null,
-            'head_ids' => [$promoted->id],
-            'member_ids' => [],
-        ])->assertSessionHasNoErrors();
-
-        $this->assertSame([$promoted->id], $department->users()->pluck('users.id')->all());
-    }
-
-    public function test_a_new_department_can_start_with_members()
-    {
-        $this->actingAs($this->admin);
-        [$head, $member] = User::factory(2)->create();
-
-        $this->post('/departments/units', ['name' => 'Новый', 'parent_id' => null, 'head_ids' => [$head->id], 'member_ids' => [$member->id]])
-            ->assertSessionHasNoErrors();
-
-        $department = Department::firstWhere('name', 'Новый');
         $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
         $this->assertEqualsCanonicalizing([$head->id, $member->id], $department->users()->pluck('users.id')->all());
+        $this->assertFalse($outsider->departments()->exists());
     }
 
-    public function test_renaming_a_department_without_head_ids_keeps_its_heads()
+    /**
+     * A department that has just been written down has no positions yet, so it
+     * has nobody in it: its people arrive when its positions do.
+     */
+    public function test_a_new_department_starts_empty()
+    {
+        $this->actingAs($this->admin);
+
+        $this->post('/departments/units', ['name' => 'Новый', 'parent_id' => null])->assertSessionHasNoErrors();
+
+        $department = Department::firstWhere('name', 'Новый');
+        $this->assertFalse($department->users()->exists());
+        $this->assertFalse($department->positions()->exists());
+    }
+
+    /**
+     * A rename is not a decision about who leads: a request that says nothing
+     * about the crowns leaves every one of them where it is, and the heads they
+     * work out to with them.
+     */
+    public function test_renaming_a_department_keeps_the_crowns_and_the_heads_it_has()
     {
         $this->actingAs($this->admin);
         $head = User::factory()->create();
         $department = Department::create(['name' => 'Отдел']);
+        $leading = Position::create(['department_id' => $department->id, 'name' => 'Руководитель', 'is_head' => true]);
+        $head->positions()->attach($leading);
         $department->users()->attach($head, ['is_head' => true]);
 
         $this->put("/departments/units/{$department->id}", ['name' => 'Новый отдел', 'parent_id' => null])
             ->assertSessionHasNoErrors();
 
+        $this->assertTrue($leading->refresh()->is_head);
         $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
     }
 

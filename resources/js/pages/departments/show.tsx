@@ -1,8 +1,10 @@
 import { MobileRow } from '@/components/data-table';
+import { DepartmentEditor, type DepartmentRecord } from '@/components/department-editor';
 import { DepartmentName, departmentTitle } from '@/components/department-name';
 import { DepartmentProfile, type Profile } from '@/components/department-profile';
 import { DepartmentRegulation, type Regulation } from '@/components/department-regulation';
 import { DocumentTabs } from '@/components/document-tabs';
+import { EditPencil } from '@/components/edit-pencil';
 import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
@@ -28,7 +30,8 @@ interface Person {
 
 interface Colleague extends Person {
     email: string;
-    positions: string[];
+    /** The id travels only for somebody who may open the position's page. */
+    positions: { id: number | null; name: string }[];
 }
 
 interface Department {
@@ -206,12 +209,31 @@ interface Equipment {
     people: Unit[];
 }
 
-function Section({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+/**
+ * The pencil that opens «Изменить отдел», wherever the page puts it.
+ *
+ * The same button the document beside it is written with, because it is the
+ * same act: the page carries both at once, and a second kind of edit button
+ * would read as a second kind of editing. Wordless, so it says out loud what it
+ * opens — «Изменить» alone would be two different things on one screen.
+ */
+function DepartmentPencil({ busy, onClick, className }: { busy: boolean; onClick: () => void; className?: string }) {
+    return <EditPencil label="Изменить подразделение" tip="Изменить подразделение" busy={busy} className={className} onClick={onClick} />;
+}
+
+function Section({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
     return (
         <Card className="flex flex-col gap-3 rounded-xl px-4 py-4 md:px-6 md:py-5">
-            <h2 className="flex items-baseline gap-2 text-base font-semibold">
-                {title}
-                {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
+            {/* The heading keeps its own line and the pencil sits at the end of
+                it, so a name that wraps wraps beside the button rather than
+                under it. A card with nothing to press has no such line to
+                spare, which is why the slot is empty by default. */}
+            <h2 className="flex items-center gap-2 text-base font-semibold">
+                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                    {title}
+                    {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
+                </span>
+                {action}
             </h2>
             {children}
         </Card>
@@ -246,11 +268,26 @@ function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolea
                 {compact && email}
                 {person.positions.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                        {person.positions.map((position) => (
-                            <StatusBadge key={position} tone="success" className="h-auto min-h-[22px] whitespace-normal">
-                                {position}
-                            </StatusBadge>
-                        ))}
+                        {person.positions.map((position) => {
+                            const badge = (
+                                <StatusBadge tone="success" className="h-auto min-h-[22px] whitespace-normal">
+                                    {position.name}
+                                </StatusBadge>
+                            );
+
+                            return position.id === null ? (
+                                <span key={position.name}>{badge}</span>
+                            ) : (
+                                <Link
+                                    key={position.id}
+                                    href={route('positions.show', position.id)}
+                                    title={`Открыть должность: ${position.name}`}
+                                    className="rounded-md hover:underline"
+                                >
+                                    {badge}
+                                </Link>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -260,13 +297,21 @@ function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolea
 }
 
 /** A small heading over a grouped card, the way a phone's settings name their sections. */
-function PhoneSection({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+function PhoneSection({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
     return (
         <section className="flex flex-col">
-            <h2 className="text-muted-foreground mb-1.5 flex items-baseline gap-1.5 px-1 text-[13px] font-semibold tracking-wide uppercase">
-                {title}
-                {count !== undefined && <span className="font-normal tabular-nums">{count}</span>}
-            </h2>
+            {/* Above the card, where a phone keeps the name of a group — and
+                where anything that acts on the group goes with it: inside the
+                card the pencil would stand over the first row and whatever that
+                row says. The negative margin keeps a finger-wide button from
+                pushing the card a line further down. */}
+            <div className="mb-1.5 flex items-center gap-1.5 px-1">
+                <h2 className="text-muted-foreground flex min-w-0 flex-1 items-baseline gap-1.5 text-[13px] font-semibold tracking-wide uppercase">
+                    {title}
+                    {count !== undefined && <span className="font-normal tabular-nums">{count}</span>}
+                </h2>
+                {action && <span className="-my-2 -mr-1.5">{action}</span>}
+            </div>
             <Card className="gap-0 overflow-hidden rounded-2xl border-0 py-0 shadow-none">{children}</Card>
         </section>
     );
@@ -295,7 +340,7 @@ function PhoneColleagueRow({ person, href }: { person: Colleague; href: string |
             href={href}
             leading={<Avatar person={person} className="size-10" />}
             title={person.name}
-            subtitle={person.positions.length > 0 ? person.positions.join(', ') : person.email}
+            subtitle={person.positions.length > 0 ? person.positions.map((position) => position.name).join(', ') : person.email}
             trailing={
                 <Button variant="ghost" size="icon" className="text-brand-strong size-10 dark:text-[#C5E27A]" asChild>
                     <a href={`mailto:${person.email}`} aria-label={`Написать: ${person.email}`} title={person.email}>
@@ -307,12 +352,25 @@ function PhoneColleagueRow({ person, href }: { person: Colleague; href: string |
     );
 }
 
+/**
+ * What «Изменить отдел» is given when it is opened: this department as the
+ * window reads a record, and the departments it could be put under. Nobody is
+ * chosen in that window — who belongs to a department and who leads it both
+ * follow from its positions — so no list of people is sent.
+ */
+interface EditorOptions {
+    department: DepartmentRecord;
+    departments: DepartmentRecord[];
+}
+
 export default function DepartmentPage({
     department,
     regulation,
     profile,
     equipment,
     equipmentUnits,
+    editor,
+    editorOptions,
 }: {
     department: Department;
     regulation: Regulation;
@@ -322,6 +380,10 @@ export default function DepartmentPage({
     equipment: { can_read: boolean };
     /** Absent until the tab is opened, which is when the page asks for it. */
     equipmentUnits?: Equipment;
+    /** Whether the department is this person's to change, and nothing more. */
+    editor: { can_edit: boolean };
+    /** Absent until the window is opened, which is when the page asks for it. */
+    editorOptions?: EditorOptions;
 }) {
     const can = useCan();
     const [view, setView] = useState<View>(savedView);
@@ -330,17 +392,23 @@ export default function DepartmentPage({
     // at all. The page is opened by everybody, mostly to read the regulation.
     const asked = useRef(false);
     const [loading, setLoading] = useState(false);
+    const [editing, setEditing] = useState(false);
+    // The window waits for the record it edits, so the control says it is
+    // working rather than answering a press with nothing.
+    const [opening, setOpening] = useState(false);
+
+    const askUnits = () => {
+        asked.current = true;
+        setLoading(true);
+        // Only that one prop, so the regulation, the people and the
+        // profiles are not read again to answer a question about printers.
+        router.reload({ only: ['equipmentUnits'], onFinish: () => setLoading(false) });
+    };
 
     const changeView = (next: View) => {
         setView(next);
 
-        if (next === 'equipment' && equipment.can_read && !asked.current) {
-            asked.current = true;
-            setLoading(true);
-            // Only that one prop, so the regulation, the people and the
-            // profiles are not read again to answer a question about printers.
-            router.reload({ only: ['equipmentUnits'], onFinish: () => setLoading(false) });
-        }
+        if (next === 'equipment' && equipment.can_read && !asked.current) askUnits();
 
         // Only the two the page has always remembered are written down; СФД and
         // the equipment are asked for afresh each visit, because nobody has
@@ -352,6 +420,38 @@ export default function DepartmentPage({
         } catch {
             // Blocked storage: the choice just is not remembered.
         }
+    };
+
+    /**
+     * «Изменить отдел»: the window «Подразделения» opens, opened from here.
+     *
+     * What it chooses from is not on the page — it is asked for by name, the
+     * way the equipment is — so the first press waits for the answer and the
+     * window opens on it. A second press has it already.
+     */
+    const openEditor = () => {
+        if (editorOptions) {
+            setEditing(true);
+
+            return;
+        }
+
+        setOpening(true);
+        router.reload({ only: ['editorOptions'], onSuccess: () => setEditing(true), onFinish: () => setOpening(false) });
+    };
+
+    /**
+     * Saved: the page is already redrawn from the answer, so the heads and the
+     * staff beside the document are the new ones.
+     *
+     * An answer to a save carries no optional prop, though, and the equipment
+     * was one: a tab left standing open would read as a list that failed to
+     * load, so it asks again.
+     */
+    const saved = () => {
+        asked.current = false;
+
+        if (view === 'equipment' && equipment.can_read) askUnits();
     };
 
     // Which document the main column holds. On a phone the list is a view of its
@@ -391,7 +491,7 @@ export default function DepartmentPage({
                     a row of its own and the two views share one segmented control. */}
                 <div className="flex flex-col gap-3 md:hidden">
                     <h1 className="sr-only">{title}</h1>
-                    <PhoneSection title="Подразделение">
+                    <PhoneSection title="Подразделение" action={editor.can_edit && <DepartmentPencil busy={opening} onClick={openEditor} />}>
                         <dl className="px-4">
                             {/* The bar above says «ОД» and so does every screen that
                                 sent somebody here; a finger has no hover, so this is
@@ -473,15 +573,31 @@ export default function DepartmentPage({
 
                 {/* The department's documents are what the page shows, and who
                     works in the department stands beside them rather than in place
-                    of them: the tabs are inside the left column, so changing one
-                    leaves the column at the right exactly as it was. Both columns
-                    are told they may be narrower than their contents: a grid track
-                    otherwise stands as wide as the longest line in it, and a job
-                    title would push a phone screen sideways. */}
+                    of them. Both columns are told they may be narrower than their
+                    contents: a grid track otherwise stands as wide as the longest
+                    line in it, and a job title would push a phone screen sideways.
+
+                    The strip of tabs is a row of the grid in its own right, above
+                    both columns, so that the document and the column beside it
+                    begin at the same line. Inside the left column it stood above
+                    the document only, and the column at the right started a tab
+                    strip higher than the thing it is beside. A row costs nothing
+                    to a longer strip: one that wraps to two lines pushes both
+                    columns down together, which a margin measured off today's
+                    strip would not. */}
                 <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_24rem]">
+                    <DocumentTabs
+                        tabs={DOCUMENTS}
+                        current={open}
+                        onChange={changeView}
+                        label="Документы подразделения"
+                        name="department"
+                        className="max-md:hidden lg:col-span-2"
+                    />
+
                     <div
                         className={cn(
-                            'flex min-w-0 flex-col gap-3',
+                            'flex min-w-0 flex-col',
                             // On a phone a document is one half of the switch: a
                             // block of a dozen clauses and the staff list are two
                             // different reasons to be here, and neither is worth
@@ -489,15 +605,6 @@ export default function DepartmentPage({
                             view === 'list' && 'max-md:hidden',
                         )}
                     >
-                        <DocumentTabs
-                            tabs={DOCUMENTS}
-                            current={open}
-                            onChange={changeView}
-                            label="Документы подразделения"
-                            name="department"
-                            className="max-md:hidden"
-                        />
-
                         <Card
                             role="tabpanel"
                             id={`department-panel-${open}`}
@@ -525,6 +632,57 @@ export default function DepartmentPage({
                     {/* The column is narrow, so a colleague's address goes under
                         their name rather than at the right of their row. */}
                     <aside className="flex min-w-0 flex-col gap-4 max-md:hidden lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto">
+                        {/* What the sheet used to open with. «01 ОБЩАЯ
+                            ИНФОРМАЦИЯ» was where the unit sits, who leads it,
+                            how many work there and what is under it — and three
+                            of those are the cards below this one, so only the
+                            first and the count had nowhere on a desktop to be
+                            read. They are read here, in the block the phone has
+                            had all along. */}
+                        {/* One way in, and not one per card: the window writes
+                            the name, the placement, the heads and the staff in
+                            one go, so three buttons would be three ways to the
+                            same form. It stands on the card the department
+                            itself is read from — the one above the heads and
+                            the staff it edits. */}
+                        <Section title="Подразделение" action={editor.can_edit && <DepartmentPencil busy={opening} onClick={openEditor} />}>
+                            <dl className="flex flex-col gap-2 text-sm">
+                                {/* No «Название» row: the phone has one because
+                                    its top bar says «ОД» and nothing else, while
+                                    the heading of this page spells the name out
+                                    two lines above. Every fact once. */}
+                                {department.parents.length > 0 && (
+                                    <div className="flex items-baseline justify-between gap-3">
+                                        <dt className="text-muted-foreground shrink-0">Входит в</dt>
+                                        <dd className="min-w-0 text-right">
+                                            <nav aria-label="Входит в" className="flex flex-wrap items-center justify-end gap-x-1">
+                                                {department.parents.map((parent, index) => (
+                                                    <span key={parent.id} className="flex items-center gap-1">
+                                                        {index > 0 && <ChevronRight className="text-muted-foreground size-3.5" aria-hidden="true" />}
+                                                        <Link
+                                                            href={route('departments.show', parent.id)}
+                                                            className="text-brand-strong break-words hover:underline dark:text-[#C5E27A]"
+                                                        >
+                                                            <DepartmentName name={parent.name} full={parent.full_name} />
+                                                        </Link>
+                                                    </span>
+                                                ))}
+                                            </nav>
+                                        </dd>
+                                    </div>
+                                )}
+                                <div className="flex items-baseline justify-between gap-3">
+                                    <dt className="text-muted-foreground shrink-0">Сотрудников</dt>
+                                    <dd className="flex min-w-0 flex-col items-end text-right">
+                                        {peopleLabel(department.total_count)}
+                                        {department.children.length > 0 && (
+                                            <span className="text-muted-foreground text-[13px]">вместе с подотделами</span>
+                                        )}
+                                    </dd>
+                                </div>
+                            </dl>
+                        </Section>
+
                         <Section title={department.heads.length > 1 ? 'Руководители' : 'Руководитель'}>
                             {department.heads.length === 0 ? (
                                 <p className="text-muted-foreground text-sm">Не назначен</p>
@@ -650,6 +808,17 @@ export default function DepartmentPage({
                     )}
                 </div>
             </div>
+
+            {/* The same window «Подразделения» opens, saving through the same
+                address, and this page re-implements none of it. */}
+            {editing && editorOptions && (
+                <DepartmentEditor
+                    department={editorOptions.department}
+                    departments={editorOptions.departments}
+                    onSaved={saved}
+                    onClose={() => setEditing(false)}
+                />
+            )}
         </AppLayout>
     );
 }

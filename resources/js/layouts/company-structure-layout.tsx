@@ -107,8 +107,8 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
                 {/*
                  * On a narrow screen the strip scrolls sideways rather than
                  * wrapping into rows: the underline has to stay one line. The
-                 * border sits on the inner row, inside the scrolling box, so the
-                 * active tab's underline can overlap it without spilling out.
+                 * tab carries its own underline and the row carries no rule, the
+                 * way the employee profile draws the same thing.
                  * On a phone the tabs are pills instead, the way a mobile app
                  * switches between lists: a 2px underline is a poor target for a
                  * thumb and hard to spot at a glance, a filled chip is neither.
@@ -118,7 +118,7 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
                         aria-label="Структура компании"
                         className="-mx-3 shrink-0 overflow-x-auto px-3 [scrollbar-width:none] md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden"
                     >
-                        <div className="flex w-max min-w-full gap-2 md:gap-6 md:border-b">
+                        <div className="flex w-max min-w-full gap-2 md:gap-6">
                             {tabs.map((tab) => {
                                 const active = tab.key === current.key;
 
@@ -134,7 +134,7 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
                                         aria-current={active ? 'page' : undefined}
                                         ref={active ? activeTab : undefined}
                                         className={cn(
-                                            'text-sm transition-colors max-md:flex max-md:h-8 max-md:shrink-0 max-md:items-center max-md:rounded-full max-md:px-3 max-md:font-medium max-md:whitespace-nowrap md:-mb-px md:border-b-2 md:px-1 md:pb-2.5',
+                                            'text-sm transition-colors max-md:flex max-md:h-8 max-md:shrink-0 max-md:items-center max-md:rounded-full max-md:px-3 max-md:font-medium max-md:whitespace-nowrap md:border-b-2 md:px-1 md:pb-2.5',
                                             active
                                                 ? 'max-md:bg-brand-soft max-md:text-foreground md:border-brand md:text-foreground max-md:font-semibold md:font-semibold max-md:dark:bg-white/10'
                                                 : 'max-md:bg-card max-md:text-foreground md:text-muted-foreground md:hover:text-foreground md:border-transparent md:font-medium',

@@ -1,12 +1,17 @@
 import {
+    AirVent,
+    Archive,
     Armchair,
     Battery,
     Cable,
     Camera,
+    FireExtinguisher,
     HardDrive,
     Headphones,
+    Image,
     Keyboard,
     Laptop,
+    Library,
     Monitor,
     Mouse,
     Package,
@@ -17,6 +22,7 @@ import {
     Server,
     Smartphone,
     Speaker,
+    Table,
     Tablet,
     Watch,
     type LucideIcon,
@@ -48,8 +54,50 @@ export const equipmentIcons: Record<string, LucideIcon> = {
     cable: Cable,
     battery: Battery,
     chair: Armchair,
+    // The things a company owns that are not computers: what people sit at and
+    // keep their things in, what hangs on the wall, and the two every office is
+    // inspected for.
+    desk: Table,
+    shelves: Library,
+    cabinet: Archive,
+    picture: Image,
+    conditioner: AirVent,
+    extinguisher: FireExtinguisher,
     package: Package,
 };
 
+/**
+ * What each drawing is called, for the hover and for whoever cannot see it. A
+ * grid of pictures shows how they look and says nothing about what they stand
+ * for, and «Иконка picture» read out of the stored key helps nobody.
+ */
+export const equipmentIconNames: Record<string, string> = {
+    laptop: 'Ноутбук',
+    monitor: 'Монитор',
+    smartphone: 'Смартфон',
+    tablet: 'Планшет',
+    keyboard: 'Клавиатура',
+    mouse: 'Мышь',
+    headphones: 'Наушники',
+    printer: 'Принтер',
+    scanner: 'Сканер',
+    projector: 'Проектор',
+    camera: 'Камера',
+    server: 'Сервер',
+    harddrive: 'Жёсткий диск',
+    router: 'Роутер',
+    speaker: 'Колонка',
+    watch: 'Часы',
+    cable: 'Кабель',
+    battery: 'Аккумулятор',
+    chair: 'Кресло',
+    desk: 'Стол',
+    shelves: 'Полки',
+    cabinet: 'Шкаф',
+    picture: 'Картина',
+    conditioner: 'Кондиционер',
+    extinguisher: 'Огнетушитель',
+    package: 'Коробка',
+};
 /** What a category without a drawing of its own is shown by. */
 export const fallbackIcon = Package;

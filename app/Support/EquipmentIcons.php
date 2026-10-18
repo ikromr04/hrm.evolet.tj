@@ -31,6 +31,12 @@ class EquipmentIcons
         'cable',
         'battery',
         'chair',
+        'desk',
+        'shelves',
+        'cabinet',
+        'picture',
+        'conditioner',
+        'extinguisher',
         'package',
     ];
 }

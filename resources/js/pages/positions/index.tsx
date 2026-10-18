@@ -18,6 +18,7 @@ import { MultiSelect } from '@/components/multi-select';
 import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -25,7 +26,7 @@ import { Label } from '@/components/ui/label';
 import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { plural } from '@/lib/plural';
 import { Link, router, useForm } from '@inertiajs/react';
-import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Crown, Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEventHandler } from 'react';
 
 interface Department {
@@ -53,6 +54,12 @@ interface Position {
     name: string;
     /** «Аналитик (ОПР)» — the name with the department after it, where one line is all there is. */
     display_name: string;
+    /**
+     * Whether whoever holds this heads the department it sits in. Shown beside
+     * the name on the list, because a flag that only one dialog mentions is one
+     * nobody knows is there.
+     */
+    is_head: boolean;
     /** Where the position sits; null for the few nobody has filed yet. */
     department: Filing | null;
     /**
@@ -401,6 +408,8 @@ interface EditorData {
     /** The picker writes strings; nothing chosen yet is an empty one. */
     department_id: string;
     name: string;
+    /** Whether whoever holds this heads the department it sits in. */
+    is_head: boolean;
     duties: string[];
 }
 
@@ -426,6 +435,7 @@ function EditorDialog({
     const form = useForm<EditorData>({
         department_id: position?.department === null || position === null ? '' : String(position.department.id),
         name: position?.name ?? '',
+        is_head: position?.is_head ?? false,
         duties: position?.duties ?? [],
     });
 
@@ -435,6 +445,7 @@ function EditorDialog({
         form.transform((data) => ({
             department_id: data.department_id === '' ? null : Number(data.department_id),
             name: data.name.trim(),
+            is_head: data.is_head,
             duties: data.duties.map((name) => ({ name })),
         }));
         const options = { preserveScroll: true, onSuccess: onClose };
@@ -499,6 +510,26 @@ function EditorDialog({
                         <InputError message={errors.name} />
                     </div>
 
+                    {/* The same flag the department's own dialog puts a crown on,
+                        asked here as a plain checkbox because this is where a
+                        position is written down in the first place — left out, it
+                        would be a thing only somebody who went looking for it in
+                        another window would ever know existed. */}
+                    <div className="grid content-start gap-2">
+                        <Label htmlFor="position-is-head" className="flex items-start gap-2.5 font-normal">
+                            <Checkbox
+                                id="position-is-head"
+                                checked={form.data.is_head}
+                                onCheckedChange={(checked) => form.setData('is_head', checked === true)}
+                            />
+                            <span>Руководящая должность</span>
+                        </Label>
+                        <p className="text-muted-foreground text-[13px]">
+                            Кто занимает эту должность, тот руководит отделом. У отдела может быть несколько руководящих должностей.
+                        </p>
+                        <InputError message={errors.is_head} />
+                    </div>
+
                     <div className="grid content-start gap-2">
                         <Label htmlFor="position-duties">Обязанности</Label>
                         <MultiSelect
@@ -513,7 +544,7 @@ function EditorDialog({
                         />
                         <p className="text-muted-foreground text-[13px]">
                             Всё, за что отвечает должность. По одной обязанности за раз: впишите её и нажмите Enter. Порядок строк здесь — это порядок
-                            на странице должности. Кто из сотрудников что из этого ведёт, указывается в карточке сотрудника.
+                            на странице должности.
                         </p>
                         {/* The whole list can be complained about too ("duties"), and that
                             complaint is nobody's line in particular. */}
@@ -675,17 +706,31 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 return department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />;
             default:
                 return (
-                    <Link
-                        href={route('positions.show', position.id)}
-                        // Brand colour and an underline on hover: the app's mark of a
-                        // link. A job title is the whole point of the row, so it wraps
-                        // rather than being cut at the edge of the column. The hover
-                        // names the department too, for whoever hid those columns.
-                        className="text-brand-strong font-medium whitespace-normal hover:underline dark:text-[#C5E27A]"
-                        title={`Открыть должность: ${position.display_name}`}
-                    >
-                        {position.name}
-                    </Link>
+                    <span className="flex items-start gap-1.5">
+                        <Link
+                            href={route('positions.show', position.id)}
+                            // Brand colour and an underline on hover: the app's mark of a
+                            // link. A job title is the whole point of the row, so it wraps
+                            // rather than being cut at the edge of the column. The hover
+                            // names the department too, for whoever hid those columns.
+                            className="text-brand-strong font-medium whitespace-normal hover:underline dark:text-[#C5E27A]"
+                            title={`Открыть должность: ${position.display_name}`}
+                        >
+                            {position.name}
+                        </Link>
+                        {/* A crown beside the name, where the dialog puts one:
+                            whoever holds this heads the department, and the list
+                            is where somebody reads the structure off. Named
+                            rather than left as a drawing — it is the only thing
+                            in the cell that is not the title itself. */}
+                        {position.is_head && (
+                            <Crown
+                                aria-label="Руководящая должность"
+                                className="text-brand-strong mt-0.5 size-3.5 shrink-0 dark:text-[#C5E27A]"
+                                fill="currentColor"
+                            />
+                        )}
+                    </span>
                 );
         }
     };
@@ -782,7 +827,22 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 mobileRow={(position) => (
                     <MobileRow
                         href={route('positions.show', position.id)}
-                        title={position.name}
+                        // The crown rides with the name here as it does in the
+                        // table: this list is the only place a leading position
+                        // shows itself, and a phone that left it out would be a
+                        // phone the flag does not exist on.
+                        title={
+                            <span className="flex items-center gap-1.5">
+                                <span className="truncate">{position.name}</span>
+                                {position.is_head && (
+                                    <Crown
+                                        aria-label="Руководящая должность"
+                                        className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]"
+                                        fill="currentColor"
+                                    />
+                                )}
+                            </span>
+                        }
                         // There are no columns on a phone, so the line under the
                         // name opens with where the position sits: twenty of these
                         // names repeat, and a row saying «Аналитик» alone could be

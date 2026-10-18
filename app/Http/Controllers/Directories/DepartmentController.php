@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Directories;
 
 use App\Http\Controllers\Controller;
 use App\Models\Department;
+use App\Models\Position;
 use App\Models\User;
 use App\Notifications\PlacementChanged;
 use App\Support\Directories;
+use App\Support\Membership;
 use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,7 +31,10 @@ class DepartmentController extends Controller
     public function index(Request $request): Response
     {
         $departments = Department::query()
-            ->with(['heads:id,name,surname', 'users' => fn ($q) => $q->active()->select('users.id')])
+            ->with([
+                'heads:id,name,surname',
+                'users' => fn ($q) => $q->active()->select('users.id'),
+            ])
             ->orderBy('name')
             ->get(['id', 'name', 'abbreviation', 'parent_id']);
 
@@ -51,43 +56,47 @@ class DepartmentController extends Controller
                     // Working members of this department itself, heads included.
                     'users_count' => $d->users->count(),
                     'total_count' => $totals[$d->id],
+                    // Read for the column and nothing else: who leads a
+                    // department is worked out from the positions below it.
                     'heads' => $d->heads
                         ->map(fn (User $u) => ['id' => $u->id, 'name' => "{$u->surname} {$u->name}"])
                         ->sortBy('name')
                         ->values(),
-                    // Working members who do not lead it; heads are listed above.
-                    'member_ids' => $d->users->reject(fn (User $u) => $u->pivot->is_head)->pluck('id')->values(),
                 ]),
-            // Only people still working here can lead or join a department.
-            'employees' => User::active()
-                ->orderBy('surname')
-                ->orderBy('name')
-                ->get(['id', 'name', 'surname', 'email'])
-                ->map(fn (User $u) => ['id' => $u->id, 'name' => "{$u->surname} {$u->name}", 'email' => $u->email]),
         ]);
     }
 
+    /**
+     * A department that has just been written down has no positions yet, so
+     * there is nothing to mark and nobody in it: its people arrive when its
+     * positions do.
+     */
     public function store(Request $request): RedirectResponse
     {
-        [$data, $heads, $members] = $this->validated($request);
+        [$data] = $this->validated($request);
 
-        $this->telling($request, [...$heads ?? [], ...$members ?? []], function () use ($data, $heads, $members) {
-            DB::transaction(fn () => $this->syncPeople(Department::create($data), $heads, $members));
-        });
+        Department::create($data);
 
         return back();
     }
 
     public function update(Request $request, Department $department): RedirectResponse
     {
-        [$data, $heads, $members] = $this->validated($request, $department);
+        [$data, $leading] = $this->validated($request, $department);
 
-        $people = [...$department->users()->pluck('users.id'), ...$heads ?? [], ...$members ?? []];
+        // Everybody the save could move: whoever is in the department now, and
+        // whoever holds one of its positions. The two are the same list once
+        // the data agrees with itself, and they are not while the thirteen
+        // hand-written memberships are still on file.
+        $people = [
+            ...$department->users()->pluck('users.id'),
+            ...Membership::within($department)->modelKeys(),
+        ];
 
-        $this->telling($request, $people, function () use ($department, $data, $heads, $members) {
-            DB::transaction(function () use ($department, $data, $heads, $members) {
+        $this->telling($request, $people, function () use ($department, $data, $leading) {
+            DB::transaction(function () use ($department, $data, $leading) {
                 $department->update($data);
-                $this->syncPeople($department, $heads, $members);
+                $this->markLeadingPositions($department, $leading);
             });
         });
 
@@ -137,37 +146,50 @@ class DepartmentController extends Controller
     }
 
     /**
-     * Heads are members flagged as such: new heads join the department,
-     * former heads stay in it as ordinary members unless the member list
-     * leaves them out. Transferred and fired people are not touched: their
-     * old membership stays on record.
+     * Which of the department's positions lead it, as the dialog's crowns say.
      *
-     * @param  list<int>|null  $heads  null leaves the heads as they are
-     * @param  list<int>|null  $members  ordinary members; null leaves them as they are
+     * Nobody is put into the department or taken out of it here, and nobody is
+     * made a head directly. The flag goes onto the positions and the
+     * memberships follow from it: whoever holds a marked position heads the
+     * department, whoever holds any of its positions belongs to it, and
+     * Membership is the one place that writes that down.
+     *
+     * Only the positions of this department are touched. The form is given its
+     * own list and the save is not a chance to reach into another department's
+     * — a position of somebody else's, had one been sent, is refused by the
+     * rules rather than quietly moved.
+     *
+     * Transferred and fired people are not touched, which is Membership's rule
+     * and used to be this method's: their old membership stays on record.
+     *
+     * @param  list<int>|null  $leading  null leaves every flag as it is
      */
-    private function syncPeople(Department $department, ?array $heads, ?array $members): void
+    private function markLeadingPositions(Department $department, ?array $leading): void
     {
-        if ($members !== null) {
-            $headIds = $heads ?? $department->heads()->pluck('users.id')->all();
-
-            $leaving = $department->users()->active()->whereNotIn('users.id', [...$headIds, ...$members])->pluck('users.id');
-            $department->users()->detach($leaving);
-
-            $department->users()->syncWithoutDetaching(array_fill_keys(array_diff($members, $headIds), ['is_head' => false]));
-        }
-
-        if ($heads === null) {
+        if ($leading === null) {
             return;
         }
 
-        $department->heads()->whereNotIn('users.id', $heads)->get()
-            ->each(fn (User $former) => $department->users()->updateExistingPivot($former->id, ['is_head' => false]));
+        [$lead, $rest] = $department->positions()
+            ->get(['id', 'department_id', 'is_head'])
+            ->partition(fn (Position $position) => in_array($position->id, $leading, true));
 
-        $department->users()->syncWithoutDetaching(array_fill_keys($heads, ['is_head' => true]));
+        // A save that moved no crown has no memberships to work out again, and
+        // most saves from this window are a rename.
+        $moved = $lead->contains(fn (Position $p) => ! $p->is_head) || $rest->contains(fn (Position $p) => $p->is_head);
+
+        if (! $moved) {
+            return;
+        }
+
+        Position::whereKey($lead->modelKeys())->update(['is_head' => true, 'updated_at' => now()]);
+        Position::whereKey($rest->modelKeys())->update(['is_head' => false, 'updated_at' => now()]);
+
+        Membership::refresh(Membership::within($department));
     }
 
     /**
-     * @return array{0: array{name: string, abbreviation?: string|null, parent_id?: int|null}, 1: list<int>|null, 2: list<int>|null}
+     * @return array{0: array{name: string, abbreviation?: string|null, parent_id?: int|null}, 1: list<int>|null}
      */
     private function validated(Request $request, ?Department $department = null): array
     {
@@ -208,18 +230,27 @@ class DepartmentController extends Controller
                     }
                 },
             ],
-            'head_ids' => ['sometimes', 'array'],
-            'head_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')->where('status', 'active')],
-            'member_ids' => ['sometimes', 'array'],
-            'member_ids.*' => ['integer', 'distinct', Rule::exists('users', 'id')->where('status', 'active')],
+            // Which of this department's positions lead it. Several are
+            // allowed: two departments are led by two people today, so the
+            // crowns are toggles and not a choice of one.
+            'leading_position_ids' => ['sometimes', 'array'],
+            'leading_position_ids.*' => [
+                'integer',
+                'distinct',
+                // Of this department and no other. A position belongs to one
+                // department, and marking somebody else's from here would be
+                // filing a job out of their list without their form ever
+                // saying so.
+                Rule::exists('positions', 'id')->where('department_id', $department?->id ?? 0),
+            ],
+        ], messages: [
+            'leading_position_ids.*.exists' => 'Эта должность не относится к этому отделу.',
         ], attributes: [
             'name' => 'название',
             'abbreviation' => 'аббревиатура',
             'parent_id' => 'родительский отдел',
-            'head_ids' => 'руководители',
-            'head_ids.*' => 'руководитель',
-            'member_ids' => 'сотрудники',
-            'member_ids.*' => 'сотрудник',
+            'leading_position_ids' => 'руководящие должности',
+            'leading_position_ids.*' => 'руководящая должность',
         ]);
 
         // An abbreviation somebody cleared is a department that has none again,
@@ -233,11 +264,12 @@ class DepartmentController extends Controller
             unset($data['abbreviation']);
         }
 
-        $ids = fn (string $key) => $request->has($key) ? array_map('intval', $data[$key] ?? []) : null;
-        $heads = $ids('head_ids');
-        $members = $ids('member_ids');
-        unset($data['head_ids'], $data['member_ids']);
+        // A request that does not carry the field is changing something else —
+        // a rename, a placement in the tree — and leaves the crowns alone. An
+        // empty list is an answer: nothing leads this department.
+        $leading = $request->has('leading_position_ids') ? array_map('intval', $data['leading_position_ids'] ?? []) : null;
+        unset($data['leading_position_ids']);
 
-        return [$data, $heads, $members];
+        return [$data, $leading];
     }
 }

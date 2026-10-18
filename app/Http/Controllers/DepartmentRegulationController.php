@@ -21,10 +21,15 @@ use Illuminate\Http\Request;
  * who the change reaches, and that is the whole difference between correcting a
  * sentence for the company and correcting it for one department.
  *
- * The document is the standard sections and nothing else. A department rewrites
- * one of them and puts the standard text back; it does not add a section of its
- * own to the document and does not take a section out of it, because then the
- * sheet one department prints would no longer be the sheet the company wrote.
+ * The document is one text, and the whole of it is in that text. The company
+ * writes it as one file and asked for one editor, so the name of the sheet is
+ * its first line and its parts — ОБЩЕЕ ПОЛОЖЕНИЕ, ПРАВА, ОБЯЗАННОСТИ,
+ * ОТВЕТСТВЕННОСТЬ — are headings after it, and the numbering of them is the
+ * author's like the rest. In the machinery below it is a document of one
+ * section with no heading kept apart from it: a department rewrites that text
+ * and puts the standard one back, and nothing adds a second section or takes
+ * the one out, because then the sheet one department prints would no longer be
+ * the sheet the company wrote.
  *
  * All of which is true of «Профиль должности» too, word for word with the
  * position in the department's place, so the rules themselves live in
@@ -45,38 +50,37 @@ class DepartmentRegulationController extends DocumentController
         return Document::REGULATION;
     }
 
-    protected function titleColumn(): string
+    /**
+     * No column and no field: the sheet is named in the first line of its own
+     * text, so there is nothing kept apart from the document and nothing to
+     * refuse a heading by. «Профиль должности» beside it still has both.
+     */
+    protected function titleColumn(): ?string
     {
-        return 'regulation_title';
+        return null;
     }
 
-    protected function heading(): string
+    protected function heading(): ?string
     {
-        return 'заголовок положения';
+        return null;
     }
 
     /**
-     * @return array{added: string, taken_out: string, arranged: string, overridden: string, too_long: string}
+     * @return array{added: string, taken_out: string, arranged: string, overridden: string}
      */
     protected function refusals(): array
     {
         return [
-            'added' => 'Положение состоит из четырёх стандартных разделов — новые разделы в него не добавляются.',
-            'taken_out' => 'Положение состоит из четырёх стандартных разделов: раздел нельзя удалить, можно только вернуть его стандартный текст.',
+            'added' => 'Положение — один текст: разделы в него не добавляются.',
+            'taken_out' => 'Положение — один текст: его нельзя удалить, можно только вернуть стандартный.',
             'arranged' => 'Нужно перечислить все разделы положения, каждый по одному разу.',
             'overridden' => 'Стандартный текст переопределяет отдел, а не сам шаблон.',
-            'too_long' => 'Заголовок положения не должен быть длиннее '.Document::TITLE_LENGTH.' символов.',
         ];
     }
 
     public function store(Request $request, ?Department $department = null): RedirectResponse
     {
         return $this->writeSection($request, $department);
-    }
-
-    public function title(Request $request, Department $department): RedirectResponse
-    {
-        return $this->nameDocument($request, $department);
     }
 
     public function update(Request $request, ?Department $department = null, ?RegulationSection $section = null): RedirectResponse

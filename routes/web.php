@@ -21,6 +21,7 @@ use App\Http\Controllers\EquipmentStatusController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PositionController;
 use App\Http\Controllers\PositionProfileController;
+use App\Http\Controllers\PositionRegulationController;
 use App\Http\Controllers\SearchController;
 // The reference lists themselves, under a name of their own: "Directories" here
 // already stands for the controllers that serve them.
@@ -232,11 +233,14 @@ Route::middleware(['auth', 'can:directories.manage.departments'])->prefix('depar
 // standard text every department would start from, which nothing writes today,
 // and the only address the standard sections themselves are added to or dropped
 // from — and /departments/{department}/regulation is one department's own
-// wording of those sections, its arrangement of them and the heading it prints
-// them under, which is all a department's page edits. A correction made there
-// reaches that department and nobody else, on purpose. The document has no page
-// of its own: it is read, and edited, on the department's page, which already
-// carries it.
+// wording of that text, which is all a department's page edits. A correction
+// made there reaches that department and nobody else, on purpose. The document
+// has no page of its own: it is read, and edited, on the department's page,
+// which already carries it.
+//
+// One text and nothing beside it: the sheet is named in its own first line, so
+// there is no heading to write at an address of its own the way «Профиль
+// должности» below still has one.
 //
 // Keeping it is keeping the department, so it is the same gate as the list of
 // units above, the pair of rights rather than the bare one. Reading takes
@@ -253,9 +257,9 @@ Route::middleware(['auth', 'can:directories.manage.departments'])->name('departm
     });
 
     Route::prefix('departments/{department}/regulation')->group(function () {
-        // The heading of the printed sheet, which belongs to the department and
-        // not to a section of the document, so it is written on its own.
-        Route::put('title', [DepartmentRegulationController::class, 'title'])->name('title');
+        // No address for the heading of the sheet: this document is one text
+        // and names itself in the first line of it, so the heading is written
+        // where the rest of the document is written and nowhere else.
         Route::post('sections', [DepartmentRegulationController::class, 'store'])->name('sections.store');
         Route::put('sections/{section}', [DepartmentRegulationController::class, 'update'])->name('sections.update');
         Route::delete('sections/{section}', [DepartmentRegulationController::class, 'destroy'])->name('sections.destroy');
@@ -275,9 +279,9 @@ Route::middleware(['auth', 'can:directories.manage.departments'])->name('departm
 // open to everybody signed in.
 Route::middleware(['auth', 'can:directories.manage.departments'])->name('departments.profile.')->group(function () {
     Route::prefix('departments/{department}/profile')->group(function () {
-        // The heading of the printed sheet, which belongs to the department and
-        // not to a section of the document, so it is written on its own.
-        Route::put('title', [DepartmentProfileController::class, 'title'])->name('title');
+        // No address for the heading of the sheet: this document is one text
+        // and names itself in the first line of it, so the heading is written
+        // where the rest of the document is written and nowhere else.
         Route::post('sections', [DepartmentProfileController::class, 'store'])->name('sections.store');
         Route::put('sections/{section}', [DepartmentProfileController::class, 'update'])->name('sections.update');
         Route::delete('sections/{section}', [DepartmentProfileController::class, 'destroy'])->name('sections.destroy');
@@ -312,13 +316,36 @@ Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions
     });
 
     Route::prefix('positions/{position}/profile')->group(function () {
-        // The heading of the printed sheet, which belongs to the position and
-        // not to a section of the document, so it is written on its own.
-        Route::put('title', [PositionProfileController::class, 'title'])->name('title');
+        // No address for the heading of the sheet: this document is one text
+        // and names itself in the first line of it, so the heading is written
+        // where the rest of the document is written and nowhere else.
         Route::post('sections', [PositionProfileController::class, 'store'])->name('sections.store');
         Route::put('sections/{section}', [PositionProfileController::class, 'update'])->name('sections.update');
         Route::delete('sections/{section}', [PositionProfileController::class, 'destroy'])->name('sections.destroy');
         Route::put('order', [PositionProfileController::class, 'order'])->name('order');
+    });
+});
+
+// «Положение о работе» as one position keeps it. A job used to read the
+// regulation of the department it was filed in and nothing more; the company
+// asked for it to keep one of its own, so these are the addresses that write
+// it — one position's own wording of the standard text, its arrangement, and
+// nothing else.
+//
+// No template address among them: the standard text of this document is one
+// text and is written at /departments/regulation above, which is the only place
+// the standard sections themselves are added or dropped.
+//
+// Keeping it is keeping the position, so it is the gate the position's profile
+// uses — the pair of rights that writes the list of job titles — and not the
+// departments one. Reading it takes the right that opens that list, which the
+// position's page already asks for.
+Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions.regulation.')->group(function () {
+    Route::prefix('positions/{position}/regulation')->group(function () {
+        Route::post('sections', [PositionRegulationController::class, 'store'])->name('sections.store');
+        Route::put('sections/{section}', [PositionRegulationController::class, 'update'])->name('sections.update');
+        Route::delete('sections/{section}', [PositionRegulationController::class, 'destroy'])->name('sections.destroy');
+        Route::put('order', [PositionRegulationController::class, 'order'])->name('order');
     });
 });
 

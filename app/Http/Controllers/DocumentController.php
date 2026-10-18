@@ -35,7 +35,7 @@ use Illuminate\Validation\ValidationException;
  * template, the sentences everybody reads, and the only address the standard
  * sections themselves are added to or dropped from. The profile's template is
  * written at one address for both kinds of owner, because there is one
- * template: a department and a position read the same nine sections. Which
+ * template: a department and a position read the same text. Which
  * address a section is written at decides who the change reaches, and that is
  * the whole difference between correcting a sentence for the company and
  * correcting it for one owner.
@@ -44,40 +44,49 @@ abstract class DocumentController extends Controller
 {
     /**
      * A section whose text is not written but read from the directory —
-     * «01 ОБЩАЯ ИНФОРМАЦИЯ» of «Профиль должности», which is a table of where
-     * the position sits and what it is called, or, for a department's own
-     * profile, of where the unit sits, who leads it and what is under it.
+     * — «01 ОБЩАЯ ИНФОРМАЦИЯ» of «Профиль должности» was one, a table of where
+     * the thing sits and what it is called.
      *
-     * There is nothing to type in it and nothing to rewrite: a body under that
-     * heading would be a second answer to the same question, disagreeing with
-     * the first the week somebody is moved.
+     * There is nothing to type in such a section and nothing to rewrite: a body
+     * under that heading would be a second answer to the same question,
+     * disagreeing with the first the week somebody is moved. No document has
+     * one any more — that table is read beside the sheet now — and the rule
+     * stays because it is still the right rule the day one comes back.
      */
     private const FROM_DATA = 'Раздел «%s» заполняется из системы — его текст не пишут и не переопределяют.';
 
     /** Which of the documents these addresses write. */
     abstract protected function document(): string;
 
-    /** The column its owner keeps the heading of the printed sheet in. */
-    abstract protected function titleColumn(): string;
+    /**
+     * The column its owner keeps the heading of the printed sheet in, and
+     * nothing at all for a document that carries its own name in its text.
+     *
+     * «Положение о работе» is the second kind: it is one file, and the first
+     * line of that file is what the sheet is called, so there is no field to
+     * keep and no heading of ours to draw.
+     */
+    abstract protected function titleColumn(): ?string;
 
     /**
      * What the heading of the sheet is called where a form names the field it
-     * refused — «заголовок положения», «заголовок профиля должности».
+     * refused — «заголовок профиля должности» — and nothing where there is no
+     * such field.
      */
-    abstract protected function heading(): string;
+    abstract protected function heading(): ?string;
 
     /**
      * What an owner is told when it asks for a section the document does not
      * have: one sentence for a section it would add, one for a section it would
      * take out, one for a rearrangement that does not name the whole document,
-     * one for a template trying to override itself, and one for a heading
-     * longer than the sheet has room for.
+     * one for a template trying to override itself, and — where the sheet has a
+     * heading of its own — one for a heading longer than there is room for.
      *
      * The page offers none of the first four any more, so they answer a request
      * that reached us some other way — and they say what the document is rather
      * than that something went wrong, because that is the actual reason.
      *
-     * @return array{added: string, taken_out: string, arranged: string, overridden: string, too_long: string}
+     * @return array{added: string, taken_out: string, arranged: string, overridden: string, too_long?: string}
      */
     abstract protected function refusals(): array;
 
@@ -136,20 +145,31 @@ abstract class DocumentController extends Controller
      *
      * One owner only: the heading belongs to the owner, and the template has no
      * sheet of its own to head.
+     *
+     * And only where the sheet has a heading apart from its text. A document
+     * that is one file names itself in its first line, has no column to write
+     * this into and no address that leads here, so a request that arrives some
+     * other way is answered as the nothing it asks for.
      */
     protected function nameDocument(Request $request, Department|Position $owner): RedirectResponse
     {
+        $column = $this->titleColumn();
+        $heading = $this->heading();
+        $refusals = $this->refusals();
+
+        abort_if($column === null || $heading === null || ! isset($refusals['too_long']), 404);
+
         $data = $request->validate([
             'title' => ['present', 'nullable', 'string', 'max:'.Document::TITLE_LENGTH],
         ], messages: [
-            'title.max' => $this->refusals()['too_long'],
+            'title.max' => $refusals['too_long'],
         ], attributes: [
-            'title' => $this->heading(),
+            'title' => $heading,
         ]);
 
         $typed = trim((string) ($data['title'] ?? ''));
 
-        $owner->update([$this->titleColumn() => $typed === '' ? null : $typed]);
+        $owner->update([$column => $typed === '' ? null : $typed]);
 
         return back();
     }
