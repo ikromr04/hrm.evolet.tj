@@ -92,14 +92,14 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
     }, [url]);
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        // The bar names the section and the strip below it names the open tab,
+        // which is what the phone's bar has always done the other way round:
+        // there the bar names the tab, because the chips under it name the
+        // section.
+        <AppLayout breadcrumbs={breadcrumbs} title="Структура компании" fitViewport>
             <Head title={`${current.title} — структура компании`} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                {/* On a phone the top bar already names the open tab and the chips
-                    below name the section, so the heading is left to screen readers. */}
-                <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Структура компании</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
                 {/*
                  * One tab is not a choice: with the chart alone open the strip
                  * only repeats the heading and the breadcrumb, so it is left out.

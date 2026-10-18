@@ -1,44 +1,39 @@
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
-import { cn } from '@/lib/utils';
 import { type BreadcrumbItem as BreadcrumbItemType } from '@/types';
 import { Fragment } from 'react';
 
+/** Where every trail starts; a page names only its own way down from here. */
+export const rootCrumb: BreadcrumbItemType = { title: 'Evolet HRM', href: '/dashboard' };
+
 /**
- * The trail in the header. A phone keeps only the page itself and a tablet its
- * parent as well: the header also holds the menu, the search and two buttons,
- * and a trail that wrapped would push them out of a 56px bar. Below the desktop
- * the crumbs stay on one line and cut themselves short instead.
+ * The trail at the top of the page. It used to share the bar with the menu, the
+ * search and two buttons, and had to drop its own middle to fit a 56px line;
+ * now the bar carries the heading instead and the trail has the width of the
+ * page to itself, so it says the whole way down and wraps if it must.
  */
 export function Breadcrumbs({ breadcrumbs }: { breadcrumbs: BreadcrumbItemType[] }) {
-    return (
-        <>
-            {breadcrumbs.length > 0 && (
-                <Breadcrumb>
-                    <BreadcrumbList className="max-lg:flex-nowrap">
-                        {breadcrumbs.map((item, index) => {
-                            const isLast = index === breadcrumbs.length - 1;
-                            // Crumbs further up than the parent show only on a desktop.
-                            const fromEnd = breadcrumbs.length - 1 - index;
-                            const shown = fromEnd === 0 ? undefined : fromEnd === 1 ? 'max-md:hidden' : 'max-lg:hidden';
+    if (breadcrumbs.length === 0) return null;
 
-                            return (
-                                <Fragment key={index}>
-                                    <BreadcrumbItem className={cn('max-lg:min-w-0', shown)}>
-                                        {isLast ? (
-                                            <BreadcrumbPage className="max-lg:truncate">{item.title}</BreadcrumbPage>
-                                        ) : (
-                                            <BreadcrumbLink href={item.href} className="max-lg:truncate">
-                                                {item.title}
-                                            </BreadcrumbLink>
-                                        )}
-                                    </BreadcrumbItem>
-                                    {!isLast && <BreadcrumbSeparator className={shown} />}
-                                </Fragment>
-                            );
-                        })}
-                    </BreadcrumbList>
-                </Breadcrumb>
-            )}
-        </>
+    return (
+        <Breadcrumb>
+            <BreadcrumbList>
+                {breadcrumbs.map((item, index) => {
+                    const isLast = index === breadcrumbs.length - 1;
+
+                    return (
+                        <Fragment key={index}>
+                            <BreadcrumbItem>
+                                {isLast ? (
+                                    <BreadcrumbPage className="font-medium">{item.title}</BreadcrumbPage>
+                                ) : (
+                                    <BreadcrumbLink href={item.href}>{item.title}</BreadcrumbLink>
+                                )}
+                            </BreadcrumbItem>
+                            {!isLast && <BreadcrumbSeparator />}
+                        </Fragment>
+                    );
+                })}
+            </BreadcrumbList>
+        </Breadcrumb>
     );
 }

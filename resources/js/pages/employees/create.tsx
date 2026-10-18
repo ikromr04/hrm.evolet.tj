@@ -414,11 +414,10 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Новый сотрудник" />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:px-5 md:py-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3 max-md:flex-nowrap max-md:items-center">
                     <div className="flex min-w-0 flex-col gap-1">
-                        {/* The phone's top bar already carries the page title. */}
-                        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Новый сотрудник</h1>
+                        {/* The bar above carries the page's name, so this line says only who and how far along. */}
                         <p className="text-muted-foreground text-sm max-md:text-[13px]">
                             {employee ? (
                                 <>

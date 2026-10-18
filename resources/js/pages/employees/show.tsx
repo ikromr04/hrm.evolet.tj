@@ -2533,7 +2533,7 @@ export default function EmployeeProfile({
                 <Head title={shortName} />
 
                 {/* The page scrolls as a whole, header and tabs included. */}
-                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
+                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
                     {/* On a phone the hero is centred, like a contact card: the face,
                     the name under it, then the ways to reach the person. */}
                     <div className="flex flex-col gap-5 px-1 pt-1 max-md:relative max-md:items-center max-md:gap-3 max-md:pb-1 max-md:text-center md:flex-row md:flex-wrap md:items-end">
@@ -2548,7 +2548,10 @@ export default function EmployeeProfile({
 
                         <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:w-full max-md:items-center max-md:gap-2.5 md:min-w-64">
                             <div className="flex flex-wrap items-center gap-3 max-md:justify-center max-md:gap-2">
-                                <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words">{fullName}</h1>
+                                {/* The heading is the bar's now, and the bar has the
+                                    short name this person is listed under. This is the
+                                    contact card, so here the name stands in full. */}
+                                <p className="min-w-0 text-xl font-semibold tracking-tight break-words">{fullName}</p>
                                 {employee.status !== 'active' && (
                                     <StatusBadge
                                         tone={employee.status === 'fired' ? 'danger' : 'warning'}

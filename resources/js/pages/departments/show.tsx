@@ -482,15 +482,17 @@ export default function DepartmentPage({
     return (
         // The page scrolls: the document is as long as the department wrote it
         // and the blocks beside it are as long as the staff is.
-        <AppLayout breadcrumbs={breadcrumbs}>
+        // The bar says the department's whole name, where its crumb says the
+        // initials the rest of the system knows it by; the phone's bar keeps the
+        // initials, which is all a 390px line can hold.
+        <AppLayout breadcrumbs={breadcrumbs} title={title}>
             <Head title={title} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
                 {/* A phone: the top bar already names the department, so the head of
                     the page is a grouped card of facts, the way into the staff list is
                     a row of its own and the two views share one segmented control. */}
                 <div className="flex flex-col gap-3 md:hidden">
-                    <h1 className="sr-only">{title}</h1>
                     <PhoneSection title="Подразделение" action={editor.can_edit && <DepartmentPencil busy={opening} onClick={openEditor} />}>
                         <dl className="px-4">
                             {/* The bar above says «ОД» and so does every screen that
@@ -565,11 +567,6 @@ export default function DepartmentPage({
                         ]}
                     />
                 </div>
-
-                {/* The name, and nothing around it. Where the department sits is
-                    the trail in the bar above, and who works here is the column
-                    beside the document. */}
-                <h1 className="text-xl font-semibold tracking-tight break-words max-md:hidden">{title}</h1>
 
                 {/* The department's documents are what the page shows, and who
                     works in the department stands beside them rather than in place

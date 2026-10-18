@@ -43,6 +43,11 @@ export function ErrorPage({
     const user = (usePage().props as Partial<SharedData>).auth?.user ?? null;
     const inShell = user !== null && !standalone;
 
+    // Inside the shell the bar above already calls the page this, so saying it
+    // again here is the same name twice rather than a second heading. Outside
+    // the shell there is no bar, and this line is the only heading there is.
+    const Title = inShell ? 'p' : 'h1';
+
     const body = (
         <div className="flex flex-1 items-center justify-center p-6 max-md:px-4">
             <div className="flex w-full max-w-md flex-col items-center gap-6 text-center max-md:gap-5">
@@ -53,7 +58,7 @@ export function ErrorPage({
                 <div className="flex flex-col items-center gap-2">
                     {/* The number is the whole explanation, so it is allowed to be large. */}
                     <span className="text-brand-strong text-5xl font-bold tracking-tight tabular-nums dark:text-[#C5E27A]">{code}</span>
-                    <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+                    <Title className="text-xl font-semibold tracking-tight">{title}</Title>
                     <p className="text-muted-foreground text-sm leading-relaxed text-balance">{description}</p>
                 </div>
 
@@ -80,7 +85,15 @@ export function ErrorPage({
     return (
         <>
             <Head title={title} />
-            {inShell ? <AppLayout fitViewport>{body}</AppLayout> : <Guest>{body}</Guest>}
+            {/* No trail: a wrong address sits nowhere in the system, so there is
+                no way down to it to draw. The bar names it instead. */}
+            {inShell ? (
+                <AppLayout title={title} fitViewport>
+                    {body}
+                </AppLayout>
+            ) : (
+                <Guest>{body}</Guest>
+            )}
         </>
     );
 }

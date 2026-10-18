@@ -69,7 +69,7 @@ export function AppSidebar() {
                         <SidebarMenuButton
                             size="lg"
                             asChild
-                            className="h-14 group-data-[collapsible=icon]:p-1! hover:bg-transparent active:bg-transparent"
+                            className="group-data-[collapsible=icon]:p-1! hover:bg-transparent active:bg-transparent"
                         >
                             <Link href="/dashboard" prefetch aria-label="Evolet HRM — на главную">
                                 <AppLogo />

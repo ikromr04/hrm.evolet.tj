@@ -1269,10 +1269,7 @@ export default function EquipmentIndex({
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Оборудование" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                {/* The phone's top bar already carries the page's name. */}
-                <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Оборудование</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
                 {/* Search, the status lists, the view and the one thing you can add: one line.
                     On a phone: the search and the sorting-and-filters button, then the tabs
                     as a row of chips; the rest is reached from the tab bar or the round button. */}

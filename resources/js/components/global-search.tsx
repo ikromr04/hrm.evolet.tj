@@ -247,11 +247,11 @@ export function GlobalSearch() {
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="border-input bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring hidden h-9 w-72 items-center gap-2 rounded-md border px-3 text-sm shadow-xs outline-hidden focus-visible:ring-2 lg:flex"
+                className="border-input bg-background text-muted-foreground hover:text-foreground focus-visible:ring-ring hidden h-9 w-72 items-center gap-2 rounded-lg border px-3 text-sm shadow-xs outline-hidden focus-visible:ring-2 lg:flex"
             >
                 <Search className="size-4 shrink-0" />
                 <span className="flex-1 text-left">Поиск…</span>
-                <kbd className="bg-muted rounded px-1.5 font-sans text-[11px] font-medium">Ctrl K</kbd>
+                <kbd className="border-border bg-muted rounded border px-[5px] py-px font-sans text-[11px] font-medium">Ctrl K</kbd>
             </button>
             <button
                 type="button"

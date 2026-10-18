@@ -1150,7 +1150,7 @@ export default function EquipmentShow({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={called} />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:px-5 md:py-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
                 {/* Aligned along the bottom, so the title, the actions and the arrows sit on one line. */}
                 {/* On a phone the name wraps to several lines, so the chip sits by its top instead,
                     and the arrows shrink to two chevrons in the top right corner. */}
@@ -1165,7 +1165,12 @@ export default function EquipmentShow({
 
                     <div className="flex min-w-0 flex-1 flex-col gap-2 max-md:gap-1">
                         <div className="flex flex-wrap items-center gap-3">
-                            <h1 className="min-w-0 text-xl font-semibold tracking-tight break-words max-md:text-lg max-md:leading-snug">{called}</h1>
+                            {/* The heading is the bar's now, so this is the name again
+                                rather than a second one: the hero is what the unit is —
+                                its picture, its number, its category — and the name
+                                belongs at the top of that, spelled out over as many
+                                lines as it needs where the bar would cut it short. */}
+                            <p className="min-w-0 text-xl font-semibold tracking-tight break-words max-md:text-lg max-md:leading-snug">{called}</p>
                             <StatusBadge tone={statusTone[unit.status]} className="max-md:hidden">
                                 {statusLabel[unit.status]}
                             </StatusBadge>

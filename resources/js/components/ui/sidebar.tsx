@@ -282,7 +282,14 @@ const SidebarInset = React.forwardRef<HTMLDivElement, React.ComponentProps<'main
             ref={ref}
             className={cn(
                 'relative flex min-h-svh flex-1 flex-col bg-background',
-                'peer-data-[variant=inset]:min-h-[calc(100svh-(--spacing(4)))] md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm',
+                // The design has the content fill the window beside the sidebar: no
+                // gap around it and no rounded corner, so the only thing dividing the
+                // two is their colour. The minimum height is left as it was for the
+                // phone, where this panel never had a margin to begin with. In the dark
+                // the two surfaces part by their own colours, as the design draws
+                // them; in the light they are a hair apart, so there a line does it.
+                'peer-data-[variant=inset]:min-h-[calc(100svh-(--spacing(4)))] md:peer-data-[variant=inset]:shadow-sm',
+                'md:peer-data-[variant=inset]:border-l md:peer-data-[variant=inset]:border-sidebar-border md:dark:peer-data-[variant=inset]:border-l-0',
                 className,
             )}
             {...props}

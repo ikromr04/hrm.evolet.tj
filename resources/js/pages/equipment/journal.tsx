@@ -242,10 +242,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Журнал операций" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                {/* The phone's top bar already carries the page's name. */}
-                <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Журнал операций</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
                 {/* On a phone one line: the quick periods as chips and the button to
                     the sheet, where an exact period is picked along with the rest. */}
                 <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap md:-mb-2">

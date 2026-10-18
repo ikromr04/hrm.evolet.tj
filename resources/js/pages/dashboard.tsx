@@ -1,18 +1,16 @@
 import { DepartmentName } from '@/components/department-name';
 import { MobileFab } from '@/components/mobile-fab';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import { shortMonths } from '@/lib/employee';
 import { eventLabel, eventTone, type EventKind } from '@/lib/equipment';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import { format, parseISO } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { ChevronRight, Laptop, Plus, UserMinus, UserPlus, Users, type LucideIcon } from 'lucide-react';
+import { ChevronRight, Laptop, UserMinus, UserPlus, Users, type LucideIcon } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 interface JournalRow {
@@ -41,8 +39,6 @@ interface Stat {
     icon: LucideIcon;
     notes?: { text: string; tone: StatusTone }[];
 }
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Главная', href: '/dashboard' }];
 
 function capitalize(text: string) {
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -152,36 +148,23 @@ export default function Dashboard({ since, today, staff, equipment, departments,
     ];
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        <AppLayout title="Главная">
             <Head title="Главная" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
-                {/* The phone's top bar already names the page, so there only the date stays, as a quiet line. */}
-                <div className="flex flex-wrap items-end gap-4 max-md:-mb-1 max-md:px-1">
-                    <div className="flex flex-1 flex-col gap-1">
-                        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Обзор</h1>
-                        <p className="text-muted-foreground text-sm max-md:text-[13px]">{heading}</p>
-                    </div>
-                    {canCreate && (
-                        <>
-                            <Button className="h-10 max-md:hidden lg:h-8" asChild>
-                                <Link href="/employees/create">
-                                    <Plus />
-                                    Добавить сотрудника
-                                </Link>
-                            </Button>
-                            <MobileFab href="/employees/create" label="Добавить сотрудника" />
-                        </>
-                    )}
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
+                {/* On a desktop the tiles start straight under the trail, as the design has them, so the date and the button to add a colleague are the phone's alone: there the bar is too narrow to hold anything but the name of the page. */}
+                <div className="flex flex-wrap items-end gap-4 max-md:-mb-1 max-md:px-1 md:hidden">
+                    <p className="text-muted-foreground flex-1 text-sm max-md:text-[13px]">{heading}</p>
+                    {canCreate && <MobileFab href="/employees/create" label="Добавить сотрудника" />}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 md:gap-5 xl:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2.5 md:gap-4 xl:grid-cols-4">
                     {stats.map((stat) => (
                         <StatCard key={stat.key} stat={stat} />
                     ))}
                 </div>
 
-                <div className="grid gap-3 md:gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+                <div className="grid gap-3 md:items-start md:gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
                     <Section title="Численность по отделам" aside={<SectionLink href="/departments">Структура</SectionLink>}>
                         {departments.length === 0 ? (
                             <Empty>Отделов пока нет.</Empty>

@@ -752,10 +752,7 @@ export default function Employees({
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Сотрудники" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                {/* The phone's top bar already carries the page title. */}
-                <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Сотрудники</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
                 {/* On a phone this is one line — the search and the button behind
                 which sorting and filters wait — with the lists as chips under it. */}
                 <div className="-mb-2 flex flex-wrap items-center gap-2 max-md:mb-0 max-md:flex-nowrap">

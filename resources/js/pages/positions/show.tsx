@@ -315,16 +315,13 @@ export default function PositionPage({
     ];
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        // The bar carries the name on its own, as a department's page has it:
+        // where the position sits and who holds it are in the column beside the
+        // documents, and the trail above says the rest.
+        <AppLayout breadcrumbs={breadcrumbs} title={position.name}>
             <Head title={position.display_name} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:px-5 md:py-4">
-                {/* The name, and nothing around it, as a department's page has it:
-                    where the position sits and who holds it are in the column
-                    beside the documents. A phone's top bar already names the
-                    position, so there the heading is for screen readers. */}
-                <h1 className="text-xl font-semibold tracking-tight break-words max-md:sr-only">{position.name}</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
                 {/* The two documents are the page, and what is known about the
                     position stands beside them rather than in place of them. Both
                     columns are told they may be narrower than their contents: a

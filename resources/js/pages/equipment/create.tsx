@@ -41,11 +41,10 @@ export default function CreateEquipment({ options, forEmployee }: Props) {
         <AppLayout breadcrumbs={trail(forEmployee)}>
             <Head title="Новое оборудование" />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:px-5 md:py-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
                 <div className="flex flex-wrap items-end justify-between gap-3">
                     <div className="flex flex-col gap-1">
-                        {/* The phone's top bar already carries the page's name. */}
-                        <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Новое оборудование</h1>
+                        {/* The bar above carries the page's name, so this line says only what a save does. */}
                         <p className="text-muted-foreground text-sm">
                             {forEmployee
                                 ? `Единица встаёт на баланс — её сразу получит ${forEmployee.name}.`

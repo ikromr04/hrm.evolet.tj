@@ -34,14 +34,13 @@ export default function DirectoriesLayout({ title, children }: { title: string; 
     }, [url]);
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        // The bar names the section and the strip below it names the open list;
+        // on a phone it is the other way round, the bar naming the list and the
+        // chips under it the section.
+        <AppLayout breadcrumbs={breadcrumbs} title="Справочники" fitViewport>
             <Head title={`${title} — справочники`} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-5 md:py-4">
-                {/* On a phone the top bar already names the page and the chips below
-                    name the section, so the heading is left to screen readers. */}
-                <h1 className="text-xl font-semibold tracking-tight max-md:sr-only">Справочники</h1>
-
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
                 {/*
                  * One tab is not a choice: with a single list open the strip only
                  * repeats the heading and the breadcrumb, so it is left out and
