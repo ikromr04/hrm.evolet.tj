@@ -3,8 +3,8 @@ import { useEffect, useRef, type KeyboardEvent } from 'react';
 
 /**
  * Which document a page is showing, as a real set of tabs: the arrow keys walk
- * them, only the open one is in the tab order, and the one that is open is
- * underlined as well as darker, so it is not colour alone that says so.
+ * them, only the open one is in the tab order, and the one that is open wears a
+ * plate and a heavier word, so it is not colour alone that says so.
  *
  * The look is the application's own, from the strip over an employee's profile —
  * but not its machinery: those are links to other addresses. These swap a panel
@@ -59,15 +59,16 @@ export function DocumentTabs<T extends string>({
     };
 
     return (
-        // Only the open tab is underlined; no rule runs under the strip. A line
-        // across the whole column would be a second edge directly above the
-        // card's own, and the card is what the tab opens onto.
+        // No rule runs under the strip: a line across the whole column would be a
+        // second edge directly above the card's own, and the card is what the tab
+        // opens onto. On a phone the open tab is underlined instead, where a line
+        // under a word is how a tab is read.
         <div
             ref={strip}
             role="tablist"
             aria-label={label}
             onKeyDown={walk}
-            className={cn('flex gap-x-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
+            className={cn('flex overflow-x-auto [scrollbar-width:none] max-md:gap-x-6 md:gap-1 [&::-webkit-scrollbar]:hidden', className)}
         >
             {tabs.map((tab) => {
                 const active = tab.key === current;
@@ -83,10 +84,10 @@ export function DocumentTabs<T extends string>({
                         tabIndex={active ? 0 : -1}
                         onClick={() => onChange(tab.key)}
                         className={cn(
-                            'shrink-0 border-b-2 px-1 pt-2 pb-2.5 text-sm whitespace-nowrap transition-colors max-md:pt-3 max-md:pb-3.5',
+                            'shrink-0 text-sm whitespace-nowrap transition-colors max-md:border-b-2 max-md:px-1 max-md:pt-3 max-md:pb-3.5 max-md:font-medium md:flex md:h-8 md:items-center md:rounded-md md:px-2.5',
                             active
-                                ? 'border-brand text-foreground font-semibold'
-                                : 'text-muted-foreground hover:text-foreground border-transparent font-medium',
+                                ? 'max-md:border-brand max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold md:dark:bg-white/10'
+                                : 'max-md:text-muted-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground max-md:border-transparent',
                         )}
                     >
                         {tab.title}

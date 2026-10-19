@@ -283,8 +283,10 @@ function EditButton({ what, onClick }: { what: string; onClick: () => void }) {
  * the link, so comparing two units keeps you on the same section, and the
  * arrow keys do the same as the buttons.
  */
+const neighbourHref = (to: Neighbour, tab: TabKey) => route('equipment.show', to!.id) + (tab === 'overview' ? '' : `#${tab}`);
+
 function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab: TabKey }) {
-    const href = (to: Neighbour) => route('equipment.show', to!.id) + (tab === 'overview' ? '' : `#${tab}`);
+    const href = (to: Neighbour) => neighbourHref(to, tab);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -310,7 +312,8 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         return (
             <Button
                 variant="outline"
-                className="flex-1 sm:flex-none"
+                // The same height as the tabs they share the line with.
+                className="h-8 flex-1 sm:flex-none"
                 disabled={!to}
                 aria-label={to ? `${label}: ${to.name}` : label}
                 title={to?.name}
@@ -333,11 +336,24 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         );
     };
 
-    /** On a phone: just the chevron, small and quiet, in the corner of the header. */
+    return (
+        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto">
+            {arrow(prev, 'Предыдущее', ChevronLeft)}
+            {arrow(next, 'Следующее', ChevronRight)}
+        </div>
+    );
+}
+
+/**
+ * The same two links on a phone: just the chevron, small and quiet, in the
+ * corner of the header, the way a native viewer pages between records. They
+ * stay with the header; only the pair of buttons moved to the line of tabs.
+ */
+function NeighbourIcons({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab: TabKey }) {
     const icon = (to: Neighbour, label: string, Icon: typeof ChevronLeft) =>
         to ? (
             <Button variant="ghost" size="icon" className="text-muted-foreground size-9" aria-label={`${label}: ${to.name}`} asChild>
-                <Link href={href(to)} prefetch>
+                <Link href={neighbourHref(to, tab)} prefetch>
                     <Icon className="size-5" />
                 </Link>
             </Button>
@@ -348,16 +364,10 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         );
 
     return (
-        <>
-            <div className="-mt-1 -mr-1.5 flex shrink-0 md:hidden">
-                {icon(prev, 'Предыдущее', ChevronLeft)}
-                {icon(next, 'Следующее', ChevronRight)}
-            </div>
-            <div className="flex w-full gap-1 max-md:hidden sm:w-auto">
-                {arrow(prev, 'Предыдущее', ChevronLeft)}
-                {arrow(next, 'Следующее', ChevronRight)}
-            </div>
-        </>
+        <div className="-mt-1 -mr-1.5 flex shrink-0 md:hidden">
+            {icon(prev, 'Предыдущее', ChevronLeft)}
+            {icon(next, 'Следующее', ChevronRight)}
+        </div>
     );
 }
 
@@ -1147,7 +1157,9 @@ export default function EquipmentShow({
     }
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs}>
+        // The card opens with the name of the unit in full, so the bar carries the
+        // way back to the list rather than saying that name again.
+        <AppLayout breadcrumbs={breadcrumbs} trail="bar">
             <Head title={called} />
 
             <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
@@ -1201,32 +1213,37 @@ export default function EquipmentShow({
                         </p>
                     </div>
 
-                    <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
+                    <NeighbourIcons prev={neighbours.prev} next={neighbours.next} tab={tab} />
                 </div>
 
-                {/* On a phone the sections stay in reach while the card scrolls: the bar
+                {/* The sections on the left, the way through the list on the right.
+                    On a phone the sections stay in reach while the card scrolls: the bar
                     sticks under the top bar, across the whole width, frosted like it. */}
-                <nav
-                    aria-label="Разделы"
-                    className="scroll-soft max-md:bg-background/90 flex gap-6 overflow-x-auto max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-4 max-md:border-b max-md:px-4 max-md:pt-1 max-md:backdrop-blur-xl max-md:[scrollbar-width:none] max-md:[&::-webkit-scrollbar]:hidden"
-                >
-                    {shownTabs.map((item) => (
-                        <button
-                            key={item.key}
-                            type="button"
-                            onClick={() => setTab(item.key)}
-                            aria-current={item.key === tab ? 'page' : undefined}
-                            className={cn(
-                                'shrink-0 border-b-2 px-1 pb-2.5 text-sm transition-colors max-md:pt-2 max-md:text-[15px]',
-                                item.key === tab
-                                    ? 'border-brand text-foreground font-semibold'
-                                    : 'text-muted-foreground hover:text-foreground border-transparent font-medium',
-                            )}
-                        >
-                            {item.title}
-                        </button>
-                    ))}
-                </nav>
+                <div className="md:flex md:items-center md:gap-3">
+                    <nav
+                        aria-label="Разделы"
+                        className="scroll-soft max-md:bg-background/90 flex overflow-x-auto max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-4 max-md:border-b max-md:px-4 max-md:pt-1 max-md:backdrop-blur-xl max-md:[scrollbar-width:none] md:min-w-0 md:gap-1 max-md:[&::-webkit-scrollbar]:hidden"
+                    >
+                        {shownTabs.map((item) => (
+                            <button
+                                key={item.key}
+                                type="button"
+                                onClick={() => setTab(item.key)}
+                                aria-current={item.key === tab ? 'page' : undefined}
+                                className={cn(
+                                    'shrink-0 text-sm transition-colors max-md:border-b-2 max-md:px-1 max-md:pt-2 max-md:pb-2.5 max-md:text-[15px] md:flex md:h-8 md:items-center md:rounded-md md:px-2.5',
+                                    item.key === tab
+                                        ? 'max-md:border-brand max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold md:dark:bg-white/10'
+                                        : 'max-md:text-muted-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground max-md:border-transparent max-md:font-medium',
+                                )}
+                            >
+                                {item.title}
+                            </button>
+                        ))}
+                    </nav>
+
+                    <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
+                </div>
 
                 {tab === 'overview' && (
                     // A phone spaces the blocks wider: their titles stand between them.

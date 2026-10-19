@@ -75,16 +75,24 @@ class DepartmentPagesTest extends TestCase
             ->where('department.total_count', 2)
             ->where('department.heads.0.id', $head->id)
             ->where('department.children', [['id' => $sub->id, 'name' => 'Группа', 'full_name' => 'Группа', 'total_count' => 0, 'heads' => []]])
-            ->has('department.members', 1)
-            ->where('department.members.0', [
+            // Everybody who works here, whoever leads the place first and the
+            // rest by name; the one who no longer works here is in neither list.
+            ->has('department.members', 2)
+            ->where('department.members.0.id', $head->id)
+            ->where('department.members.1', [
                 'id' => $member->id,
                 'name' => 'Бобоев Фаррух',
                 'avatar' => null,
                 'email' => $member->email,
                 // A job title is named to everybody and numbered only for
                 // whoever may open the job: this colleague may not, so the
-                // badge stays a word.
-                'positions' => [['id' => null, 'name' => 'Дизайнер']],
+                // badge stays a word. The department it belongs to is named
+                // beside it, and this one belongs to none.
+                'positions' => [['id' => null, 'name' => 'Дизайнер', 'unit' => null]],
+                // Which unit under this department the person works in, and
+                // whether they lead it: both read by the column at the side.
+                'unit' => null,
+                'is_head' => false,
             ])
         );
     }
@@ -101,7 +109,7 @@ class DepartmentPagesTest extends TestCase
         $viewer->givePermissionTo(Directories::viewPermission('positions'));
 
         $this->actingAs($viewer)->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('department.members.0.positions', [['id' => $position->id, 'name' => 'Дизайнер']])
+            ->where('department.members.0.positions', [['id' => $position->id, 'name' => 'Дизайнер', 'unit' => null]])
         );
     }
 
@@ -348,10 +356,10 @@ class DepartmentPagesTest extends TestCase
         $this->assertEqualsCanonicalizing([$former->id, $promoted->id], $unit->users()->pluck('users.id')->all());
 
         // And the page that follows the save shows both, without a reload by
-        // hand: the new head, and the former one among the staff.
+        // hand: the new head at the top of the staff, the former one among them.
         $this->actingAs($keeper)->get("/departments/{$unit->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('department.heads', fn ($heads) => collect($heads)->pluck('id')->all() === [$promoted->id])
-            ->where('department.members', fn ($members) => collect($members)->pluck('id')->all() === [$former->id])
+            ->where('department.members', fn ($members) => collect($members)->pluck('id')->all() === [$promoted->id, $former->id])
         );
 
         // The address is the one the list saves through, so it is shut to

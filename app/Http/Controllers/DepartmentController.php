@@ -85,7 +85,120 @@ class DepartmentController extends Controller
             // array it would be resolved like anything else, and the saving
             // would be nothing.
             'equipmentUnits' => Inertia::optional(fn () => $this->equipment($department, $request->user())),
+            // The two departments this page stands between, so the structure can
+            // be read through without going back to the list for every unit.
+            'neighbours' => fn () => $this->neighbours($department),
         ]);
+    }
+
+    /**
+     * The jobs of a department and of every unit under it, filed by the unit
+     * they belong to: this department's own first, then each unit's in the order
+     * the structure reads them. Inside a unit the job that leads it comes first
+     * — it is what the rest of that run works under — and the others follow by
+     * name. Each is named the way the staff table names a job — the
+     * title with its department in brackets — because the list is one and a
+     * reader has to know whose job it is.
+     *
+     * How many people hold a job is counted with it: a position nobody holds is
+     * a different thing from one three people share, and that is the only fact
+     * about it this column has room for.
+     *
+     * @param  Collection<int, Department>  $departments
+     * @return list<array<string, mixed>>
+     */
+    private function positions(Collection $departments, Department $current): array
+    {
+        $branch = $this->branch($departments, $current->id);
+        $rank = array_flip($branch);
+
+        return Position::query()
+            ->whereIn('department_id', $branch)
+            ->with('department:id,name,abbreviation')
+            ->withCount(['users' => fn ($query) => $query->active()])
+            ->orderBy('name')
+            ->get(['id', 'name', 'department_id', 'is_head'])
+            ->sortBy(fn (Position $position) => [$rank[$position->department_id] ?? PHP_INT_MAX, $position->is_head ? 0 : 1, $position->name])
+            ->map(fn (Position $position) => [
+                'id' => $position->id,
+                'name' => $position->display_name,
+                'users_count' => $position->users_count,
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * A department and everything filed under it, by id: the branch read whole,
+     * which is what a count «вместе с подотделами» is taken over.
+     *
+     * @param  Collection<int, Department>  $departments
+     * @return list<int>
+     */
+    private function branch(Collection $departments, int $id): array
+    {
+        $children = $departments->groupBy('parent_id');
+
+        /** @var list<int> $ids */
+        $ids = [];
+        // Guarded against a department filed under itself, which the data should
+        // not hold and which would otherwise walk for ever.
+        $walk = function (int $at) use (&$walk, &$ids, $children): void {
+            if (in_array($at, $ids, true)) {
+                return;
+            }
+
+            $ids[] = $at;
+
+            foreach ($children->get($at, collect()) as $child) {
+                $walk($child->id);
+            }
+        };
+        $walk($id);
+
+        return $ids;
+    }
+
+    /**
+     * The department before and after this one, in the order «Подразделения»
+     * writes them down: the tree read down the page — a department, then the
+     * units filed under it, each level by name. The buttons walk that order,
+     * so pressing «Следующее» goes where the eye would go in the list.
+     *
+     * @return array{prev: array{id: int, name: string}|null, next: array{id: int, name: string}|null}
+     */
+    private function neighbours(Department $department): array
+    {
+        $all = Department::query()->orderBy('name')->get(['id', 'name', 'parent_id']);
+        $ids = $all->pluck('id')->all();
+
+        /** @var list<Department> $flat */
+        $flat = [];
+        // A unit whose department is not in the list — there is none today, and
+        // one orphaned by a delete would otherwise fall out of the order
+        // altogether — is read as a department of its own, as the list reads it.
+        $walk = function (?int $parent) use (&$walk, &$flat, $all, $ids): void {
+            foreach ($all as $item) {
+                $root = $item->parent_id === null || ! in_array($item->parent_id, $ids, true);
+                $belongs = $parent === null ? $root : $item->parent_id === $parent;
+
+                if (! $belongs) {
+                    continue;
+                }
+
+                $flat[] = $item;
+                $walk($item->id);
+            }
+        };
+        $walk(null);
+
+        $at = array_search($department->id, array_column($flat, 'id'), true);
+        $card = fn (?Department $unit) => $unit ? ['id' => $unit->id, 'name' => $unit->name] : null;
+
+        return [
+            'prev' => $card($at !== false && $at > 0 ? $flat[$at - 1] : null),
+            'next' => $card($at !== false ? ($flat[$at + 1] ?? null) : null),
+        ];
     }
 
     /**
@@ -166,13 +279,38 @@ class DepartmentController extends Controller
         $totals = Department::staffTotals($departments);
         $current = $departments->firstWhere('id', $department->id);
 
-        $members = $current->users()
+        // Everybody working in this department and in the units under it, filed
+        // by the unit they work in — the department's own first, then each unit
+        // in the order the structure reads — and whoever leads a unit at the head
+        // of its run, the way the jobs beside them are read.
+        //
+        // Somebody filed in two of these departments at once is one row, under
+        // the first of them the structure reaches.
+        $branch = $this->branch($departments, $current->id);
+        $rank = array_flip($branch);
+
+        $members = User::query()
             ->active()
-            ->wherePivot('is_head', false)
-            ->with('positions:id,name')
+            ->whereHas('departments', fn (Builder $query) => $query->whereIn('departments.id', $branch))
+            ->with(['positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation'])
             ->orderBy('surname')
             ->orderBy('name')
-            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'email']);
+            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'email'])
+            ->map(function (User $user) use ($rank, $current) {
+                $unit = $user->departments
+                    ->filter(fn (Department $d) => isset($rank[$d->id]))
+                    ->sortBy(fn (Department $d) => $rank[$d->id])
+                    ->first();
+
+                $user->setAttribute('branch_rank', $rank[$unit?->id] ?? PHP_INT_MAX);
+                $user->setAttribute('branch_head', (bool) $unit?->pivot?->is_head);
+                // Null on this department's own people: the page is already its.
+                $user->setAttribute('branch_unit', $unit && $unit->id !== $current->id ? $unit->display_name : null);
+
+                return $user;
+            })
+            ->sortBy(fn (User $user) => [$user->branch_rank, $user->branch_head ? 0 : 1, $user->surname, $user->name])
+            ->values();
 
         $parents = [];
         for ($parent = $departments->firstWhere('id', $current->parent_id); $parent && ! isset($parents[$parent->id]); $parent = $departments->firstWhere('id', $parent->parent_id)) {
@@ -188,7 +326,15 @@ class DepartmentController extends Controller
             'full_name' => $current->name,
             'parents' => array_reverse(array_values($parents)),
             'total_count' => $totals[$current->id],
-            'heads' => $this->heads($current)->load('positions:id,name')->map(fn (User $u) => $this->person($u, details: true))->values(),
+            // The jobs of this department and of every unit under it, read the
+            // way the staff above is: a department is read with what hangs off
+            // it. The ones of a unit say whose they are, since the list is one
+            // and the department it is read on is not the only one in it.
+            'positions' => $this->positions($departments, $current),
+            'heads' => $this->heads($current)
+                ->load(['positions:id,name,department_id', 'positions.department:id,name,abbreviation'])
+                ->map(fn (User $u) => $this->person($u, details: true))
+                ->values(),
             'children' => $departments->where('parent_id', $current->id)->map(fn (Department $d) => [
                 'id' => $d->id,
                 'name' => $d->display_name,
@@ -196,7 +342,13 @@ class DepartmentController extends Controller
                 'total_count' => $totals[$d->id],
                 'heads' => $this->heads($d)->map(fn (User $u) => $this->person($u))->values(),
             ])->values(),
-            'members' => $members->map(fn (User $u) => $this->person($u, details: true)),
+            'members' => $members->map(fn (User $u) => [
+                ...$this->person($u, details: true),
+                'unit' => $u->branch_unit,
+                // Whoever leads the unit they are filed under, which is how the
+                // phone tells its own «Руководитель» from the staff below it.
+                'is_head' => $u->branch_head,
+            ]),
         ];
     }
 
@@ -365,9 +517,13 @@ class DepartmentController extends Controller
                 // badge stays a word rather than becoming a link into a 403.
                 'positions' => $user->positions
                     ->sortBy('name')
-                    ->map(fn ($position) => [
+                    ->map(fn (Position $position) => [
                         'id' => Gate::allows(Directories::viewPermission('positions')) ? $position->id : null,
                         'name' => $position->name,
+                        // Which unit the job belongs to, for the column that reads
+                        // a department with its units at once. A phone shows one
+                        // department at a time and leaves this unread.
+                        'unit' => $position->department?->display_name,
                     ])
                     ->values(),
             ] : []),

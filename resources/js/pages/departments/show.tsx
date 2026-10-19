@@ -9,17 +9,17 @@ import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, statusTones } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
-import { useCan } from '@/lib/access';
+import { companySections, useCan } from '@/lib/access';
 import { peopleLabel } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronRight, CornerDownRight, List, Mail, Users } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, CornerDownRight, List, Mail, Users } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 interface Person {
     id: number;
@@ -31,7 +31,7 @@ interface Person {
 interface Colleague extends Person {
     email: string;
     /** The id travels only for somebody who may open the position's page. */
-    positions: { id: number | null; name: string }[];
+    positions: { id: number | null; name: string; unit: string | null }[];
 }
 
 interface Department {
@@ -43,10 +43,12 @@ interface Department {
     parents: { id: number; name: string; full_name: string }[];
     /** Working people here and in sub-departments, heads included. */
     total_count: number;
+    /** The jobs of this department and of every unit under it, each named with its own. */
+    positions: { id: number; name: string; users_count: number }[];
     heads: Colleague[];
     children: { id: number; name: string; full_name: string; total_count: number; heads: Person[] }[];
-    /** Working members who do not lead it. */
-    members: Colleague[];
+    /** Everybody working here and in the units under it, whoever leads one first. */
+    members: (Colleague & { unit: string | null; is_head: boolean })[];
 }
 
 /**
@@ -59,6 +61,76 @@ interface Department {
  * strip of tabs under a segmented control is two presses and two rows to reach
  * what one press and one row can.
  */
+/** The department before or after this one, or nothing at either end of the list. */
+type Neighbour = { id: number; name: string } | null;
+
+/**
+ * Walking the structure without going back to the list: the department before
+ * and after this one, in the order «Подразделения» writes them down. The ← and
+ * → keys do the same, as they do on a colleague's card.
+ *
+ * The pair is the desktop's: on a phone the two documents are a switch of their
+ * own and the bar at the top is the way back, so there is no line to put these
+ * on.
+ */
+function Neighbours({ prev, next }: { prev: Neighbour; next: Neighbour }) {
+    const href = (to: Neighbour) => route('departments.show', to!.id);
+
+    useEffect(() => {
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey || event.defaultPrevented) return;
+            const target = event.target as HTMLElement;
+            if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName)) return;
+            // An open window — the editor, a menu — owns the arrows: leaving for
+            // the next department from inside one would throw away what was typed.
+            if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+            const to = event.key === 'ArrowLeft' ? prev : event.key === 'ArrowRight' ? next : null;
+            if (to) router.visit(href(to));
+        };
+        window.addEventListener('keydown', onKeyDown);
+
+        return () => window.removeEventListener('keydown', onKeyDown);
+    });
+
+    const arrow = (to: Neighbour, label: string, Icon: typeof ChevronLeft) => {
+        // The arrow leads the label going back and trails it going forward.
+        const back = Icon === ChevronLeft;
+
+        return (
+            <Button
+                variant="outline"
+                // The same height as the tabs they share the line with.
+                className="h-8 shrink-0"
+                disabled={!to}
+                aria-label={to ? `${label}: ${to.name}` : label}
+                title={to?.name}
+                asChild={!!to}
+            >
+                {to ? (
+                    <Link href={href(to)} prefetch>
+                        {back && <Icon />}
+                        {label}
+                        {!back && <Icon />}
+                    </Link>
+                ) : (
+                    <>
+                        {back && <Icon />}
+                        {label}
+                        {!back && <Icon />}
+                    </>
+                )}
+            </Button>
+        );
+    };
+
+    return (
+        <div className="ml-auto flex shrink-0 gap-1">
+            {arrow(prev, 'Предыдущее', ChevronLeft)}
+            {arrow(next, 'Следующее', ChevronRight)}
+        </div>
+    );
+}
+
 type View = 'list' | 'regulation' | 'sfd' | 'equipment';
 
 /** What the main column can hold, which is everything but the list. */
@@ -223,18 +295,19 @@ function DepartmentPencil({ busy, onClick, className }: { busy: boolean; onClick
 
 function Section({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
     return (
-        <Card className="flex flex-col gap-3 rounded-xl px-4 py-4 md:px-6 md:py-5">
-            {/* The heading keeps its own line and the pencil sits at the end of
-                it, so a name that wraps wraps beside the button rather than
-                under it. A card with nothing to press has no such line to
-                spare, which is why the slot is empty by default. */}
-            <h2 className="flex items-center gap-2 text-base font-semibold">
-                <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <Card className="flex flex-col gap-4 rounded-xl px-4 py-5 md:px-6">
+            {/* A block of this column is a block of a colleague's card: the name
+                on a ruled band flush with the card's own edges, the pencil at
+                the end of that band. A card with nothing to press keeps the
+                band all the same, so blocks with a button and blocks without
+                still read as one set. */}
+            <div className="bg-muted/60 -mx-4 -mt-5 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-t-xl border-b px-4 py-2 md:-mx-6 md:px-6">
+                <h2 className="flex min-w-0 items-baseline gap-2 text-base font-semibold">
                     {title}
                     {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
-                </span>
+                </h2>
                 {action}
-            </h2>
+            </div>
             {children}
         </Card>
     );
@@ -245,7 +318,19 @@ function Avatar({ person, className }: { person: Person; className?: string }) {
 }
 
 /** One colleague: avatar, name linking to the profile, positions and email; `compact` fits a narrow column. */
-function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolean }) {
+function ColleagueRow({
+    person,
+    compact,
+    withEmail = true,
+    unit,
+}: {
+    person: Colleague;
+    compact?: boolean;
+    /** The address, for the blocks that are read in order to write to somebody. */
+    withEmail?: boolean;
+    /** Which unit under this department the person works in, where that is not this one. */
+    unit?: string | null;
+}) {
     const email = (
         <a
             href={`mailto:${person.email}`}
@@ -259,19 +344,29 @@ function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolea
     );
 
     return (
-        <li className="flex items-center gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0">
-            <Avatar person={person} />
+        <li className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+            {/* The face leads where the name leads: it is the larger target of the
+                two, and the one a reader aims at first. */}
+            <PersonLink id={person.id} className="shrink-0 rounded-full" title={`Открыть профиль: ${person.name}`}>
+                <Avatar person={person} />
+            </PersonLink>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <PersonLink id={person.id} className="self-start text-sm font-medium hover:underline">
-                    {person.name}
-                </PersonLink>
-                {compact && email}
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+                    <PersonLink id={person.id} className="text-sm font-medium hover:underline">
+                        {person.name}
+                    </PersonLink>
+                    {/* Where somebody holds no job at all, their unit is said here
+                        instead; everybody else carries it in the job's own brackets. */}
+                    {unit && person.positions.length === 0 && <span className="text-muted-foreground text-xs">{unit}</span>}
+                </span>
+                {compact && withEmail && email}
                 {person.positions.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                         {person.positions.map((position) => {
+                            const named = position.unit ? `${position.name} (${position.unit})` : position.name;
                             const badge = (
                                 <StatusBadge tone="success" className="h-auto min-h-[22px] whitespace-normal">
-                                    {position.name}
+                                    {named}
                                 </StatusBadge>
                             );
 
@@ -281,8 +376,11 @@ function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolea
                                 <Link
                                     key={position.id}
                                     href={route('positions.show', position.id)}
-                                    title={`Открыть должность: ${position.name}`}
-                                    className="rounded-md hover:underline"
+                                    title={`Открыть должность: ${named}`}
+                                    // The same answer to the cursor the list of jobs above gives:
+                                    // the plate darkens a shade. An underline under a badge
+                                    // reads as a line under a chip rather than a link.
+                                    className="rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
                                 >
                                     {badge}
                                 </Link>
@@ -291,7 +389,7 @@ function ColleagueRow({ person, compact }: { person: Colleague; compact?: boolea
                     </div>
                 )}
             </div>
-            {!compact && email}
+            {!compact && withEmail && email}
         </li>
     );
 }
@@ -371,6 +469,7 @@ export default function DepartmentPage({
     equipmentUnits,
     editor,
     editorOptions,
+    neighbours,
 }: {
     department: Department;
     regulation: Regulation;
@@ -384,6 +483,8 @@ export default function DepartmentPage({
     editor: { can_edit: boolean };
     /** Absent until the window is opened, which is when the page asks for it. */
     editorOptions?: EditorOptions;
+    /** The departments either side of this one in the list, for the pair of buttons. */
+    neighbours: { prev: Neighbour; next: Neighbour };
 }) {
     const can = useCan();
     const [view, setView] = useState<View>(savedView);
@@ -460,6 +561,10 @@ export default function DepartmentPage({
     const open: Document = view === 'list' ? 'regulation' : view;
 
     const personHref = usePersonHref();
+    // The people of this department itself and not the ones who lead it, which
+    // is the list a phone shows: there one screen is one department, the units
+    // have screens of their own and «Руководитель» is a block above this one.
+    const ownMembers = department.members.filter((member) => member.unit === null && !member.is_head);
     // The structure of the company is open to everybody; the list of the staff is
     // not, and narrowing it by department takes reading that line of a card. A link
     // into a refusal is worse than none.
@@ -473,8 +578,12 @@ export default function DepartmentPage({
     // sits, so it says the whole way down to it rather than the last step alone.
     // Abbreviations, because a trail is read across rather than down, and the
     // heading right below spells this department's name out.
+    // The list of departments, not the chart: this page is one of its rows,
+    // and the way back from a department is to the list it was opened from.
+    const units = companySections.find((section) => section.key === 'units');
+
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Структура компании', href: '/departments' },
+        { title: units?.title ?? 'Подразделении', href: units?.href ?? '/departments/units' },
         ...department.parents.map((parent) => ({ title: parent.name, href: route('departments.show', parent.id) })),
         { title: department.name, href: route('departments.show', department.id) },
     ];
@@ -582,15 +691,22 @@ export default function DepartmentPage({
                     to a longer strip: one that wraps to two lines pushes both
                     columns down together, which a margin measured off today's
                     strip would not. */}
-                <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_24rem]">
-                    <DocumentTabs
-                        tabs={DOCUMENTS}
-                        current={open}
-                        onChange={changeView}
-                        label="Документы подразделения"
-                        name="department"
-                        className="max-md:hidden lg:col-span-2"
-                    />
+                {/* The page scrolls as a whole, head and tabs included, the way a
+                    colleague's card does: one record, read from the top down. */}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_24rem]">
+                    {/* The documents on the left, the way through the structure on the right. */}
+                    <div className="flex items-center gap-3 max-md:hidden lg:col-span-2">
+                        <DocumentTabs
+                            tabs={DOCUMENTS}
+                            current={open}
+                            onChange={changeView}
+                            label="Документы подразделения"
+                            name="department"
+                            className="min-w-0 flex-1"
+                        />
+
+                        <Neighbours prev={neighbours.prev} next={neighbours.next} />
+                    </div>
 
                     <div
                         className={cn(
@@ -628,7 +744,7 @@ export default function DepartmentPage({
 
                     {/* The column is narrow, so a colleague's address goes under
                         their name rather than at the right of their row. */}
-                    <aside className="flex min-w-0 flex-col gap-4 max-md:hidden lg:sticky lg:top-4 lg:max-h-[calc(100svh-2rem)] lg:overflow-y-auto">
+                    <aside className="flex min-w-0 flex-col gap-4 max-md:hidden">
                         {/* What the sheet used to open with. «01 ОБЩАЯ
                             ИНФОРМАЦИЯ» was where the unit sits, who leads it,
                             how many work there and what is under it — and three
@@ -642,7 +758,14 @@ export default function DepartmentPage({
                             same form. It stands on the card the department
                             itself is read from — the one above the heads and
                             the staff it edits. */}
-                        <Section title="Подразделение" action={editor.can_edit && <DepartmentPencil busy={opening} onClick={openEditor} />}>
+                        <Section
+                            title="Подразделение"
+                            action={
+                                editor.can_edit && (
+                                    <DepartmentPencil busy={opening} onClick={openEditor} className="-my-1 -mr-2.5 lg:my-0 lg:-mr-2 lg:size-7" />
+                                )
+                            }
+                        >
                             <dl className="flex flex-col gap-2 text-sm">
                                 {/* No «Название» row: the phone has one because
                                     its top bar says «ОД» and nothing else, while
@@ -668,25 +791,79 @@ export default function DepartmentPage({
                                         </dd>
                                     </div>
                                 )}
+                                {/* Both counts are read over the branch: the department
+                                    and everything filed under it. A number and not a
+                                    link — «Должности» does not read a department out of
+                                    the address, so a press would open the list whole. */}
                                 <div className="flex items-baseline justify-between gap-3">
-                                    <dt className="text-muted-foreground shrink-0">Сотрудников</dt>
-                                    <dd className="flex min-w-0 flex-col items-end text-right">
-                                        {peopleLabel(department.total_count)}
-                                        {department.children.length > 0 && (
-                                            <span className="text-muted-foreground text-[13px]">вместе с подотделами</span>
-                                        )}
-                                    </dd>
+                                    <dt className="text-muted-foreground shrink-0">Должности</dt>
+                                    <dd className="min-w-0 text-right tabular-nums">{department.positions.length}</dd>
+                                </div>
+                                <div className="flex items-baseline justify-between gap-3">
+                                    <dt className="text-muted-foreground shrink-0">Сотрудники</dt>
+                                    <dd className="min-w-0 text-right tabular-nums">{department.total_count}</dd>
                                 </div>
                             </dl>
                         </Section>
 
-                        <Section title={department.heads.length > 1 ? 'Руководители' : 'Руководитель'}>
-                            {department.heads.length === 0 ? (
-                                <p className="text-muted-foreground text-sm">Не назначен</p>
+                        {department.positions.length > 0 && (
+                            <Section title="Должности" count={department.positions.length}>
+                                {/*
+                                 * Badges rather than rows: a job is drawn this way
+                                 * everywhere else it is named — on a colleague's card,
+                                 * in the list of the staff — and in the same brand
+                                 * green. One to a line, because a title with its
+                                 * department in brackets is a long thing to wrap, and
+                                 * because the number of people holding it stands at the
+                                 * end of that line — drawn as the units under this one
+                                 * are drawn, a head count at the right-hand edge.
+                                 */}
+                                <ul className="flex flex-col gap-1.5">
+                                    {department.positions.map((position) => (
+                                        <li key={position.id} className="flex items-center gap-2">
+                                            <Link
+                                                href={route('positions.show', position.id)}
+                                                title={peopleLabel(position.users_count)}
+                                                // Laid out as a line of text rather than a row of
+                                                // boxes, so a long title wraps inside the badge.
+                                                className={cn(
+                                                    'inline-block max-w-full rounded-md px-2 py-0.5 text-xs font-medium transition-[filter]',
+                                                    statusTones.success,
+                                                    'hover:brightness-95 dark:hover:brightness-125',
+                                                )}
+                                            >
+                                                {position.name}
+                                            </Link>
+
+                                            {/* Nobody holds it yet: said in the quieter colour the
+                                                rest of the page says an empty count in. */}
+                                            <span
+                                                className={cn(
+                                                    'ml-auto flex shrink-0 items-center gap-1 text-[13px] tabular-nums',
+                                                    position.users_count > 0 ? 'text-muted-foreground' : 'text-muted-foreground/60',
+                                                )}
+                                                title={peopleLabel(position.users_count)}
+                                            >
+                                                <Users className="size-3.5" />
+                                                {position.users_count}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </Section>
+                        )}
+
+                        {/* Everybody who works here, the units under this one included:
+                            a face, a name and the jobs they hold. The address is left
+                            out — this is a list to read the department by, and a dozen
+                            e-mails under a dozen names is a wall of brand colour. */}
+                        <Section title="Сотрудники" count={department.members.length}>
+                            {department.members.length === 0 ? (
+                                <p className="text-muted-foreground text-sm">В отделе пока нет сотрудников.</p>
                             ) : (
                                 <ul className="flex flex-col">
-                                    {department.heads.map((head) => (
-                                        <ColleagueRow key={head.id} person={head} compact />
+                                    {department.members.map((member) => (
+                                        <ColleagueRow key={member.id} person={member} compact withEmail={false} unit={member.unit} />
                                     ))}
                                 </ul>
                             )}
@@ -702,11 +879,14 @@ export default function DepartmentPage({
                                                 className="hover:bg-muted/60 flex items-start gap-3 rounded-md px-2 py-2"
                                             >
                                                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                                    <DepartmentName name={child.name} full={child.full_name} className="text-sm font-medium" />
-                                                    {child.heads.length > 0 && (
-                                                        <span className="text-muted-foreground truncate text-xs">
-                                                            {child.heads.map((head) => head.name).join(', ')}
-                                                        </span>
+                                                    {/* The initials the rest of the system knows the unit
+                                                        by, and under them what they stand for: this
+                                                        column is where an abbreviation is spelled out,
+                                                        and a hover is no way to read a list. The name
+                                                        is left out where it is the abbreviation itself. */}
+                                                    <span className="text-sm font-medium">{child.name}</span>
+                                                    {child.full_name !== child.name && (
+                                                        <span className="text-muted-foreground text-xs">{child.full_name}</span>
                                                     )}
                                                 </span>
                                                 <span
@@ -722,20 +902,6 @@ export default function DepartmentPage({
                                 </ul>
                             </Section>
                         )}
-
-                        <Section title="Сотрудники" count={department.members.length}>
-                            {department.members.length === 0 ? (
-                                <p className="text-muted-foreground text-sm">
-                                    {department.children.length > 0 ? 'Все сотрудники работают в подотделах.' : 'В отделе пока нет сотрудников.'}
-                                </p>
-                            ) : (
-                                <ul className="flex flex-col">
-                                    {department.members.map((member) => (
-                                        <ColleagueRow key={member.id} person={member} compact />
-                                    ))}
-                                </ul>
-                            )}
-                        </Section>
                     </aside>
 
                     {/* A phone has no sidebar: there the three blocks stay the near
@@ -788,14 +954,14 @@ export default function DepartmentPage({
                                 </PhoneSection>
                             )}
 
-                            <PhoneSection title="Сотрудники" count={department.members.length}>
-                                {department.members.length === 0 ? (
+                            <PhoneSection title="Сотрудники" count={ownMembers.length}>
+                                {ownMembers.length === 0 ? (
                                     <PhoneEmpty>
                                         {department.children.length > 0 ? 'Все сотрудники работают в подотделах.' : 'В отделе пока нет сотрудников.'}
                                     </PhoneEmpty>
                                 ) : (
                                     <ul className="divide-border/70 divide-y">
-                                        {department.members.map((member) => (
+                                        {ownMembers.map((member) => (
                                             <PhoneColleagueRow key={member.id} person={member} href={personHref(member.id)} />
                                         ))}
                                     </ul>

@@ -194,9 +194,14 @@ function Tabs({ tabs, active, onChange }: { tabs: readonly { key: TabKey; title:
         // open tab would sit between two rows and read as belonging to neither.
         // On a phone the strip also stays under the top bar while the card scrolls,
         // on a frosted band that runs from edge to edge of the screen.
+        //
+        // On a desktop the sections are chips, the way the directories and the
+        // staff lists are switched: the open one a soft brand plate, the rest
+        // plain words. The phone keeps its underline — a 2px line under a word is
+        // read as a tab there, and the band it sits on is already the divider.
         <nav
             aria-label="Разделы профиля"
-            className="max-md:bg-background/90 mt-1 flex gap-x-6 overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-12 max-md:z-20 max-md:-mx-3 max-md:mt-0 max-md:gap-x-5 max-md:border-b max-md:px-4 max-md:backdrop-blur-xl lg:mt-3 [&::-webkit-scrollbar]:hidden"
+            className="max-md:bg-background/90 flex overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-12 max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:border-b max-md:px-4 max-md:backdrop-blur-xl md:min-w-0 md:gap-1 [&::-webkit-scrollbar]:hidden"
         >
             {tabs.map((tab) => (
                 <button
@@ -205,10 +210,10 @@ function Tabs({ tabs, active, onChange }: { tabs: readonly { key: TabKey; title:
                     onClick={() => onChange(tab.key)}
                     aria-current={tab.key === active ? 'page' : undefined}
                     className={cn(
-                        'shrink-0 border-b-2 px-1 pt-2 pb-2.5 text-sm whitespace-nowrap transition-colors max-md:pt-3 lg:pt-0',
+                        'shrink-0 text-sm whitespace-nowrap transition-colors max-md:border-b-2 max-md:px-1 max-md:pt-3 max-md:pb-2.5 max-md:font-medium md:flex md:h-8 md:items-center md:rounded-md md:px-2.5',
                         tab.key === active
-                            ? 'border-brand text-foreground font-semibold'
-                            : 'text-muted-foreground hover:text-foreground border-transparent font-medium',
+                            ? 'max-md:border-brand max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold md:dark:bg-white/10'
+                            : 'max-md:text-muted-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground max-md:border-transparent',
                     )}
                 >
                     {tab.title}
@@ -2374,11 +2379,18 @@ function QuickAction({ href, label, title, Icon }: { href: string; label: string
 
 type Neighbour = { id: number; name: string } | null;
 
-/** Links to the previous and next colleague in the list; ← and → keys do the same. */
+// Comparing colleagues means staying on the same section, so the open tab
+// travels with the link.
+const neighbourHref = (to: Neighbour, tab: TabKey) => route('employees.show', to!.id) + (tab === 'profile' ? '' : `#${tab}`);
+
+/**
+ * Links to the previous and next colleague in the list; ← and → keys do the
+ * same. The pair stands at the end of the line of tabs, where the design has
+ * it: it pages through the staff the way the tabs page through one person's
+ * card, so the two belong on one line.
+ */
 function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab: TabKey }) {
-    // Comparing colleagues means staying on the same section, so the open tab
-    // travels with the link.
-    const href = (to: Neighbour) => route('employees.show', to!.id) + (tab === 'profile' ? '' : `#${tab}`);
+    const href = (to: Neighbour) => neighbourHref(to, tab);
 
     useEffect(() => {
         const onKeyDown = (event: KeyboardEvent) => {
@@ -2403,7 +2415,8 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         return (
             <Button
                 variant="outline"
-                className="flex-1 px-3 sm:flex-none sm:px-4"
+                // The same height as the tabs they share the line with.
+                className="h-8 flex-1 px-3 sm:flex-none sm:px-4"
                 disabled={!to}
                 aria-label={to ? `${label}: ${to.name}` : label}
                 title={to?.name}
@@ -2426,13 +2439,25 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         );
     };
 
-    // On a phone two full-width buttons would push the card down by a whole row,
-    // so there the same links are small chevrons in the top corners of the hero
-    // (the nearest positioned box), the way a native viewer pages between records.
+    return (
+        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto">
+            {arrow(prev, 'Предыдущий', ChevronLeft)}
+            {arrow(next, 'Следующий', ChevronRight)}
+        </div>
+    );
+}
+
+/**
+ * The same two links on a phone: two full-width buttons would push the card down
+ * by a whole row, so there they are small chevrons in the top corners of the
+ * hero (the nearest positioned box), the way a native viewer pages between
+ * records. They stay with the hero; only the desktop pair moved to the tabs.
+ */
+function NeighbourCorners({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab: TabKey }) {
     const corner = (to: Neighbour, label: string, Icon: typeof ChevronLeft, side: string) =>
         to ? (
             <Button variant="ghost" size="icon" className={cn('absolute top-0 size-9 md:hidden', side)} aria-label={`${label}: ${to.name}`} asChild>
-                <Link href={href(to)} prefetch>
+                <Link href={neighbourHref(to, tab)} prefetch>
                     <Icon className="size-5" />
                 </Link>
             </Button>
@@ -2444,10 +2469,6 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
 
     return (
         <>
-            <div className="flex w-full gap-1 max-md:hidden sm:w-auto">
-                {arrow(prev, 'Предыдущий', ChevronLeft)}
-                {arrow(next, 'Следующий', ChevronRight)}
-            </div>
             {corner(prev, 'Предыдущий', ChevronLeft, 'left-0')}
             {corner(next, 'Следующий', ChevronRight, 'right-0')}
         </>
@@ -2529,7 +2550,11 @@ export default function EmployeeProfile({
 
     return (
         <ProfileFields visible={visibleFields} editable={editableFields}>
-            <AppLayout breadcrumbs={breadcrumbs}>
+            {/*
+             * The card opens with the person's name in full, so the bar carries
+             * the way back to the list rather than saying the name again.
+             */}
+            <AppLayout breadcrumbs={breadcrumbs} trail="bar">
                 <Head title={shortName} />
 
                 {/* The page scrolls as a whole, header and tabs included. */}
@@ -2629,14 +2654,14 @@ export default function EmployeeProfile({
                             )}
                         </div>
 
-                        {neighbours !== null && (
-                            <div className="flex items-center gap-2 self-stretch max-md:contents md:self-end">
-                                <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
-                            </div>
-                        )}
+                        {neighbours !== null && <NeighbourCorners prev={neighbours.prev} next={neighbours.next} tab={tab} />}
                     </div>
 
-                    <Tabs tabs={tabs} active={tab} onChange={setTab} />
+                    {/* The sections on the left, the way through the staff on the right. */}
+                    <div className="md:mt-1 md:flex md:items-center md:gap-3 lg:mt-3">
+                        <Tabs tabs={tabs} active={tab} onChange={setTab} />
+                        {neighbours !== null && <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />}
+                    </div>
 
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
@@ -2896,48 +2921,31 @@ export default function EmployeeProfile({
                                 </div>
 
                                 <aside className={pane}>
-                                    {/* On a phone the two facts get a heading like every other block,
-                                    so the way to change them reads the same: «Изменить» above the card. */}
-                                    {visibleFields.includes('hired_at') && (
-                                        <div className="-mb-2.5 flex min-h-6 items-end justify-between gap-3 px-1 md:hidden">
-                                            <h2 className="text-muted-foreground text-[13px] font-semibold tracking-wide uppercase">
-                                                Работа в компании
-                                            </h2>
-                                            {canEditBlock('employment') && (
+                                    {/*
+                                     * A block like the ones under it: a card with its name on
+                                     * the strip and the pencil at the end of that strip. It
+                                     * used to stand bare at the top of this column, the only
+                                     * thing here without a frame, which read as a leftover of
+                                     * the card above rather than a block of its own.
+                                     */}
+                                    <Section
+                                        fields={['hired_at']}
+                                        title="Работа в компании"
+                                        action={
+                                            canEditBlock('employment') && (
                                                 <EditButton label="Редактировать начало работы" onClick={() => setEditing('employment')} />
-                                            )}
-                                        </div>
-                                    )}
-                                    {/* Bare, without a card of its own: two facts that need no heading. */}
-                                    <div
-                                        className={cn(
-                                            'px-1',
-                                            visibleFields.includes('hired_at') ? 'max-md:bg-card max-md:rounded-2xl max-md:px-4' : 'max-md:hidden',
-                                        )}
+                                            )
+                                        }
                                     >
                                         <Fields columns={2}>
                                             <Field label="Начало работы" field="hired_at">
-                                                {/* The pencil sits by the value it edits, not by the block. */}
-                                                <span className="flex items-center gap-1 max-md:justify-end">
-                                                    {formatDate(details.hired_at) ?? <span className="text-muted-foreground font-normal">—</span>}
-                                                    {canEditBlock('employment') && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="text-muted-foreground -my-2.5 size-9 shrink-0 max-md:hidden lg:-my-1 lg:size-6"
-                                                            aria-label="Редактировать начало работы"
-                                                            onClick={() => setEditing('employment')}
-                                                        >
-                                                            <Pencil className="size-3.5" />
-                                                        </Button>
-                                                    )}
-                                                </span>
+                                                {formatDate(details.hired_at)}
                                             </Field>
                                             <Field label="Стаж в компании" field="hired_at">
                                                 {details.hired_at && tenure(details.hired_at)}
                                             </Field>
                                         </Fields>
-                                    </div>
+                                    </Section>
 
                                     <Section
                                         fields={['languages']}
