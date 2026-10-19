@@ -1,9 +1,10 @@
 import { type CardFieldGroup, type PlainRight } from '@/components/card-fields';
-import { MobileRow } from '@/components/data-table';
+import { cycleSort, DataTable, isSorted, MobileRow, useTableView, type CellRenderer, type ColumnDef, type Sort } from '@/components/data-table';
 import { DirectoryEditor, rowLabel, type DirectoryItem, type Labels } from '@/components/directory-editor';
 import { IconChip } from '@/components/equipment-icon';
 import { type EquipmentScope } from '@/components/equipment-scopes';
 import { MobileFab } from '@/components/mobile-fab';
+import { PageActions } from '@/components/page-actions';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -127,6 +128,9 @@ export const searchBox =
     'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-10 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none lg:h-8';
 
 /** Items in tree order (parents first, children indented), or as given when flat. */
+/** The order a list opens in — by name, which is how the server sends it. */
+const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
+
 function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
     if (!tree) return items.map((item) => ({ ...item, depth: 0 }));
 
@@ -175,12 +179,119 @@ export function DirectoryManager({
     const [editing, setEditing] = useState<DirectoryItem | 'new' | null>(null);
     const [deleting, setDeleting] = useState<DirectoryItem | null>(null);
 
+    const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+
+    const columns = useMemo<ColumnDef[]>(
+        () => [
+            { key: 'name', label: 'Название', width: 320, fill: true, filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' } },
+            { key: 'count', label: countLabel, width: 200 },
+        ],
+        [countLabel],
+    );
+
+    const { view, pin, toggleHidden, reorder } = useTableView(
+        `directory:${routeName}`,
+        columns.map((column) => column.key),
+        { hidden: [], pinned: { left: [], right: [] } },
+    );
+
     const rows = useMemo(() => orderRows(items, tree), [items, tree]);
-    const visible = query.trim() ? rows.filter((row) => rowLabel(row).toLowerCase().includes(query.trim().toLowerCase())) : rows;
+    const countOf = (row: Row) => row.total_count ?? row.users_count;
+
+    /*
+     * A tree reads as a tree only while its rows keep the order that puts a
+     * child under its parent. Narrowing the list or sorting it by anything else
+     * breaks that order, so the names then stand flat, each on its own.
+     */
+    const flat = query.trim() !== '' || isSorted(sort, DEFAULT_SORT);
+
+    const visible = useMemo(() => {
+        const narrowed = query.trim() ? rows.filter((row) => rowLabel(row).toLowerCase().includes(query.trim().toLowerCase())) : rows;
+        if (!isSorted(sort, DEFAULT_SORT)) return narrowed;
+
+        const byName = (a: Row, b: Row) => rowLabel(a).localeCompare(rowLabel(b), 'ru');
+        const compare = sort.key === 'count' ? (a: Row, b: Row) => countOf(a) - countOf(b) || byName(a, b) : byName;
+
+        return [...narrowed].sort((a, b) => (sort.direction === 'asc' ? compare(a, b) : -compare(a, b)));
+    }, [rows, query, sort]);
+
+    /* The table lays the columns out; what a row holds is this list's own. */
+    const cell: CellRenderer<Row> = (column, row) => {
+        if (column.key === 'count') {
+            const total = countOf(row);
+
+            return (
+                <span className="tabular-nums">
+                    {total > 0 ? (
+                        // The number is a count; following it means reading the
+                        // staff, which is a right of its own.
+                        employeesUrl && opensList ? (
+                            <Link href={employeesUrl(row)} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
+                                {total}
+                            </Link>
+                        ) : (
+                            <span>{total}</span>
+                        )
+                    ) : (
+                        <span className="text-muted-foreground">0</span>
+                    )}
+                    {row.total_count !== undefined && row.total_count !== row.users_count && (
+                        <span className="text-muted-foreground" title="Числятся в самом отделе, без подотделов">
+                            {' '}
+                            · {row.users_count} напрямую
+                        </span>
+                    )}
+                </span>
+            );
+        }
+
+        return (
+            <span className="flex items-center gap-2" style={{ paddingLeft: flat ? 0 : row.depth * 24 }}>
+                {tree && row.depth > 0 && !flat && <span className="text-muted-foreground">└</span>}
+                {icons && <IconChip icon={(row.icon && equipmentIcons[row.icon]) || fallbackIcon} size={28} iconSize={15} />}
+                {recordUrl ? (
+                    // Brand colour and an underline under the cursor, the way this
+                    // app has always drawn a link in a list. The link is the name
+                    // and nothing else — not the cell around it, not the row — so
+                    // the count further along and the two buttons at the end keep
+                    // their own presses, and a child's name leads to the child
+                    // rather than to whatever it is indented under.
+                    <Link
+                        href={recordUrl(row)}
+                        className={cn(
+                            'text-brand-strong hover:underline dark:text-[#C5E27A]',
+                            tree && row.depth === 0 ? 'font-semibold' : 'font-medium',
+                        )}
+                        title={`Открыть ${labels.accusative}: ${rowLabel(row)}`}
+                    >
+                        {rowLabel(row)}
+                    </Link>
+                ) : (
+                    <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
+                )}
+                {row.protected && <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />}
+            </span>
+        );
+    };
 
     return (
         <>
-            <div className="flex flex-wrap items-center gap-2 md:-mb-2">
+            {/*
+             * On a desktop the button sits at the end of the tab line, where the
+             * design puts it, so it is handed to the shell that draws that line;
+             * on a phone the round button over the tab bar takes its place, and
+             * the search is the phone's alone.
+             */}
+            {canEdit && (
+                <PageActions>
+                    <Button className="h-8" onClick={() => setEditing('new')}>
+                        <Plus />
+                        {labels.add}
+                    </Button>
+                </PageActions>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 md:hidden">
                 <label className={searchBox}>
                     <Search className="size-4 shrink-0" />
                     <span className="sr-only">Поиск</span>
@@ -192,13 +303,6 @@ export function DirectoryManager({
                         className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
                     />
                 </label>
-                {canEdit && (
-                    // On a phone the round button over the tab bar takes its place.
-                    <Button className="h-10 max-md:hidden lg:h-8" onClick={() => setEditing('new')}>
-                        <Plus />
-                        {labels.add}
-                    </Button>
-                )}
             </div>
 
             {/*
@@ -307,121 +411,61 @@ export function DirectoryManager({
 
             {canEdit && <MobileFab onClick={() => setEditing('new')} label={labels.add} />}
 
-            <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:hidden md:min-h-0 md:flex-1">
-                <div className="overflow-auto md:min-h-0 md:flex-1">
-                    <table className="w-full border-collapse text-sm">
-                        <thead className="bg-sidebar sticky top-0 z-10 shadow-[0_1px_0_var(--border)]">
-                            <tr className="text-muted-foreground text-left text-[13px]">
-                                {/* On a phone the fixed widths and the wide gutters give way:
-                                    the columns share what there is, and whatever still does
-                                    not fit scrolls inside the card rather than the page. */}
-                                <th scope="col" className="px-3 py-3 font-semibold md:px-6">
-                                    Название
-                                </th>
-                                <th scope="col" className="px-3 py-3 font-semibold md:w-40 md:px-4">
-                                    {countLabel}
-                                </th>
-                                {canEdit && (
-                                    <th scope="col" className="py-3 pr-3 pl-1 md:w-28 md:pr-6 md:pl-4">
-                                        <span className="sr-only">Действия</span>
-                                    </th>
-                                )}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {visible.map((row) => (
-                                <tr key={row.id} className="hover:bg-muted/40 border-t">
-                                    <td className="px-3 py-2.5 md:px-6">
-                                        <span className="flex items-center gap-2" style={{ paddingLeft: query ? 0 : row.depth * 24 }}>
-                                            {tree && row.depth > 0 && !query && <span className="text-muted-foreground">└</span>}
-                                            {icons && (
-                                                <IconChip icon={(row.icon && equipmentIcons[row.icon]) || fallbackIcon} size={28} iconSize={15} />
-                                            )}
-                                            {recordUrl ? (
-                                                // Brand colour and an underline under the cursor, the way this
-                                                // app has always drawn a link in a list. The link is the name
-                                                // and nothing else — not the cell around it, not the row — so
-                                                // the count further along and the two buttons at the end keep
-                                                // their own presses, and a child's name leads to the child
-                                                // rather than to whatever it is indented under.
-                                                <Link
-                                                    href={recordUrl(row)}
-                                                    className={cn(
-                                                        'text-brand-strong hover:underline dark:text-[#C5E27A]',
-                                                        tree && row.depth === 0 ? 'font-semibold' : 'font-medium',
-                                                    )}
-                                                    title={`Открыть ${labels.accusative}: ${rowLabel(row)}`}
-                                                >
-                                                    {rowLabel(row)}
-                                                </Link>
-                                            ) : (
-                                                <span className={cn(tree && row.depth === 0 && 'font-semibold')}>{rowLabel(row)}</span>
-                                            )}
-                                            {row.protected && (
-                                                <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />
-                                            )}
-                                        </span>
-                                    </td>
-                                    <td className="px-3 py-2.5 tabular-nums md:px-4">
-                                        {(row.total_count ?? row.users_count) > 0 ? (
-                                            // The number is a count; following it means reading the
-                                            // staff, which is a right of its own.
-                                            employeesUrl && opensList ? (
-                                                <Link href={employeesUrl(row)} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
-                                                    {row.total_count ?? row.users_count}
-                                                </Link>
-                                            ) : (
-                                                <span>{row.total_count ?? row.users_count}</span>
-                                            )
-                                        ) : (
-                                            <span className="text-muted-foreground">0</span>
-                                        )}
-                                        {row.total_count !== undefined && row.total_count !== row.users_count && (
-                                            <span className="text-muted-foreground" title="Числятся в самом отделе, без подотделов">
-                                                {' '}
-                                                · {row.users_count} напрямую
-                                            </span>
-                                        )}
-                                    </td>
-                                    {canEdit && (
-                                        <td className="py-1.5 pr-3 pl-1 md:pr-6 md:pl-4">
-                                            <div className="flex justify-end gap-1">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="size-9 lg:size-8"
-                                                    aria-label={`Изменить: ${rowLabel(row)}`}
-                                                    onClick={() => setEditing(row)}
-                                                >
-                                                    <Pencil className="size-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="size-9 text-[#B42318] hover:text-[#B42318] lg:size-8 dark:text-[#F7A19A]"
-                                                    aria-label={`Удалить: ${rowLabel(row)}`}
-                                                    disabled={row.protected}
-                                                    onClick={() => setDeleting(row)}
-                                                >
-                                                    <Trash2 className="size-4" />
-                                                </Button>
-                                            </div>
-                                        </td>
-                                    )}
-                                </tr>
-                            ))}
-
-                            {visible.length === 0 && (
-                                <tr className="border-t">
-                                    <td colSpan={2 + (canEdit ? 1 : 0)} className="text-muted-foreground px-3 py-12 text-center md:px-6">
-                                        {items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </Card>
+            {/*
+             * The desktop list is the table the rest of the app uses: its columns
+             * sort, narrow, hide, pin and drag like the ones in the employee and
+             * equipment lists, and what a viewer makes of them is remembered
+             * between visits. The phone keeps the list above instead — three
+             * columns do not fit 390px however they are arranged.
+             */}
+            <div className="flex min-h-0 flex-1 flex-col max-md:hidden">
+                <DataTable
+                    columns={columns}
+                    rows={visible}
+                    rowKey={(row) => row.id}
+                    renderCell={cell}
+                    sort={sort}
+                    sortable={['name', 'count']}
+                    onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
+                    filters={{ name: query }}
+                    onFilter={(changes) => setQuery(typeof changes.name === 'string' ? changes.name : '')}
+                    view={view}
+                    onPin={pin}
+                    reorderable
+                    onReorder={reorder}
+                    onHide={(key) => toggleHidden(key, true)}
+                    lockedKey="name"
+                    actionsWidth={112}
+                    actions={
+                        canEdit
+                            ? (row) => (
+                                  <div className="flex justify-end gap-1">
+                                      <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-8"
+                                          aria-label={`Изменить: ${rowLabel(row)}`}
+                                          onClick={() => setEditing(row)}
+                                      >
+                                          <Pencil className="size-4" />
+                                      </Button>
+                                      <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-8 text-[#B42318] hover:text-[#B42318] dark:text-[#F7A19A]"
+                                          aria-label={`Удалить: ${rowLabel(row)}`}
+                                          disabled={row.protected}
+                                          onClick={() => setDeleting(row)}
+                                      >
+                                          <Trash2 className="size-4" />
+                                      </Button>
+                                  </div>
+                              )
+                            : undefined
+                    }
+                    empty={<span className="text-sm">{items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}</span>}
+                />
+            </div>
 
             {editing && (
                 <DirectoryEditor

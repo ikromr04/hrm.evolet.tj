@@ -119,6 +119,13 @@ interface DataTableProps<Row> {
 
     /** The right-hand sticky cell, when the viewer may act on a row. */
     actions?: (row: Row) => ReactNode;
+    /**
+     * How wide that cell is drawn. The default holds one icon button, which is
+     * what a row of these tables usually offers — a menu of what can be done to
+     * it. A page whose rows wear their actions openly, two buttons side by
+     * side, says so here.
+     */
+    actionsWidth?: number;
     empty: ReactNode;
     /** A bar under the table, inside the card: rows per page and paging. */
     footer?: ReactNode;
@@ -156,6 +163,7 @@ export function DataTable<Row>({
     gridlines,
     rowSpan,
     actions,
+    actionsWidth: actionsCell = ACTIONS_WIDTH,
     empty,
     footer,
     mobileRow,
@@ -366,7 +374,7 @@ export function DataTable<Row>({
         setResizing(null);
     };
 
-    const actionsWidth = actions ? ACTIONS_WIDTH : 0;
+    const actionsWidth = actions ? actionsCell : 0;
     const tableWidth = visible.reduce((sum, column) => sum + widthOf(column), 0) + actionsWidth;
 
     /**
@@ -730,7 +738,7 @@ export function DataTable<Row>({
                             {actions && (
                                 <th
                                     scope="col"
-                                    style={{ width: ACTIONS_WIDTH }}
+                                    style={{ width: actionsCell }}
                                     className="bg-sidebar sticky right-0 z-20 shadow-[-1px_0_0_var(--border)]"
                                 >
                                     <span className="sr-only">Действия</span>
