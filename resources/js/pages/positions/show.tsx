@@ -1,9 +1,11 @@
 import { departmentTitle } from '@/components/department-name';
 import { type Regulation } from '@/components/department-regulation';
 import { DocumentTabs } from '@/components/document-tabs';
+import { EditPencil } from '@/components/edit-pencil';
 import { type EmploymentStatus } from '@/components/employee-actions';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
+import { PositionEditor, type DepartmentOption } from '@/components/position-editor';
 import { PositionProfile, type General, type Profile } from '@/components/position-profile';
 import { PositionRegulation } from '@/components/position-regulation';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
@@ -12,7 +14,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type Sex } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { Building2, ChevronRight } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
@@ -45,6 +47,8 @@ interface Position extends PositionRef {
     department: DepartmentRef | null;
     /** What the position answers for, one list in the order it was written. */
     duties: DutyRef[];
+    /** Whether whoever holds this heads the department it sits in. */
+    is_head: boolean;
 }
 
 interface Holder {
@@ -81,13 +85,30 @@ function leftLabel(status: EmploymentStatus, sex: Sex | null): string | null {
 }
 
 /** The furniture of a department's page, so the two read as one kind of record. */
-function Section({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+function Section({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
+    const heading = (
+        <>
+            {title}
+            {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
+        </>
+    );
+
     return (
-        <Card className="flex flex-col gap-3 rounded-xl px-4 py-4 max-md:rounded-2xl md:px-6 md:py-5">
-            <h2 className="flex items-baseline gap-2 text-base font-semibold">
-                {title}
-                {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
-            </h2>
+        <Card className="flex flex-col gap-3 rounded-xl px-4 py-4 max-md:rounded-2xl md:gap-4 md:px-6 md:py-5">
+            {/* On a desktop the name stands on a ruled band flush with the card's
+                edges, the way every block of a colleague's card and a
+                department's wears it. A phone keeps the name on a line of its
+                own inside the card: there the cards are a column one scrolls
+                through and a band on each would be a row of grey stripes. */}
+            <div className="bg-muted/60 -mx-6 -mt-5 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-t-xl border-b px-6 py-2 max-md:hidden">
+                <h2 className="flex min-w-0 items-baseline gap-2 text-base font-semibold">{heading}</h2>
+                {action}
+            </div>
+
+            <div className="flex min-h-6 items-end justify-between gap-3 md:hidden">
+                <h2 className="flex items-baseline gap-2 text-base font-semibold">{heading}</h2>
+                {action}
+            </div>
             {children}
         </Card>
     );
@@ -282,6 +303,7 @@ export default function PositionPage({
     regulation,
     employees,
     canEdit,
+    editorOptions,
     canOpenCards,
     showsEmployees,
     showsPositions,
@@ -292,8 +314,10 @@ export default function PositionPage({
     /** «Положение о работе» this position keeps, read and written here. */
     regulation: Regulation;
     employees: Holder[];
-    /** Renaming the position, re-filing it and changing its duties stays on the directory page. */
+    /** Whether the position is this viewer's to change — what the pencil on «Обязанности» asks. */
     canEdit: boolean;
+    /** Absent until the window is opened, which is when the page asks for it. */
+    editorOptions?: { departments: DepartmentOption[]; duties: string[] };
     canOpenCards: boolean;
     /**
      * Whether the list of colleagues is this viewer's to read. A closed one
@@ -306,6 +330,23 @@ export default function PositionPage({
     // «СФД» opens the page: the sheet is why somebody comes to a position at
     // all, and the department's положение is a step aside from it.
     const [open, setOpen] = useState<Document>('regulation');
+
+    // The duties are written in the window the list of positions opens — the
+    // one place a position is named, filed and described at once. What it asks
+    // with is fetched when the pencil is pressed rather than with every visit.
+    const [editing, setEditing] = useState(false);
+    const [opening, setOpening] = useState(false);
+
+    const openEditor = () => {
+        if (editorOptions) {
+            setEditing(true);
+
+            return;
+        }
+
+        setOpening(true);
+        router.reload({ only: ['editorOptions'], onSuccess: () => setEditing(true), onFinish: () => setOpening(false) });
+    };
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Должности', href: route('positions.index') },
@@ -366,6 +407,42 @@ export default function PositionPage({
                             <Placement general={profile.general} department={position.department} canEdit={canEdit} />
                         </Section>
 
+                        {/*
+                         * What the post answers for, read as a whole: the same list
+                         * the holders below carry their share of, in the same
+                         * green. A duty is a sentence rather than a word, so the
+                         * chips wrap and the long ones break across lines.
+                         */}
+                        <Section
+                            title="Обязанности"
+                            count={position.duties.length}
+                            action={
+                                canEdit && (
+                                    <EditPencil
+                                        label="Изменить обязанности"
+                                        tip="Изменить должность"
+                                        busy={opening}
+                                        className="-my-1 -mr-2.5 lg:my-0 lg:-mr-2 lg:size-7"
+                                        onClick={openEditor}
+                                    />
+                                )
+                            }
+                        >
+                            {position.duties.length === 0 ? (
+                                <p className="text-muted-foreground text-sm">У должности не указаны обязанности.</p>
+                            ) : (
+                                <ul className="flex flex-wrap gap-1">
+                                    {position.duties.map((duty) => (
+                                        <li key={duty.id} className="max-w-full">
+                                            <StatusBadge tone="success" className={chip}>
+                                                <span className="min-w-0 break-words">{duty.name}</span>
+                                            </StatusBadge>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </Section>
+
                         <Section title="Сотрудники на должности" count={showsEmployees ? employees.length : undefined}>
                             {!showsEmployees ? (
                                 <p className="text-muted-foreground text-sm">Список сотрудников закрыт.</p>
@@ -388,6 +465,23 @@ export default function PositionPage({
                     </aside>
                 </div>
             </div>
+
+            {/* The same window the list of positions opens, so a job is named,
+                filed and described in one place however it was reached. */}
+            {editing && editorOptions && (
+                <PositionEditor
+                    position={{
+                        id: position.id,
+                        name: position.name,
+                        is_head: position.is_head,
+                        department: position.department === null ? null : { id: position.department.id },
+                        duties: position.duties.map((duty) => duty.name),
+                    }}
+                    suggestions={editorOptions.duties}
+                    departments={editorOptions.departments}
+                    onClose={() => setEditing(false)}
+                />
+            )}
         </AppLayout>
     );
 }

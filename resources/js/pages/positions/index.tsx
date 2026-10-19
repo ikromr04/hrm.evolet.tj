@@ -12,22 +12,18 @@ import {
 } from '@/components/data-table';
 import { DepartmentLink } from '@/components/department-name';
 import { searchBox } from '@/components/directory-manager';
-import InputError from '@/components/input-error';
 import { MobileFab } from '@/components/mobile-fab';
-import { MultiSelect } from '@/components/multi-select';
-import { SearchableSelect } from '@/components/searchable-select';
+import { PageActions } from '@/components/page-actions';
+import { PositionEditor } from '@/components/position-editor';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { plural } from '@/lib/plural';
-import { Link, router, useForm } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import { Crown, Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { useMemo, useState, type FormEventHandler } from 'react';
+import { useMemo, useState } from 'react';
 
 interface Department {
     /** The abbreviation where the department has one, the full name otherwise. */
@@ -149,6 +145,9 @@ const collator = new Intl.Collator('ru');
  * the position sits and what it is called, so all the room goes to the name: it
  * is the column that fills the table, and it wraps.
  */
+/** What the one text filter looks through, said in full for whoever opens it. */
+const SEARCH_HINT = 'Поиск по названию, департаменту, отделу и обязанностям';
+
 const columns: ColumnDef[] = [
     // Both are cut to their headers: «Департамент» has to stand beside its own
     // funnel and menu without either leaning into the column next door. The
@@ -165,7 +164,18 @@ const columns: ColumnDef[] = [
     // instead of being cut. Said outright rather than left to be the last column
     // standing, because the three of them can be dragged into any order and the
     // name is the one to hand the gap to wherever it ends up.
-    { key: 'name', label: 'Должность', width: 245, fill: true },
+    //
+    // The funnel here is the search this page used to carry above the table:
+    // it answers by the job title, by either step of the structure and by the
+    // duties, which is what the box did, and it stands on the column the
+    // reader is looking for a name in.
+    {
+        key: 'name',
+        label: 'Должность',
+        width: 245,
+        fill: true,
+        filter: { type: 'text', param: 'q', placeholder: SEARCH_HINT },
+    },
 ];
 
 const columnKeys = columns.map((column) => column.key);
@@ -404,172 +414,6 @@ function RowActions({ position, onEdit, onDelete }: { position: Position; onEdit
     );
 }
 
-interface EditorData {
-    /** The picker writes strings; nothing chosen yet is an empty one. */
-    department_id: string;
-    name: string;
-    /** Whether whoever holds this heads the department it sits in. */
-    is_head: boolean;
-    duties: string[];
-}
-
-/**
- * Adding a position or changing one, asked in the order the answers depend on
- * each other: the department first, because the same name means a different job
- * in each of them and is only taken within one; then the name; then what the job
- * involves. The duties are entered the way a person's citizenships are — value
- * by value, each its own chip — and what other positions already say is offered
- * as suggestions, so the same duty is written the same way twice.
- */
-function EditorDialog({
-    position,
-    suggestions,
-    departments,
-    onClose,
-}: {
-    position: Position | null;
-    suggestions: string[];
-    departments: Props['options']['departments'];
-    onClose: () => void;
-}) {
-    const form = useForm<EditorData>({
-        department_id: position?.department === null || position === null ? '' : String(position.department.id),
-        name: position?.name ?? '',
-        is_head: position?.is_head ?? false,
-        duties: position?.duties ?? [],
-    });
-
-    const submit: FormEventHandler = (event) => {
-        event.preventDefault();
-
-        form.transform((data) => ({
-            department_id: data.department_id === '' ? null : Number(data.department_id),
-            name: data.name.trim(),
-            is_head: data.is_head,
-            duties: data.duties.map((name) => ({ name })),
-        }));
-        const options = { preserveScroll: true, onSuccess: onClose };
-
-        if (position) form.put(route('positions.update', position.id), options);
-        else form.post(route('positions.store'), options);
-    };
-
-    const errors = form.errors as Record<string, string | undefined>;
-
-    // The server reports a line of the list by its place in it
-    // ("duties.7.name"), and the list is one field here, so whichever line it
-    // is about is said under that field.
-    const dutyError = Object.entries(errors).find(([key, message]) => /^duties\.\d+(\.|$)/.test(key) && message !== undefined)?.[1];
-
-    const dutyOptions = suggestions.map((duty) => ({ value: duty, label: duty }));
-
-    return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-lg">
-                <form onSubmit={submit} className="flex flex-col gap-5">
-                    <DialogHeader>
-                        <DialogTitle>{position ? 'Изменить должность' : 'Новая должность'}</DialogTitle>
-                        <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>
-                    </DialogHeader>
-
-                    <div className="grid content-start gap-2">
-                        <Label htmlFor="position-department">Отдел</Label>
-                        <SearchableSelect
-                            id="position-department"
-                            className="max-md:h-11"
-                            value={form.data.department_id}
-                            onChange={(value) => form.setData('department_id', value)}
-                            options={departments.map((department) => ({
-                                value: String(department.id),
-                                label: department.name,
-                                hint: department.full_name === department.name ? undefined : department.full_name,
-                                // Indented by how deep it sits, as the employees list indents the same tree.
-                                depth: department.depth,
-                            }))}
-                            placeholder="Выберите отдел"
-                            searchPlaceholder="Отдел"
-                            empty="Отдел не найден"
-                            invalid={errors.department_id !== undefined}
-                        />
-                        <p className="text-muted-foreground text-[13px]">
-                            Должность принадлежит одному отделу. Одно и то же название в разных отделах — это разные должности со своими
-                            обязанностями.
-                        </p>
-                        <InputError message={errors.department_id} />
-                    </div>
-
-                    <div className="grid content-start gap-2">
-                        <Label htmlFor="position-name">Название</Label>
-                        <Input
-                            id="position-name"
-                            className="max-md:h-11"
-                            autoFocus
-                            value={form.data.name}
-                            onChange={(event) => form.setData('name', event.target.value)}
-                        />
-                        <InputError message={errors.name} />
-                    </div>
-
-                    {/* The same flag the department's own dialog puts a crown on,
-                        asked here as a plain checkbox because this is where a
-                        position is written down in the first place — left out, it
-                        would be a thing only somebody who went looking for it in
-                        another window would ever know existed. */}
-                    <div className="grid content-start gap-2">
-                        <Label htmlFor="position-is-head" className="flex items-start gap-2.5 font-normal">
-                            <Checkbox
-                                id="position-is-head"
-                                checked={form.data.is_head}
-                                onCheckedChange={(checked) => form.setData('is_head', checked === true)}
-                            />
-                            <span>Руководящая должность</span>
-                        </Label>
-                        <p className="text-muted-foreground text-[13px]">
-                            Кто занимает эту должность, тот руководит отделом. У отдела может быть несколько руководящих должностей.
-                        </p>
-                        <InputError message={errors.is_head} />
-                    </div>
-
-                    <div className="grid content-start gap-2">
-                        <Label htmlFor="position-duties">Обязанности</Label>
-                        <MultiSelect
-                            numbered
-                            id="position-duties"
-                            creatable
-                            options={dutyOptions}
-                            value={form.data.duties}
-                            onChange={(duties) => form.setData('duties', duties)}
-                            placeholder="Не заполнены"
-                            searchPlaceholder="Обязанность"
-                        />
-                        <p className="text-muted-foreground text-[13px]">
-                            Всё, за что отвечает должность. По одной обязанности за раз: впишите её и нажмите Enter. Порядок строк здесь — это порядок
-                            на странице должности.
-                        </p>
-                        {/* The whole list can be complained about too ("duties"), and that
-                            complaint is nobody's line in particular. */}
-                        <InputError message={errors.duties ?? dutyError} />
-                    </div>
-
-                    <DialogFooter className="gap-2">
-                        <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
-                            Отмена
-                        </Button>
-                        <Button
-                            type="submit"
-                            className="max-md:h-11"
-                            disabled={form.processing || form.data.department_id === '' || form.data.name.trim() === ''}
-                        >
-                            {form.processing && <LoaderCircle className="animate-spin" />}
-                            Сохранить
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 function DeleteDialog({ position, onClose }: { position: Position; onClose: () => void }) {
     const [processing, setProcessing] = useState(false);
 
@@ -635,10 +479,18 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     const [deleting, setDeleting] = useState<Position | null>(null);
 
     const tableColumns = useMemo(() => buildColumns(options.departments), [options.departments]);
-    const filters: FilterValues = { department: chosen.department, unit: chosen.unit };
+    const filters: FilterValues = { department: chosen.department, unit: chosen.unit, q: query };
     // A funnel reports only its own column, so what it says is laid over what
-    // the other one is already set to.
-    const applyFilter = (changes: FilterValues) => setChosen((current) => ({ ...current, ...(changes as Partial<Narrowing>) }));
+    // the other one is already set to. The search is a filter like the rest,
+    // and the one that is not part of the narrowing.
+    const applyFilter = (changes: FilterValues) => {
+        if ('q' in changes) {
+            setQuery(typeof changes.q === 'string' ? changes.q : '');
+        }
+
+        const narrowing = Object.fromEntries(Object.entries(changes).filter(([key]) => key !== 'q'));
+        setChosen((current) => ({ ...current, ...(narrowing as Partial<Narrowing>) }));
+    };
 
     const narrowed = chosen.department.length > 0 || chosen.unit.length > 0;
 
@@ -742,7 +594,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     // that answers a question none of the funnels can. A row found by one is
     // still a row to follow rather than a puzzle: it opens the page that prints
     // the duties in full.
-    const searchHint = 'Поиск по названию, департаменту, отделу и обязанностям';
+    const searchHint = SEARCH_HINT;
 
     /**
      * An empty list has to say which of the two reasons emptied it. A department
@@ -756,7 +608,23 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
 
     return (
         <CompanyStructureLayout>
-            <div className="flex flex-wrap items-center gap-2 md:-mb-2">
+            {canEdit && (
+                <PageActions>
+                    <Button className="h-8" onClick={() => setEditing('new')}>
+                        <Plus />
+                        Добавить должность
+                    </Button>
+                </PageActions>
+            )}
+
+            {/*
+             * The phone's own line: there the table is a list of cards with no
+             * headers to hang a funnel on, so the box and the sheet of tools
+             * stand above it. A desktop reads both off the headers — the search
+             * is the funnel on «Должность» — and the button that adds one sits
+             * at the end of the line of tabs, where this section keeps it.
+             */}
+            <div className="flex flex-wrap items-center gap-2 md:hidden">
                 {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
                 <label className={searchBox}>
                     <Search className="size-4 shrink-0" />
@@ -790,14 +658,6 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                     }}
                     className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                 />
-
-                {canEdit && (
-                    // On a phone the round button over the tab bar takes its place.
-                    <Button className="h-10 max-md:hidden lg:h-8" onClick={() => setEditing('new')}>
-                        <Plus />
-                        Добавить должность
-                    </Button>
-                )}
             </div>
 
             <DataTable
@@ -873,7 +733,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
 
             {canEdit && <MobileFab onClick={() => setEditing('new')} label="Добавить должность" />}
             {editing && (
-                <EditorDialog
+                <PositionEditor
                     key={editing === 'new' ? 'new' : editing.id}
                     position={editing === 'new' ? null : editing}
                     suggestions={suggestions}

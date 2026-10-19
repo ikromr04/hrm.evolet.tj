@@ -92,6 +92,33 @@ class PositionController extends Controller
         ]);
     }
 
+    /**
+     * What «Изменить должность» is asked with: the tree a position can be filed
+     * in, and the duties already written anywhere in the company, so the same
+     * responsibility is worded the same way twice.
+     *
+     * Refused outright to anybody who may not keep the list: the prop is asked
+     * for by name and a request can be written by hand, so the right is checked
+     * here and not only where the pencil is drawn.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function editorOptions(?User $user): ?array
+    {
+        if (! Directories::canEdit($user, 'positions')) {
+            return null;
+        }
+
+        return [
+            'departments' => $this->departmentOptions($this->departments()),
+            'duties' => PositionDuty::query()
+                ->distinct()
+                ->orderBy('name')
+                ->pluck('name')
+                ->all(),
+        ];
+    }
+
     public function show(Request $request, Position $position): Response
     {
         $user = $request->user();
@@ -111,6 +138,9 @@ class PositionController extends Controller
             'position' => [
                 'id' => $position->id,
                 'name' => $position->name,
+                // Whether whoever holds this heads the department it sits in,
+                // which the window on this page asks and answers.
+                'is_head' => $position->is_head,
                 // The heading spells the department out below the name, but the
                 // breadcrumb and the tab have one line between them.
                 'display_name' => $position->display_name,
@@ -130,6 +160,13 @@ class PositionController extends Controller
             'regulation' => $this->regulation($position, $user),
             'employees' => $showsEmployees ? $this->holders($position, $user, $showsPositions) : [],
             'canEdit' => Directories::canEdit($user, 'positions'),
+            // What the window on this page needs and the page itself does not:
+            // where a position may be filed, and what every other position
+            // already answers for, offered as the duties are written. Left out
+            // of every visit that does not ask for it by name — the page is
+            // opened to read a sheet, and the whole tree with every duty in the
+            // company is a heavy thing to send for a pencil nobody presses.
+            'editorOptions' => Inertia::optional(fn () => $this->editorOptions($user)),
             'canOpenCards' => $showsEmployees,
             'showsEmployees' => $showsEmployees,
             'showsPositions' => $showsPositions,
