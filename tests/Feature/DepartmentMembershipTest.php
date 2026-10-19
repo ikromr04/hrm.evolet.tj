@@ -6,6 +6,7 @@ use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
 use App\Support\Membership;
+use App\Support\Placements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -161,68 +162,49 @@ class DepartmentMembershipTest extends TestCase
     }
 
     /**
-     * The transitional rule, and the one that is not a conclusion about how the
-     * company should work.
+     * A membership nothing accounts for is not kept.
      *
-     * Thirteen memberships on file have no position of that department behind
-     * them — every one a second or third department of somebody whose single
-     * real position is somewhere else. Derived plainly they would all be
-     * deleted the first time anything touched those people, which is a decision
-     * for the company and not for this class, so they are marked by hand and
-     * left exactly as they are.
-     *
-     * They are not read as mistakes either: the moment a position accounts for
-     * one, it stops being hand-written and follows the positions like the rest.
+     * Rows like it were written before the rule, when a department could be
+     * filed on somebody by hand; the migration that settled the rule deleted
+     * the ones on file and this class deletes any that appear since. A
+     * department belongs to the job, so without a job in it there is nothing to
+     * belong through.
      */
-    public function test_a_membership_no_position_accounts_for_is_kept()
+    public function test_a_membership_no_position_accounts_for_is_removed()
     {
         $elsewhere = Department::create(['name' => 'Отдел Дизайна']);
-        $byHand = Department::create(['name' => 'Департамент контрактного производства']);
+        $unexplained = Department::create(['name' => 'Департамент контрактного производства']);
         $real = Position::create(['department_id' => $elsewhere->id, 'name' => 'Дизайнер']);
         $employee = User::factory()->create();
 
         $employee->positions()->attach($real);
-        $employee->departments()->attach($byHand, ['is_head' => false, 'by_hand' => true]);
+        $employee->departments()->attach($unexplained, ['is_head' => false]);
         $employee->departments()->attach($elsewhere, ['is_head' => false]);
 
-        // Anything at all happening to this person leaves the hand-written row
-        // where it is, including losing the position that was accounted for.
-        Membership::refresh($employee);
-        $this->assertTrue($employee->departments()->whereKey($byHand->id)->exists());
-
-        $employee->positions()->detach($real);
         Membership::refresh($employee);
 
-        $this->assertSame([$byHand->id], $employee->departments()->pluck('departments.id')->all());
+        // The one the position accounts for stays; the other one goes.
+        $this->assertSame([$elsewhere->id], $employee->departments()->pluck('departments.id')->all());
 
-        // And once a position of that department does account for it, it is an
-        // ordinary derived membership and the note comes off.
+        // And giving them a job there is what puts them back in it.
         $employee->positions()->attach(Position::create([
-            'department_id' => $byHand->id,
+            'department_id' => $unexplained->id,
             'name' => 'Технолог',
             'is_head' => true,
         ]));
         Membership::refresh($employee);
 
-        $this->assertSame([$employee->id], $byHand->heads()->pluck('users.id')->all());
-        $this->assertSame(0, DB::table('department_user')->where('by_hand', true)->count());
+        $this->assertSame([$employee->id], $unexplained->heads()->pluck('users.id')->all());
     }
 
     /**
-     * The other half of the transitional rule, and the smaller place the same
-     * loss could happen.
+     * Leading a department is the crown on a job and nothing else.
      *
-     * Two heads on file hold a position in the unit they lead without that
-     * position being a crowned one: one holds two and nothing says which leads,
-     * the other's is held by a colleague who is not a head. The membership is
-     * accounted for, so nothing protects it as a whole — but the leading on it
-     * is not, and deriving plainly would simply stop them being heads.
-     *
-     * Such a row is marked by hand too, and left alone while the positions
-     * would take the leading away. Crowning a position they hold is the answer,
-     * and then the row is an ordinary one again.
+     * A headship written on the membership itself is not kept either: whoever
+     * is to lead holds a position marked as leading, and until somebody marks
+     * one nobody leads. Marking it says it of everybody holding that job.
      */
-    public function test_a_headship_no_crowned_position_accounts_for_is_kept()
+    public function test_a_headship_follows_the_crown_on_the_job()
     {
         $department = Department::create(['name' => 'Отдел платежной реконсиляции']);
         $shared = Position::create(['department_id' => $department->id, 'name' => 'Видеомейкер']);
@@ -230,46 +212,41 @@ class DepartmentMembershipTest extends TestCase
         $colleague = User::factory()->create();
         $head->positions()->attach($shared);
         $colleague->positions()->attach($shared);
-        $head->departments()->attach($department, ['is_head' => true, 'by_hand' => true]);
+        $head->departments()->attach($department, ['is_head' => true]);
         $colleague->departments()->attach($department, ['is_head' => false]);
 
         Membership::refresh([$head, $colleague]);
 
-        // Still a head, and the colleague sharing the job is still not one.
-        $this->assertSame([$head->id], $department->heads()->pluck('users.id')->all());
+        // Both hold the same uncrowned job, so neither leads the department.
+        $this->assertSame([], $department->heads()->pluck('users.id')->all());
 
-        // Crowning the position is somebody saying it out loud: now the job
-        // explains the leading, the row stops being hand-written, and the
-        // colleague who holds the same job leads it too — which is exactly why
-        // no migration was allowed to decide this.
+        // Crowning the job says it of both of them.
         $shared->update(['is_head' => true]);
         Membership::refresh(Membership::behind($shared));
 
         $this->assertEqualsCanonicalizing([$head->id, $colleague->id], $department->heads()->pluck('users.id')->all());
-        $this->assertSame(0, DB::table('department_user')->where('by_hand', true)->count());
     }
 
     /**
-     * The card may still file somebody in a department without giving them a
-     * job in it — a few people are filed that way, and it is not the same as
-     * not belonging to it. Such a membership is one written by hand, which is
-     * exactly what the thirteen are.
+     * The card cannot file somebody in a department without giving them a job
+     * in it: the form may still name the department — it is how a position is
+     * looked up — but what it files is the position, and a placement naming no
+     * position files nothing.
      */
-    public function test_the_card_may_still_file_a_department_with_no_position_in_it()
+    public function test_the_card_cannot_file_a_department_without_a_position_in_it()
     {
         $department = Department::create(['name' => 'Отдел Дизайна']);
+        $position = Position::create(['department_id' => $department->id, 'name' => 'Дизайнер']);
         $employee = User::factory()->create();
 
-        Membership::refresh($employee, byHand: [$department->id]);
-
-        $this->assertSame([$department->id], $employee->departments()->pluck('departments.id')->all());
-        $this->assertSame(1, DB::table('department_user')->where('by_hand', true)->count());
-
-        // And the same form taking it back is the one thing that may: it hands
-        // over the whole of somebody's filing, so a department it no longer
-        // names is one somebody removed.
-        Membership::refresh($employee, byHand: []);
+        Placements::save($employee, [['department_id' => $department->id, 'position_id' => null]]);
 
         $this->assertFalse($employee->departments()->exists());
+        $this->assertSame(0, DB::table('department_user')->count());
+
+        // The same form naming the job files both, and the department follows.
+        Placements::save($employee, [['department_id' => $department->id, 'position_id' => $position->id]]);
+
+        $this->assertSame([$department->id], $employee->fresh()->departments()->pluck('departments.id')->all());
     }
 }

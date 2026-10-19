@@ -172,7 +172,6 @@ class EmployeePersonalDataTest extends TestCase
             ->put("/employees/{$employee->id}/personal", $this->payload([
                 'roles' => ['specialist'],
                 'placements' => [[
-                    'department_id' => $department->id,
                     'position_id' => $position->id,
                     'duty_ids' => [$contracts->id, $month->id],
                 ]],
@@ -191,39 +190,35 @@ class EmployeePersonalDataTest extends TestCase
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         [$was, $position, $contracts] = $this->chain('Отдел продаж');
-        [$now] = $this->chain('Отдел закупок');
+        [$now, $elsewhere] = $this->chain('Отдел закупок');
 
         $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
-            'placements' => [['department_id' => $was->id, 'position_id' => $position->id, 'duty_ids' => [$contracts->id]]],
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [$contracts->id]]],
         ]))->assertSessionHasNoErrors();
 
-        // The form empties the two fields under the department when it changes,
-        // and the save is the whole of where somebody stands: nothing of the old
-        // department is left hanging off them.
+        // The save is the whole of where somebody stands: the job they used to
+        // hold goes, the duty picked out of it goes with it, and the department
+        // behind it goes because nothing holds them there any more.
         $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
-            'placements' => [['department_id' => $now->id, 'position_id' => null, 'duty_ids' => []]],
+            'placements' => [['position_id' => $elsewhere->id, 'duty_ids' => []]],
         ]))->assertSessionHasNoErrors();
 
         $employee->refresh();
         $this->assertSame([$now->id], $employee->departments->pluck('id')->all());
-        $this->assertSame([], $employee->positions->pluck('id')->all());
+        $this->assertSame([$elsewhere->id], $employee->positions->pluck('id')->all());
         $this->assertSame([], $employee->duties->pluck('id')->all());
     }
 
-    public function test_a_position_or_a_duty_from_elsewhere_is_refused()
+    public function test_a_duty_from_another_position_is_refused()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
-        [$department, $position] = $this->chain('Отдел продаж');
-        [, $elsewhere, $theirs] = $this->chain('Отдел закупок');
+        [, $position] = $this->chain('Отдел продаж');
+        [, , $theirs] = $this->chain('Отдел закупок');
         $this->actingAs($admin);
 
         $this->put("/employees/{$employee->id}/personal", $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
-        ]))->assertSessionHasErrors('placements.0.position_id');
-
-        $this->put("/employees/{$employee->id}/personal", $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$theirs->id]]],
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [$theirs->id]]],
         ]))->assertSessionHasErrors('placements.0.duty_ids.0');
 
         $this->assertSame([], $employee->refresh()->departments->pluck('id')->all());
@@ -238,18 +233,19 @@ class EmployeePersonalDataTest extends TestCase
 
         $this->actingAs($admin)->put("/employees/{$employee->id}/personal", $this->payload([
             'placements' => [
-                ['department_id' => $sales->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
-                ['department_id' => $buying->id, 'position_id' => $buyer->id, 'duty_ids' => [$month->id]],
+                ['position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                ['position_id' => $buyer->id, 'duty_ids' => [$month->id]],
             ],
         ]))->assertSessionHasNoErrors();
 
-        // What the dialog is handed back: the chains in the order the card lists
-        // the departments, and the lists it narrows each field by.
+        // What the dialog is handed back: the jobs in the order the picker names
+        // them — both are «Аналитик», so the department after the name settles it
+        // — and the lists it narrows the duties by.
         $this->actingAs($admin)->get("/employees/{$employee->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('assigned.placements', [
-                    ['department_id' => $buying->id, 'position_id' => $buyer->id, 'duty_ids' => [$month->id]],
-                    ['department_id' => $sales->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                    ['position_id' => $buyer->id, 'duty_ids' => [$month->id]],
+                    ['position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
                 ])
                 ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $analyst->id) === [
                     'id' => $analyst->id,
@@ -280,7 +276,7 @@ class EmployeePersonalDataTest extends TestCase
         // with it.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
-                'placements' => [['department_id' => $department->id, 'position_id' => $leading->id, 'duty_ids' => []]],
+                'placements' => [['position_id' => $leading->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -291,7 +287,7 @@ class EmployeePersonalDataTest extends TestCase
         // ordinary one.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
-                'placements' => [['department_id' => $other->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
+                'placements' => [['position_id' => $elsewhere->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 

@@ -113,7 +113,7 @@ class EmployeeCreateTest extends TestCase
         $response = $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
             'roles' => ['specialist'],
             'placements' => [
-                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$duty->id]],
+                ['position_id' => $position->id, 'duty_ids' => [$duty->id]],
             ],
         ]));
 
@@ -138,20 +138,33 @@ class EmployeeCreateTest extends TestCase
         Notification::assertSentTo($employee, AccountCreated::class);
     }
 
-    public function test_a_placement_may_name_a_department_and_no_position()
+    public function test_a_placement_without_a_position_is_refused()
     {
         Notification::fake();
-        [$department] = $this->chain();
+        $this->chain();
+
+        // The job is the placement: there is nothing to file without one, and a
+        // department cannot be named on its own any more.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'placements' => [['position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    public function test_holding_a_position_files_the_department_behind_it()
+    {
+        Notification::fake();
+        [$department, $position] = $this->chain();
 
         $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+            'placements' => [['position_id' => $position->id, 'duty_ids' => []]],
         ]))->assertSessionHasNoErrors();
 
-        // Belonging to a department without holding a position in it is an
-        // ordinary thing, and not the same as not belonging to it.
+        // Nobody wrote the department down: it came with the job.
         $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+        $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
-        $this->assertSame([], $employee->positions->pluck('id')->all());
     }
 
     public function test_several_placements_are_saved_and_read_back_in_order()
@@ -159,40 +172,27 @@ class EmployeeCreateTest extends TestCase
         Notification::fake();
         [$first, $analyst, $contracts] = $this->chain('Отдел разработки');
         [$second, $designer, $month] = $this->chain('Отдел дизайна');
-        $bare = Department::create(['name' => 'Научный отдел']);
 
         $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
             'placements' => [
-                ['department_id' => $first->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
-                ['department_id' => $second->id, 'position_id' => $designer->id, 'duty_ids' => [$month->id]],
-                ['department_id' => $bare->id, 'position_id' => null, 'duty_ids' => []],
+                ['position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+                ['position_id' => $designer->id, 'duty_ids' => [$month->id]],
             ],
         ]))->assertSessionHasNoErrors();
 
         $employee = User::firstWhere('email', 'nilufar@evolet.tj');
 
-        // The card's dialog opens on what was saved, department by department in
-        // the order the card lists them, which is by name — not in the order the
-        // form happened to send them.
+        // The card's dialog opens on what was saved, in the order the picker
+        // names the jobs: both are «Аналитик», so the department after the name
+        // settles it — «Отдел дизайна» before «Отдел разработки» — and not the
+        // order the form happened to send them in.
         $this->assertSame([
-            ['department_id' => $bare->id, 'position_id' => null, 'duty_ids' => []],
-            ['department_id' => $second->id, 'position_id' => $designer->id, 'duty_ids' => [$month->id]],
-            ['department_id' => $first->id, 'position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
+            ['position_id' => $designer->id, 'duty_ids' => [$month->id]],
+            ['position_id' => $analyst->id, 'duty_ids' => [$contracts->id]],
         ], Placements::of($employee));
-    }
 
-    public function test_a_position_of_another_department_is_refused()
-    {
-        [$department] = $this->chain('Отдел разработки');
-        [, $elsewhere] = $this->chain('Отдел дизайна');
-
-        // The form narrows the field by the department above it; the server is
-        // what decides, so a list out of step with itself is not filed.
-        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => $elsewhere->id, 'duty_ids' => []]],
-        ]))->assertSessionHasErrors('placements.0.position_id');
-
-        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+        // And both departments came with the jobs.
+        $this->assertEqualsCanonicalizing([$first->id, $second->id], $employee->departments->pluck('id')->all());
     }
 
     public function test_a_duty_of_another_position_is_refused()
@@ -202,29 +202,29 @@ class EmployeeCreateTest extends TestCase
         $admin = $this->sysadmin();
 
         $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$elsewhere->id]]],
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [$elsewhere->id]]],
         ]))->assertSessionHasErrors('placements.0.duty_ids.0');
 
         // And duties with no position to pick them from are no duties at all.
         $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => [$elsewhere->id]]],
+            'placements' => [['position_id' => null, 'duty_ids' => [$elsewhere->id]]],
         ]))->assertSessionHasErrors('placements.0.duty_ids');
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
 
-    public function test_the_same_department_and_position_twice_is_refused()
+    public function test_the_same_position_twice_is_refused()
     {
-        [$department, $position] = $this->chain();
+        [, $position] = $this->chain();
 
         // Written out twice it would be filed once, which is not what the second
         // row says.
         $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
             'placements' => [
-                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => []],
-                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => []],
+                ['position_id' => $position->id, 'duty_ids' => []],
+                ['position_id' => $position->id, 'duty_ids' => []],
             ],
-        ]))->assertSessionHasErrors('placements.1.department_id');
+        ]))->assertSessionHasErrors('placements.1.position_id');
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
@@ -341,18 +341,18 @@ class EmployeeCreateTest extends TestCase
 
         $this->actingAs($admin)->post('/employees', $this->payload(['roles' => ['ceo']]))->assertSessionHasErrors('roles.0');
         $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => 9999, 'position_id' => null, 'duty_ids' => []]],
-        ]))->assertSessionHasErrors('placements.0.department_id');
-        $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => null, 'position_id' => null, 'duty_ids' => []]],
-        ]))->assertSessionHasErrors('placements.0.department_id');
-
-        [$department] = $this->chain();
-        $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => 9999, 'duty_ids' => []]],
+            'placements' => [['position_id' => 9999, 'duty_ids' => []]],
         ]))->assertSessionHasErrors('placements.0.position_id');
         $this->actingAs($admin)->post('/employees', $this->payload([
-            'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => [9999]]],
+            'placements' => [['position_id' => null, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+
+        [, $position] = $this->chain();
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['position_id' => 9999, 'duty_ids' => []]],
+        ]))->assertSessionHasErrors('placements.0.position_id');
+        $this->actingAs($admin)->post('/employees', $this->payload([
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [9999]]],
         ]))->assertSessionHasErrors('placements.0.duty_ids.0');
 
         $this->assertSame(1, User::count());
@@ -432,7 +432,6 @@ class EmployeeCreateTest extends TestCase
         $this->actingAs($creator)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->contains('specialist') && ! collect($roles)->pluck('name')->contains('sysadmin'))
             ->has('options.positions', Position::count())
-            ->has('options.departments', 1)
             ->has('options.duties', PositionDuty::count())
             ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $position->id) === [
                 'id' => $position->id,
@@ -445,7 +444,7 @@ class EmployeeCreateTest extends TestCase
         $employee = $this->startWizard($creator, [
             'roles' => ['specialist'],
             'placements' => [
-                ['department_id' => $department->id, 'position_id' => $position->id, 'duty_ids' => [$duty->id]],
+                ['position_id' => $position->id, 'duty_ids' => [$duty->id]],
             ],
         ]);
 
@@ -457,9 +456,8 @@ class EmployeeCreateTest extends TestCase
             ...$this->payload([
                 'surname' => 'Азимова-Каримова',
                 'roles' => ['translator'],
-                // The department stays and the position under it goes, which
-                // takes the duty that hung off it with it.
-                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+                // The job stays and the duty picked out of it goes.
+                'placements' => [['position_id' => $position->id, 'duty_ids' => []]],
             ]),
         ])->assertSessionHasNoErrors();
         $this->actingAs($creator)->put("/employees/{$employee->id}/employment", ['hired_at' => '2026-04-01'])->assertSessionHasNoErrors();
@@ -487,8 +485,9 @@ class EmployeeCreateTest extends TestCase
         $employee->refresh();
         $this->assertSame('Азимова-Каримова', $employee->surname);
         $this->assertTrue($employee->hasRole('translator'));
-        $this->assertSame([], $employee->positions->pluck('id')->all());
+        $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
         $this->assertSame([], $employee->duties->pluck('id')->all());
+        // The department was never written here: it comes with the job.
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
         $this->assertSame('2026-04-01', $employee->details->hired_at->toDateString());
         $this->assertSame('nilufar.a@evolet.tj', $employee->email);

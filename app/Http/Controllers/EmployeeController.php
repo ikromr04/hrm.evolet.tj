@@ -10,6 +10,7 @@ use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
 use App\Models\EquipmentType;
 use App\Models\Language;
+use App\Models\Position;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
@@ -31,6 +32,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
@@ -257,11 +259,9 @@ class EmployeeController extends Controller
             'canIssue' => $canIssue,
             'options' => [
                 'roles' => Access::offeredRoles()->get(['name', 'title']),
-                // The departments, and behind them every position with the
-                // department it belongs to and every duty with its position: the
-                // step asks for a department first and narrows the two fields
-                // under it as the answers come in, without a round trip each time.
-                'departments' => $this->departmentOptions(),
+                // Every position with the department it belongs to and every
+                // duty with its position: the step asks for the job and narrows
+                // the duties under it without a round trip each time.
                 ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $this->distinctDetail('nationality'),
@@ -479,9 +479,8 @@ class EmployeeController extends Controller
                 'roles' => Access::offeredRoles()
                     ->orWhereIn('name', $employee->roles->pluck('name'))
                     ->get(['name', 'title']),
-                // As the intake wizard is given them: a department, then the
-                // positions of that department, then the duties of that position.
-                'departments' => $this->departmentOptions(),
+                // As the intake wizard is given them: the positions, and the
+                // duties of each.
                 ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 // Countries already on file, as suggestions for a previous job.
@@ -916,7 +915,8 @@ class EmployeeController extends Controller
     }
 
     /**
-     * An employee can hold several positions; names in alphabetical order.
+     * An employee can hold several positions; names in alphabetical order, each
+     * with the way to the job's own page for whoever may read the jobs.
      *
      * Each reads as «Администратор (ОАП)», its name with the department it
      * belongs to: the same name may now be filed in two departments, and two
@@ -927,7 +927,21 @@ class EmployeeController extends Controller
      */
     private function positionNames(User $user): array
     {
-        return $user->positions->pluck('display_name')->sort()->values()->all();
+        // Numbered only for whoever may open a position: the badge stays a word
+        // for everybody else rather than becoming a link into a refusal.
+        $opens = Gate::allows(Directories::viewPermission('positions'));
+
+        return $user->positions
+            ->sortBy('display_name')
+            ->map(fn (Position $position) => [
+                'id' => $opens ? $position->id : null,
+                'name' => $position->name,
+                // Named apart from the title so the page can put the full name
+                // of the department under the cursor on the abbreviation.
+                'unit' => $position->unit(),
+            ])
+            ->values()
+            ->all();
     }
 
     /**

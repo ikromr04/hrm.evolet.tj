@@ -324,17 +324,18 @@ class NotificationsTest extends TestCase
         $admin = $this->sysadmin();
         $employee = $this->colleague();
         $department = Department::create(['name' => 'Отдел продаж', 'abbreviation' => 'ОП']);
+        $seller = $department->positions()->create(['name' => 'Продавец']);
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
                 'roles' => ['specialist'],
-                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+                'placements' => [['position_id' => $seller->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 
         // One line per save, naming everything that moved — and naming a
         // department the way the card they are sent to names it.
-        $this->assertSame(['Вам изменили позицию: Специалист; отдел: ОП'], $this->lines($employee));
+        $this->assertSame(['Вам изменили позицию: Специалист; должность: Продавец (ОП); отдел: ОП'], $this->lines($employee));
         $this->assertSame(PlacementChanged::class, $employee->notifications()->first()->type);
         $this->assertSame([], $this->lines($admin));
 
@@ -351,7 +352,7 @@ class NotificationsTest extends TestCase
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, ['placements' => []]))
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('Вам изменили отдел: не указан', $this->lines($employee)[0]);
+        $this->assertSame('Вам изменили должность: не указана; отдел: не указан', $this->lines($employee)[0]);
     }
 
     public function test_a_position_is_named_with_its_department_and_the_duties_are_named_too()
@@ -365,11 +366,7 @@ class NotificationsTest extends TestCase
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
-                'placements' => [[
-                    'department_id' => $department->id,
-                    'position_id' => $position->id,
-                    'duty_ids' => [$contracts->id],
-                ]],
+                'placements' => [['position_id' => $position->id, 'duty_ids' => [$contracts->id]]],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -385,35 +382,30 @@ class NotificationsTest extends TestCase
         $this->travel(1)->minutes();
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
-                'placements' => [[
-                    'department_id' => $department->id,
-                    'position_id' => $position->id,
-                    'duty_ids' => [$contracts->id, $month->id],
-                ]],
+                'placements' => [['position_id' => $position->id, 'duty_ids' => [$contracts->id, $month->id]]],
             ]))
             ->assertSessionHasNoErrors();
 
         $this->assertSame('Вам изменили обязанности: Ведение договоров, Закрытие месяца', $this->lines($employee)[0]);
 
-        // The position goes and the duties go with it, in one line.
+        // The job goes, and the duties and the department go with it, in one line.
         $this->travel(1)->minutes();
         $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/personal", $this->personal($employee, [
-                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
-            ]))
+            ->put("/employees/{$employee->id}/personal", $this->personal($employee, ['placements' => []]))
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('Вам изменили должность: не указана; обязанности: не указаны', $this->lines($employee)[0]);
+        $this->assertSame('Вам изменили должность: не указана; отдел: не указан; обязанности: не указаны', $this->lines($employee)[0]);
     }
 
     public function test_nobody_is_told_about_a_change_they_made_to_their_own_card()
     {
         $admin = $this->sysadmin();
         $department = Department::create(['name' => 'Отдел продаж']);
+        $seller = $department->positions()->create(['name' => 'Продавец']);
 
         $this->actingAs($admin)
             ->put("/employees/{$admin->id}/personal", $this->personal($admin, [
-                'placements' => [['department_id' => $department->id, 'position_id' => null, 'duty_ids' => []]],
+                'placements' => [['position_id' => $seller->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
 
