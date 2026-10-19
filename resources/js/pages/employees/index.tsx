@@ -39,7 +39,7 @@ import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type PrivateDetails, type Sex, type SpokenLanguage } from '@/lib/employee';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem, type SharedData } from '@/types';
+import { type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import { ChevronDown, Columns3, Crown, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
@@ -192,8 +192,6 @@ interface ColumnDef {
 }
 
 /* ---------------------------------------------------------------- helpers */
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Сотрудники', href: '/employees' }];
 
 const fullName = (row: EmployeeRow) => [row.surname, row.name].filter(Boolean).join(' ');
 
@@ -749,7 +747,7 @@ export default function Employees({
         visit({ sort: direction ? { key: key as Sort['key'], direction } : (cycleSort(sort, key, DEFAULT_SORT) as Sort) });
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        <AppLayout title="Сотрудники" fitViewport>
             <Head title="Сотрудники" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">

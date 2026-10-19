@@ -12,6 +12,14 @@ interface AppLayoutProps {
      */
     title?: ReactNode;
     fitViewport?: boolean;
+    /**
+     * Where the trail is drawn. Over the page by default, under the bar.
+     * «bar» puts it in the bar, where the heading would be, for a page whose
+     * first line is already its own name — a person's card. «none» draws it
+     * nowhere, for a page that still names its crumbs for the phone, which
+     * reads them as the name of the page and the way back from it.
+     */
+    trail?: 'page' | 'bar' | 'none';
 }
 
 export default function AppLayout({ children, breadcrumbs, title, ...props }: AppLayoutProps) {

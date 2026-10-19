@@ -2,7 +2,7 @@ import { AppContent } from '@/components/app-content';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
-import { Breadcrumbs, rootCrumb } from '@/components/breadcrumbs';
+import { Breadcrumbs } from '@/components/breadcrumbs';
 import { FlashNotice } from '@/components/flash-notice';
 import { MobileTabBar } from '@/components/mobile-tab-bar';
 import { cn } from '@/lib/utils';
@@ -16,9 +16,11 @@ interface AppSidebarLayoutProps {
     title?: ReactNode;
     /** Lock the content to the window height on desktop so the page itself never scrolls; the page scrolls its own panes. */
     fitViewport?: boolean;
+    /** Where the trail is drawn: over the page, in the bar instead of the heading, or nowhere. */
+    trail?: 'page' | 'bar' | 'none';
 }
 
-export default function AppSidebarLayout({ children, breadcrumbs = [], title, fitViewport = false }: AppSidebarLayoutProps) {
+export default function AppSidebarLayout({ children, breadcrumbs = [], title, fitViewport = false, trail = 'page' }: AppSidebarLayoutProps) {
     return (
         <AppShell variant="sidebar">
             <AppSidebar />
@@ -30,7 +32,7 @@ export default function AppSidebarLayout({ children, breadcrumbs = [], title, fi
                     fitViewport && 'md:h-svh md:overflow-hidden',
                 )}
             >
-                <AppSidebarHeader breadcrumbs={breadcrumbs} title={title} />
+                <AppSidebarHeader breadcrumbs={breadcrumbs} title={title} trailInBar={trail === 'bar'} />
                 <FlashNotice />
 
                 {/*
@@ -42,9 +44,9 @@ export default function AppSidebarLayout({ children, breadcrumbs = [], title, fi
                  * A phone has no room for a trail and never showed one — there
                  * the bar is a way back to the parent instead.
                  */}
-                {breadcrumbs.length > 0 && (
+                {breadcrumbs.length > 0 && trail === 'page' && (
                     <div className="shrink-0 px-4 pt-4 max-md:hidden">
-                        <Breadcrumbs breadcrumbs={[rootCrumb, ...breadcrumbs]} />
+                        <Breadcrumbs breadcrumbs={breadcrumbs} />
                     </div>
                 )}
 

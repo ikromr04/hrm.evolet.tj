@@ -239,7 +239,12 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
     };
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        // The trail is drawn nowhere: the bar names the page, and a line under it
+        // saying «Оборудование › Журнал операций» only repeated that name and
+        // pushed the table down. The crumbs are still named, because the phone
+        // bar reads them — this page for its name, the equipment list for the
+        // arrow back to it.
+        <AppLayout breadcrumbs={breadcrumbs} trail="none" fitViewport>
             <Head title="Журнал операций" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">

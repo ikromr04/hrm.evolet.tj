@@ -44,7 +44,6 @@ import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
 import { statusLabel, statusTone, type EquipmentStatus as Status } from '@/lib/equipment';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowDownToLine,
@@ -233,8 +232,6 @@ interface Props {
     /** The parts of those whose journal may be read; empty means no journal at all. */
     journalScopes: Scope[];
 }
-
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оборудование', href: '/equipment' }];
 
 // Both keys were bumped when the structure took the front of either table: a
 // view saved before it pinned «У кого» to the left edge, and read back now it
@@ -1266,7 +1263,7 @@ export default function EquipmentIndex({
     );
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        <AppLayout title="Оборудование" fitViewport>
             <Head title="Оборудование" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
