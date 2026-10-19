@@ -251,7 +251,6 @@ export default function AccessPage({
     // What the table shows while a save is in flight, so a tick answers at once.
     const [pending, setPending] = useState<Record<number, string[]>>({});
 
-    const rights = useMemo(() => sections.flatMap((section) => section.rights), [sections]);
     // The actions keep the names and hints the server gives them; only where they
     // sit in the table is decided here.
     const actions = useMemo(
@@ -451,7 +450,13 @@ export default function AccessPage({
 
     return (
         <DirectoriesLayout title="Доступы">
-            <div className="flex flex-wrap items-center gap-2 md:-mb-2">
+            {/*
+             * The box is the phone's alone: there the positions are a column of
+             * cards one scrolls through, and finding one by name is the only way
+             * to it. A desktop reads them as the rows of the table below, each
+             * name in the first column.
+             */}
+            <div className="flex flex-wrap items-center gap-2 md:hidden">
                 <label className={searchBox}>
                     <Search className="size-4 shrink-0" />
                     <span className="sr-only">Поиск</span>
@@ -463,9 +468,6 @@ export default function AccessPage({
                         className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
                     />
                 </label>
-                <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">
-                    {rights.length} {plural(rights.length, ['доступ', 'доступа', 'доступов'])} · изменения сохраняются сразу
-                </p>
             </div>
 
             {/*

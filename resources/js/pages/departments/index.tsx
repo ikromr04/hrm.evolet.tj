@@ -1,5 +1,6 @@
 import { MobileRow } from '@/components/data-table';
 import { groupByParent, OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
+import { PageActions } from '@/components/page-actions';
 import { Card } from '@/components/ui/card';
 import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { peopleLabel } from '@/lib/employee';
@@ -99,6 +100,8 @@ function DepartmentList({ departments }: { departments: OrgDepartment[] }) {
 export default function Departments({ departments, employees_count }: { departments: OrgDepartment[]; employees_count: number }) {
     const [view, setView] = useState<View>(savedView);
 
+    const summary = `${departments.length} ${plural(departments.length, ['подразделение', 'подразделения', 'подразделений'])} · ${peopleLabel(employees_count)} в компании`;
+
     const changeView = (next: View) => {
         setView(next);
         try {
@@ -111,11 +114,17 @@ export default function Departments({ departments, employees_count }: { departme
     return (
         // The chart scrolls inside its own frame.
         <CompanyStructureLayout>
-            {/* What the chart below adds up to, under the tabs that lead to it. */}
-            <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">
-                {departments.length} {plural(departments.length, ['подразделение', 'подразделения', 'подразделений'])} ·{' '}
-                {peopleLabel(employees_count)} в компании
-            </p>
+            {/*
+             * What the chart adds up to. On a desktop it reads at the end of the
+             * line of tabs, where every page of this section keeps what belongs
+             * to the open tab; on a phone that line is a scrolling strip of
+             * chips with no room beside them, so there it keeps its own line
+             * under them.
+             */}
+            <PageActions>
+                <p className="text-muted-foreground text-sm">{summary}</p>
+            </PageActions>
+            <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px] md:hidden">{summary}</p>
 
             {departments.length === 0 ? (
                 <Card className="text-muted-foreground rounded-xl p-12 text-center text-sm max-md:rounded-2xl max-md:border-0 max-md:p-8 max-md:shadow-none">

@@ -1,3 +1,4 @@
+import { PageActionsProvider } from '@/components/page-actions';
 import AppLayout from '@/layouts/app-layout';
 import { companySections, type CompanySection } from '@/lib/access';
 import { rememberSection, savedSection, useCompanyTabs } from '@/lib/company-section';
@@ -96,60 +97,74 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
         // which is what the phone's bar has always done the other way round:
         // there the bar names the tab, because the chips under it name the
         // section.
-        <AppLayout breadcrumbs={breadcrumbs} title="Структура компании" fitViewport>
+        //
+        // The trail itself is drawn nowhere: on a desktop the bar and the strip
+        // together already say where this is, and a third line saying it again
+        // only pushed the page down. The crumbs are still named, because the
+        // phone's bar reads them — the open tab for its name, the section for
+        // the arrow back.
+        <AppLayout breadcrumbs={breadcrumbs} title="Структура компании" trail="none" fitViewport>
             <Head title={`${current.title} — структура компании`} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
-                {/*
-                 * One tab is not a choice: with the chart alone open the strip
-                 * only repeats the heading and the breadcrumb, so it is left out.
-                 */}
-                {/*
-                 * On a narrow screen the strip scrolls sideways rather than
-                 * wrapping into rows: the underline has to stay one line. The
-                 * tab carries its own underline and the row carries no rule, the
-                 * way the employee profile draws the same thing.
-                 * On a phone the tabs are pills instead, the way a mobile app
-                 * switches between lists: a 2px underline is a poor target for a
-                 * thumb and hard to spot at a glance, a filled chip is neither.
-                 */}
-                {tabs.length > 1 && (
-                    <nav
-                        aria-label="Структура компании"
-                        className="-mx-3 shrink-0 overflow-x-auto px-3 [scrollbar-width:none] md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden"
-                    >
-                        <div className="flex w-max min-w-full gap-2 md:gap-6">
-                            {tabs.map((tab) => {
-                                const active = tab.key === current.key;
+            <PageActionsProvider>
+                {(actions) => (
+                    <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:p-4">
+                        {/*
+                         * One tab is not a choice: with the chart alone open the strip
+                         * only repeats the heading and the breadcrumb, so it is left out.
+                         */}
+                        {/*
+                         * The tabs of the directories, because they do the same thing:
+                         * the open one is a soft brand chip and the rest are plain
+                         * words that shade in under the cursor. On a narrow screen the
+                         * strip scrolls sideways rather than wrapping into rows, and
+                         * there the chips are rounder and further apart, the way a
+                         * mobile app switches between lists.
+                         */}
+                        <div className="flex shrink-0 items-center gap-2">
+                            {tabs.length > 1 && (
+                                <nav
+                                    aria-label="Структура компании"
+                                    className="-mx-3 min-w-0 flex-1 overflow-x-auto px-3 [scrollbar-width:none] md:mx-0 md:px-0 [&::-webkit-scrollbar]:hidden"
+                                >
+                                    <div className="flex w-max min-w-full gap-2 md:h-8 md:gap-1">
+                                        {tabs.map((tab) => {
+                                            const active = tab.key === current.key;
 
-                                return (
-                                    <Link
-                                        key={tab.key}
-                                        href={tab.href}
-                                        prefetch
-                                        // Written down before the visit, so that the
-                                        // tab whose address is the section's own is
-                                        // asked for rather than passed through.
-                                        onClick={() => rememberSection(tab.key)}
-                                        aria-current={active ? 'page' : undefined}
-                                        ref={active ? activeTab : undefined}
-                                        className={cn(
-                                            'text-sm transition-colors max-md:flex max-md:h-8 max-md:shrink-0 max-md:items-center max-md:rounded-full max-md:px-3 max-md:font-medium max-md:whitespace-nowrap md:border-b-2 md:px-1 md:pb-2.5',
-                                            active
-                                                ? 'max-md:bg-brand-soft max-md:text-foreground md:border-brand md:text-foreground max-md:font-semibold md:font-semibold max-md:dark:bg-white/10'
-                                                : 'max-md:bg-card max-md:text-foreground md:text-muted-foreground md:hover:text-foreground md:border-transparent md:font-medium',
-                                        )}
-                                    >
-                                        {tab.title}
-                                    </Link>
-                                );
-                            })}
+                                            return (
+                                                <Link
+                                                    key={tab.key}
+                                                    href={tab.href}
+                                                    prefetch
+                                                    // Written down before the visit, so that the
+                                                    // tab whose address is the section's own is
+                                                    // asked for rather than passed through.
+                                                    onClick={() => rememberSection(tab.key)}
+                                                    aria-current={active ? 'page' : undefined}
+                                                    ref={active ? activeTab : undefined}
+                                                    className={cn(
+                                                        'text-sm transition-colors max-md:flex max-md:h-8 max-md:shrink-0 max-md:items-center max-md:rounded-full max-md:px-3 max-md:font-medium max-md:whitespace-nowrap md:inline-flex md:h-full md:items-center md:justify-center md:rounded-md md:px-2.5 md:whitespace-nowrap',
+                                                        active
+                                                            ? 'max-md:bg-brand-soft max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold max-md:dark:bg-white/10 md:dark:bg-white/10'
+                                                            : 'max-md:bg-card max-md:text-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground',
+                                                    )}
+                                                >
+                                                    {tab.title}
+                                                </Link>
+                                            );
+                                        })}
+                                    </div>
+                                </nav>
+                            )}
+
+                            {/* The open tab hangs its own buttons here, at the end of the line. */}
+                            {actions}
                         </div>
-                    </nav>
-                )}
 
-                {children}
-            </div>
+                        {children}
+                    </div>
+                )}
+            </PageActionsProvider>
         </AppLayout>
     );
 }
