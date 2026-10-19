@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { peopleLabel } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { Link } from '@inertiajs/react';
-import { ChevronDown, ChevronsDownUp, ChevronsUpDown, Crown, Expand, Minus, Plus, Scan, Shrink, Users } from 'lucide-react';
+import { ChevronDown, ChevronsDownUp, ChevronsUpDown, Expand, Minus, Plus, Scan, Shrink, Users } from 'lucide-react';
 import { createContext, type PointerEvent, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 export interface OrgPerson {
@@ -58,7 +58,6 @@ function PersonLine({ person, head }: { person: OrgPerson; head?: boolean }) {
             <PersonLink id={person.id} className={cn('truncate text-xs hover:underline', head ? 'font-medium' : 'text-muted-foreground')}>
                 {person.name}
             </PersonLink>
-            {head && <Crown className="size-2.5 shrink-0 text-[#9A4A06] dark:text-[#F8C471]" aria-label="Руководитель" />}
         </li>
     );
 }

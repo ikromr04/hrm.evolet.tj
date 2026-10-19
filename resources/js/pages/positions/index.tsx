@@ -22,7 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import CompanyStructureLayout from '@/layouts/company-structure-layout';
 import { plural } from '@/lib/plural';
 import { Link, router } from '@inertiajs/react';
-import { Crown, Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Department {
@@ -570,18 +570,6 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                         >
                             {position.name}
                         </Link>
-                        {/* A crown beside the name, where the dialog puts one:
-                            whoever holds this heads the department, and the list
-                            is where somebody reads the structure off. Named
-                            rather than left as a drawing — it is the only thing
-                            in the cell that is not the title itself. */}
-                        {position.is_head && (
-                            <Crown
-                                aria-label="Руководящая должность"
-                                className="text-brand-strong mt-0.5 size-3.5 shrink-0 dark:text-[#C5E27A]"
-                                fill="currentColor"
-                            />
-                        )}
                     </span>
                 );
         }
@@ -687,22 +675,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 mobileRow={(position) => (
                     <MobileRow
                         href={route('positions.show', position.id)}
-                        // The crown rides with the name here as it does in the
-                        // table: this list is the only place a leading position
-                        // shows itself, and a phone that left it out would be a
-                        // phone the flag does not exist on.
-                        title={
-                            <span className="flex items-center gap-1.5">
-                                <span className="truncate">{position.name}</span>
-                                {position.is_head && (
-                                    <Crown
-                                        aria-label="Руководящая должность"
-                                        className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]"
-                                        fill="currentColor"
-                                    />
-                                )}
-                            </span>
-                        }
+                        title={<span className="truncate">{position.name}</span>}
                         // There are no columns on a phone, so the line under the
                         // name opens with where the position sits: twenty of these
                         // names repeat, and a row saying «Аналитик» alone could be
