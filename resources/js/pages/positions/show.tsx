@@ -6,6 +6,7 @@ import { type EmploymentStatus } from '@/components/employee-actions';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PositionEditor, type DepartmentOption } from '@/components/position-editor';
+import { PositionName, type PositionUnit } from '@/components/position-name';
 import { PositionProfile, type General, type Profile } from '@/components/position-profile';
 import { PositionRegulation } from '@/components/position-regulation';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
@@ -23,6 +24,8 @@ interface PositionRef {
     name: string;
     /** «Аналитик (ОПР)»: what tells one of two positions sharing a name from the other. */
     display_name: string;
+    /** The department it belongs to, named both ways; null for one nobody has filed. */
+    unit?: PositionUnit | null;
 }
 
 /** A department as every screen but the directory names it: short, full within reach. */
@@ -274,7 +277,7 @@ function HolderRow({
                                             href={route('positions.show', held.id)}
                                             className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                         >
-                                            {held.display_name}
+                                            <PositionName name={held.name} unit={held.unit ?? null} />
                                         </Link>
                                         {index < others.length - 1 && ','}
                                     </span>

@@ -89,8 +89,13 @@ class EmployeeDirectoryTest extends TestCase
             ->get('/employees?sort=name')
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.surname', 'Азимова')
-                // The column names the department behind the position.
-                ->where('employees.data.0.positions', ['Переводчик (НО)'])
+                // The column names the department behind the position, and the
+                // abbreviation keeps the full name within reach.
+                ->where('employees.data.0.positions', fn ($positions) => collect($positions)->map(fn ($position) => [
+                    $position['name'],
+                    $position['unit']['name'],
+                    $position['unit']['full_name'],
+                ])->all() === [['Переводчик', 'НО', 'Научный отдел']])
                 ->where('employees.data.0.private', null)
                 ->has('employees.data.0', fn (Assert $row) => $row
                     ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'sex', 'email', 'roles', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
@@ -234,7 +239,9 @@ class EmployeeDirectoryTest extends TestCase
         $this->get('/employees?position[]='.$intern)
             ->assertInertia(fn (Assert $page) => $page
                 ->has('employees.data', 3)
-                ->where('employees.data.0.positions', ['Стажер (ДУЧР)'])
+                ->where('employees.data.0.positions', fn ($positions) => collect($positions)->map(fn ($position) => $position['unit'] === null
+                    ? $position['name']
+                    : $position['name'].' ('.$position['unit']['name'].')')->all() === ['Стажер (ДУЧР)'])
                 ->where('filters.position', [$intern])
             );
 
@@ -252,7 +259,12 @@ class EmployeeDirectoryTest extends TestCase
         $this->actingAs($viewer);
 
         $this->get('/employees')
-            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.positions', ['Копирайтер (ОЦМ)', 'Переводчик (НО)']));
+            ->assertInertia(fn (Assert $page) => $page->where(
+                'employees.data.0.positions',
+                fn ($positions) => collect($positions)->map(fn ($position) => $position['unit'] === null
+                    ? $position['name']
+                    : $position['name'].' ('.$position['unit']['name'].')')->all() === ['Копирайтер (ОЦМ)', 'Переводчик (НО)'],
+            ));
 
         foreach (['Переводчик', 'Копирайтер'] as $title) {
             $this->get('/employees?position[]='.$this->titleId($title))
@@ -417,8 +429,12 @@ class EmployeeDirectoryTest extends TestCase
         // department; the viewer without a position sorts first.
         $this->get('/employees?sort=position')
             ->assertInertia(fn (Assert $page) => $page
-                ->where('employees.data.1.positions', ['Аналитик (ОА)'])
-                ->where('employees.data.2.positions', ['Переводчик (НО)'])
+                ->where('employees.data.1.positions', fn ($positions) => collect($positions)->map(fn ($position) => $position['unit'] === null
+                    ? $position['name']
+                    : $position['name'].' ('.$position['unit']['name'].')')->all() === ['Аналитик (ОА)'])
+                ->where('employees.data.2.positions', fn ($positions) => collect($positions)->map(fn ($position) => $position['unit'] === null
+                    ? $position['name']
+                    : $position['name'].' ('.$position['unit']['name'].')')->all() === ['Переводчик (НО)'])
             );
     }
 

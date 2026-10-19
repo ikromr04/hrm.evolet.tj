@@ -1,4 +1,4 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Link } from '@inertiajs/react';
 import { type ReactNode } from 'react';
@@ -63,11 +63,16 @@ export function DepartmentName({
 
     if (!tooltip) return short;
 
+    // Its own provider: these names are drawn in tables, in badges and in
+    // chart boxes, and a hint that only works where somebody remembered to wrap
+    // the page is a hint that mostly does not work.
     return (
-        <Tooltip>
-            <TooltipTrigger asChild>{short}</TooltipTrigger>
-            <TooltipContent>{full}</TooltipContent>
-        </Tooltip>
+        <TooltipProvider delayDuration={400}>
+            <Tooltip>
+                <TooltipTrigger asChild>{short}</TooltipTrigger>
+                <TooltipContent>{full}</TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
     );
 }
 

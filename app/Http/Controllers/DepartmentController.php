@@ -121,7 +121,8 @@ class DepartmentController extends Controller
             ->sortBy(fn (Position $position) => [$rank[$position->department_id] ?? PHP_INT_MAX, $position->is_head ? 0 : 1, $position->name])
             ->map(fn (Position $position) => [
                 'id' => $position->id,
-                'name' => $position->display_name,
+                'name' => $position->name,
+                'unit' => $position->unit(),
                 'users_count' => $position->users_count,
             ])
             ->values()
@@ -520,10 +521,11 @@ class DepartmentController extends Controller
                     ->map(fn (Position $position) => [
                         'id' => Gate::allows(Directories::viewPermission('positions')) ? $position->id : null,
                         'name' => $position->name,
-                        // Which unit the job belongs to, for the column that reads
-                        // a department with its units at once. A phone shows one
-                        // department at a time and leaves this unread.
-                        'unit' => $position->department?->display_name,
+                        // Which unit the job belongs to, named both ways: the
+                        // column reads a department with its units at once, so a
+                        // job says whose it is, and three letters say nothing
+                        // without the name behind them.
+                        'unit' => $position->unit(),
                     ])
                     ->values(),
             ] : []),

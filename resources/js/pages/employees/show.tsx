@@ -11,6 +11,7 @@ import { PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
 import { Placements, placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
+import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -133,8 +134,12 @@ interface Employee {
     email?: string;
     /** Access roles, shown as "Позиция". */
     roles?: string[];
-    /** Positions, shown as "Должность"; an employee can hold several. */
-    positions?: string[];
+    /**
+     * Positions, shown as «Должность»; an employee can hold several. Each is
+     * numbered for whoever may open the job and left a word for everybody else,
+     * and carries the department it belongs to.
+     */
+    positions?: PositionRef[];
     departments?: { id: number; name: string; full_name: string; path: string; full_path: string; is_head: boolean }[];
     /** The best known first. */
     languages?: SpokenLanguage[];
@@ -2612,11 +2617,28 @@ export default function EmployeeProfile({
                                             {title}
                                         </StatusBadge>
                                     ))}
-                                    {(employee.positions ?? []).map((title) => (
-                                        <StatusBadge key={title} tone="success" className={wrappingBadge}>
-                                            {title}
-                                        </StatusBadge>
-                                    ))}
+                                    {(employee.positions ?? []).map((position) => {
+                                        const badge = (
+                                            <StatusBadge tone="success" className={wrappingBadge}>
+                                                <PositionName name={position.name} unit={position.unit} />
+                                            </StatusBadge>
+                                        );
+
+                                        // The badge is the way to the job for whoever
+                                        // may read the jobs, and a word for the rest.
+                                        return position.id === null ? (
+                                            <span key={position.name}>{badge}</span>
+                                        ) : (
+                                            <Link
+                                                key={position.id}
+                                                href={route('positions.show', position.id)}
+                                                title={`Открыть должность: ${positionTitle(position)}`}
+                                                className="rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
+                                            >
+                                                {badge}
+                                            </Link>
+                                        );
+                                    })}
                                 </div>
                             )}
 
@@ -2806,7 +2828,17 @@ export default function EmployeeProfile({
                                                 {employee.roles?.length ? employee.roles.join(', ') : null}
                                             </Field>
                                             <Field label={(employee.positions ?? []).length > 1 ? 'Должности' : 'Должность'} field="positions">
-                                                {employee.positions?.length ? employee.positions.join(', ') : null}
+                                                {/* Each with the department that tells it from a
+                                                    namesake, the abbreviation saying what it stands
+                                                    for under the cursor. */}
+                                                {employee.positions?.length
+                                                    ? employee.positions.map((position, index) => (
+                                                          <span key={position.id ?? position.name}>
+                                                              {index > 0 && ', '}
+                                                              <PositionName name={position.name} unit={position.unit} />
+                                                          </span>
+                                                      ))
+                                                    : null}
                                             </Field>
                                             <Field label={(employee.departments ?? []).length > 1 ? 'Отделы' : 'Отдел'} field="departments">
                                                 {employee.departments?.length ? <Departments items={employee.departments} /> : null}
@@ -3044,7 +3076,17 @@ export default function EmployeeProfile({
                                                 {employee.roles?.length ? employee.roles.join(', ') : null}
                                             </Field>
                                             <Field label={(employee.positions ?? []).length > 1 ? 'Должности' : 'Должность'} field="positions">
-                                                {employee.positions?.length ? employee.positions.join(', ') : null}
+                                                {/* Each with the department that tells it from a
+                                                    namesake, the abbreviation saying what it stands
+                                                    for under the cursor. */}
+                                                {employee.positions?.length
+                                                    ? employee.positions.map((position, index) => (
+                                                          <span key={position.id ?? position.name}>
+                                                              {index > 0 && ', '}
+                                                              <PositionName name={position.name} unit={position.unit} />
+                                                          </span>
+                                                      ))
+                                                    : null}
                                             </Field>
                                             <Field label={(employee.departments ?? []).length > 1 ? 'Отделы' : 'Отдел'} field="departments">
                                                 {employee.departments?.length ? <Departments items={employee.departments} /> : null}

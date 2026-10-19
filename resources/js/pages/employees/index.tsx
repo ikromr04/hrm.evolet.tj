@@ -22,6 +22,7 @@ import { MobileFab } from '@/components/mobile-fab';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonAvatar } from '@/components/person-avatar';
 import { Phones } from '@/components/phones';
+import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -41,7 +42,7 @@ import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type Pr
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, Columns3, Crown, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { ChevronDown, Columns3, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
 
 /* ------------------------------------------------------------------ types */
@@ -62,8 +63,8 @@ interface EmployeeRow {
     email?: string;
     /** Access roles, shown as "Позиция". */
     roles?: string[];
-    /** Positions, shown as "Должность"; an employee can hold several. */
-    positions?: string[];
+    /** Positions, shown as «Должность»; an employee can hold several. */
+    positions?: PositionRef[];
     /**
      * Where the person is attached, one entry per placement — eight of them
      * hold two, and two of those sit in units of different departments. Each
@@ -207,12 +208,12 @@ function RoleBadges({ titles }: { titles: string[] }) {
     );
 }
 
-function PositionBadges({ titles }: { titles: string[] }) {
+function PositionBadges({ positions }: { positions: PositionRef[] }) {
     return (
         <div className="flex flex-wrap gap-1 whitespace-normal">
-            {titles.map((title) => (
-                <StatusBadge key={title} tone="success">
-                    {title}
+            {positions.map((position) => (
+                <StatusBadge key={position.id ?? position.name} tone="success">
+                    <PositionName name={position.name} unit={position.unit} />
                 </StatusBadge>
             ))}
         </div>
@@ -256,8 +257,6 @@ function Placements({ departments, of }: { departments: NonNullable<EmployeeRow[
             {departments.map((placement) => {
                 // The department of a placement is the one above the unit, or
                 // the department itself where the person is attached to no unit.
-                // The crown marks where they are head, which is whichever of the
-                // two they are actually attached to.
                 const parent = placement.parent;
                 const shown = of === 'department' ? (parent ?? placement) : parent === null ? null : placement;
 
@@ -269,24 +268,7 @@ function Placements({ departments, of }: { departments: NonNullable<EmployeeRow[
                             // the table says it.
                             <Empty />
                         ) : (
-                            <DepartmentLink
-                                id={shown.id}
-                                name={shown.name}
-                                full={shown.full_name}
-                                lines={stacked ? 1 : 2}
-                                leading={
-                                    placement.is_head &&
-                                    shown === placement && (
-                                        // The link's own hover says which department
-                                        // this is; the crown's says what the crown
-                                        // means, which is the one thing the two lines
-                                        // do not spell out.
-                                        <span title="Руководитель" className="flex shrink-0">
-                                            <Crown className="size-3 text-[#9A4A06] dark:text-[#F8C471]" aria-label="Руководитель" />
-                                        </span>
-                                    )
-                                }
-                            />
+                            <DepartmentLink id={shown.id} name={shown.name} full={shown.full_name} lines={stacked ? 1 : 2} />
                         )}
                     </div>
                 );
@@ -360,7 +342,9 @@ function mobileSubtitle(row: EmployeeRow): string | undefined {
         return [[label, formatDate(row.status_changed_at)].filter(Boolean).join(' '), note].filter(Boolean).join(' · ');
     }
 
-    return [row.positions, row.roles].find((titles) => titles?.length)?.join(', ') || row.email || undefined;
+    // A phone's row is one line of text, so the department rides in the
+    // brackets rather than under the cursor.
+    return [row.positions?.map(positionTitle), row.roles].find((titles) => titles?.length)?.join(', ') || row.email || undefined;
 }
 
 function Empty() {
@@ -482,7 +466,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 // «Администратор» four times over, and nothing in it said which
                 // of the four was being ticked.
                 filter: { type: 'multi', param: 'position', options: options.positions.map((t) => ({ value: t.id, label: t.display_name })) },
-                cell: (row) => (row.positions?.length ? <PositionBadges titles={row.positions} /> : <Empty />),
+                cell: (row) => (row.positions?.length ? <PositionBadges positions={row.positions} /> : <Empty />),
             },
             {
                 key: 'role',

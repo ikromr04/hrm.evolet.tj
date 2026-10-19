@@ -51,7 +51,14 @@ class EmployeeProfileTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('employees/show')
                 ->where('employee.surname', $employee->surname)
-                ->where('employee.positions', ['Переводчик (НО)'])
+                // A colleague may not open the list of jobs, so the badge is a
+                // word rather than a link: the title and its department travel,
+                // the number does not.
+                ->where('employee.positions', fn ($positions) => collect($positions)->map(fn ($position) => [
+                    $position['id'],
+                    $position['name'],
+                    $position['unit']['name'],
+                ])->all() === [[null, 'Переводчик', 'НО']])
                 ->where('employee.private', null)
             );
     }

@@ -9,6 +9,7 @@ import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
+import { PositionName, positionTitle, type PositionUnit } from '@/components/position-name';
 import { StatusBadge, statusTones } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -31,7 +32,7 @@ interface Person {
 interface Colleague extends Person {
     email: string;
     /** The id travels only for somebody who may open the position's page. */
-    positions: { id: number | null; name: string; unit: string | null }[];
+    positions: { id: number | null; name: string; unit: PositionUnit | null }[];
 }
 
 interface Department {
@@ -44,7 +45,7 @@ interface Department {
     /** Working people here and in sub-departments, heads included. */
     total_count: number;
     /** The jobs of this department and of every unit under it, each named with its own. */
-    positions: { id: number; name: string; users_count: number }[];
+    positions: { id: number; name: string; unit: PositionUnit | null; users_count: number }[];
     heads: Colleague[];
     children: { id: number; name: string; full_name: string; total_count: number; heads: Person[] }[];
     /** Everybody working here and in the units under it, whoever leads one first. */
@@ -363,10 +364,9 @@ function ColleagueRow({
                 {person.positions.length > 0 && (
                     <div className="flex flex-wrap gap-1">
                         {person.positions.map((position) => {
-                            const named = position.unit ? `${position.name} (${position.unit})` : position.name;
                             const badge = (
                                 <StatusBadge tone="success" className="h-auto min-h-[22px] whitespace-normal">
-                                    {named}
+                                    <PositionName name={position.name} unit={position.unit} />
                                 </StatusBadge>
                             );
 
@@ -376,7 +376,7 @@ function ColleagueRow({
                                 <Link
                                     key={position.id}
                                     href={route('positions.show', position.id)}
-                                    title={`Открыть должность: ${named}`}
+                                    title={`Открыть должность: ${positionTitle(position)}`}
                                     // The same answer to the cursor the list of jobs above gives:
                                     // the plate darkens a shade. An underline under a badge
                                     // reads as a line under a chip rather than a link.
@@ -832,7 +832,7 @@ export default function DepartmentPage({
                                                     'hover:brightness-95 dark:hover:brightness-125',
                                                 )}
                                             >
-                                                {position.name}
+                                                <PositionName name={position.name} unit={position.unit} />
                                             </Link>
 
                                             {/* Nobody holds it yet: said in the quieter colour the

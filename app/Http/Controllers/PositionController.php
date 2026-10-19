@@ -441,6 +441,7 @@ class PositionController extends Controller
                     'id' => $held->id,
                     'name' => $held->name,
                     'display_name' => $held->display_name,
+                    'unit' => $held->unit(),
                 ])->values()
                 : [],
             'duties' => $showsPositions ? $this->carries($employee) : [],

@@ -230,8 +230,20 @@ class PositionPagesTest extends TestCase
                 // picks this position's duties out by the position they belong
                 // to.
                 ->where('employees.0.positions', [
-                    ['id' => $translator->id, 'name' => 'Переводчик', 'display_name' => 'Переводчик (ОПР)'],
-                    ['id' => $lawyer->id, 'name' => 'Юрист', 'display_name' => 'Юрист (ОПР)'],
+                    [
+                        'id' => $translator->id,
+                        'name' => 'Переводчик',
+                        'display_name' => 'Переводчик (ОПР)',
+                        // The department apart from the title, so the page can
+                        // put its full name under the cursor on «ОПР».
+                        'unit' => ['name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'],
+                    ],
+                    [
+                        'id' => $lawyer->id,
+                        'name' => 'Юрист',
+                        'display_name' => 'Юрист (ОПР)',
+                        'unit' => ['name' => 'ОПР', 'full_name' => 'Отдел правового регулирования'],
+                    ],
                 ])
                 ->where('employees.0.duties', [
                     ['id' => $contracts->id, 'name' => 'Ведение договоров', 'position_id' => $lawyer->id],

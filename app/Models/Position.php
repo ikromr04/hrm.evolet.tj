@@ -74,6 +74,20 @@ class Position extends Model
      * For showing only. What is validated, searched and kept unique inside a
      * department is the plain name.
      */
+    /**
+     * The department this job belongs to, as every screen names one: the short
+     * form it is known by and the full name within reach. Null where nobody has
+     * filed the job yet — then the job is just its title.
+     *
+     * @return array{name: string, full_name: string}|null
+     */
+    public function unit(): ?array
+    {
+        return $this->department === null
+            ? null
+            : ['name' => $this->department->display_name, 'full_name' => $this->department->name];
+    }
+
     protected function displayName(): Attribute
     {
         return Attribute::get(fn (): string => $this->department === null
