@@ -188,7 +188,7 @@ class User extends Authenticatable
      */
     public function departments(): BelongsToMany
     {
-        return $this->belongsToMany(Department::class)->withPivot('is_head', 'by_hand')->withTimestamps()->orderBy('name');
+        return $this->belongsToMany(Department::class)->withPivot('is_head')->withTimestamps()->orderBy('name');
     }
 
     /**

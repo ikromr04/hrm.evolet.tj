@@ -30,50 +30,34 @@ use Illuminate\Support\Facades\DB;
  * leading or unmarking it, and deleting it are all changes of membership now,
  * and each of them calls {@see refresh()} with the people it moved.
  *
- * Two kinds of row are left alone.
+ * One kind of row is left alone. People who no longer work here keep what they
+ * have: a dismissed or transferred colleague's membership is a record of where
+ * they were, and a position being reorganised today is no reason to rewrite it.
+ * The directory's own form never touched them either.
  *
- * People who no longer work here keep what they have. A dismissed or
- * transferred colleague's membership is a record of where they were, and a
- * position being reorganised today is no reason to rewrite it. The directory's
- * own form never touched them either.
- *
- * And a row marked by hand carries something the positions do not account for:
- * the membership itself, for the thirteen nobody can explain, or the leading on
- * it, for the two heads whose job in their own unit is not a crowned one. Such
- * a row is adopted as soon as the positions say everything it says, and left
- * exactly as it stands while they would take something away from it. The
- * company has not decided what those rows are, and deciding by deletion to make
- * the derivation tidy would be losing data to make a point. See the migration
- * that added department_user.by_hand.
+ * Everything else follows the positions, and nothing is filed by hand. A
+ * membership no position of that department accounts for is not a membership —
+ * it was written before the rule and is deleted the first time this class reads
+ * that person. See the migration that took the by_hand column away.
  */
 final class Membership
 {
     /**
      * Work out where these people belong and write it down.
      *
-     * The derived rows are replaced: a department one of their positions sits
-     * in is a membership, one no position of theirs sits in is not, and leading
-     * follows the flag on the positions they hold there. Several positions in
-     * one department are one membership, and it leads the department if any one
-     * of them does.
-     *
-     * $byHand is the card's placement form speaking, and only it. The form may
-     * still name a department without naming a position in it, which is a
-     * membership nothing accounts for, so the form says which departments those
-     * are and the hand-written rows are made to match — the ones it no longer
-     * names go, because the form hands back the whole of somebody's filing.
-     * Every other caller passes nothing and the hand-written rows are not its
-     * business.
-     *
-     * @param  list<int>|null  $byHand  departments filed by hand; null leaves the hand-written rows alone
+     * The rows are replaced: a department one of their positions sits in is a
+     * membership, one no position of theirs sits in is not, and leading follows
+     * the flag on the positions they hold there. Several positions in one
+     * department are one membership, and it leads the department if any one of
+     * them does.
      */
-    public static function refresh(User|iterable $employees, ?array $byHand = null): void
+    public static function refresh(User|iterable $employees): void
     {
         $employees = $employees instanceof User ? [$employees] : $employees;
 
         foreach ($employees as $employee) {
             if ($employee->isActive()) {
-                self::write($employee, $byHand);
+                self::write($employee);
             }
         }
     }
@@ -104,19 +88,14 @@ final class Membership
             ->get();
     }
 
-    /**
-     * One person's memberships, made to agree with the positions they hold.
-     *
-     * @param  list<int>|null  $byHand
-     */
-    private static function write(User $employee, ?array $byHand): void
+    /** One person's memberships, made to agree with the positions they hold. */
+    private static function write(User $employee): void
     {
         $derived = self::derive($employee);
-        $byHand = $byHand === null ? null : array_map('intval', $byHand);
 
         $filed = DB::table('department_user')
             ->where('user_id', $employee->id)
-            ->get(['id', 'department_id', 'is_head', 'by_hand']);
+            ->get(['id', 'department_id', 'is_head']);
 
         $gone = [];
         $now = now();
@@ -125,58 +104,23 @@ final class Membership
             $department = (int) $row->department_id;
             $leads = $derived[$department] ?? null;
 
-            // A position accounts for this one, so it says what the position
-            // says.
-            //
-            // Unless it was written by hand, in which case it is adopted as
-            // soon as the positions account for everything it claims, and left
-            // alone only while they would take something away from it. A row
-            // claiming a headship no crowned position explains is the second
-            // kind: two heads on file hold a position in the unit they lead
-            // without that position being the crowned one, and deriving them
-            // plainly would quietly demote them. Crowning a position they hold
-            // is an answer; this class is not.
-            if ($leads !== null) {
-                unset($derived[$department]);
-
-                if ($row->by_hand && $row->is_head && ! $leads) {
-                    continue;
-                }
-
-                if ((bool) $row->is_head !== $leads || $row->by_hand) {
-                    DB::table('department_user')
-                        ->where('id', $row->id)
-                        ->update(['is_head' => $leads, 'by_hand' => false, 'updated_at' => $now]);
-                }
-
-                continue;
-            }
-
-            // Nothing accounts for it. Left to itself it is a row this class
-            // does not own and will not touch; named by the card's form, it is
-            // somebody's own filing and stays as that.
-            if ($byHand === null) {
-                if (! $row->by_hand) {
-                    $gone[] = $row->id;
-                }
-
-                continue;
-            }
-
-            if (! in_array($department, $byHand, true)) {
+            // Nothing accounts for it: the department belongs to the job, and
+            // there is no job of it to belong through.
+            if ($leads === null) {
                 $gone[] = $row->id;
 
                 continue;
             }
 
-            // Already hand-written, so it is left exactly as it stands —
-            // including a headship nothing accounts for, which is not this
-            // class's to take away. One that has just lost the position behind
-            // it loses the leading with it.
-            if (! $row->by_hand) {
+            // A position accounts for it, so it says what the position says —
+            // the leading included, which is the crown on the job and not a
+            // fact of its own.
+            unset($derived[$department]);
+
+            if ((bool) $row->is_head !== $leads) {
                 DB::table('department_user')
                     ->where('id', $row->id)
-                    ->update(['is_head' => false, 'by_hand' => true, 'updated_at' => $now]);
+                    ->update(['is_head' => $leads, 'updated_at' => $now]);
             }
         }
 
@@ -184,29 +128,15 @@ final class Membership
             DB::table('department_user')->whereIn('id', $gone)->delete();
         }
 
-        $filedIds = $filed->pluck('department_id')->map(fn (mixed $id) => (int) $id)->all();
-
         $added = collect($derived)
             ->map(fn (bool $leads, int $department) => [
                 'user_id' => $employee->id,
                 'department_id' => $department,
                 'is_head' => $leads,
-                'by_hand' => false,
+                'created_at' => $now,
+                'updated_at' => $now,
             ])
-            ->values()
-            // A department the form named with no position in it is a
-            // membership nothing accounts for, which is what by_hand is for.
-            ->merge(collect($byHand ?? [])
-                ->unique()
-                ->reject(fn (int $department) => isset($derived[$department]) || in_array($department, $filedIds, true))
-                ->map(fn (int $department) => [
-                    'user_id' => $employee->id,
-                    'department_id' => $department,
-                    'is_head' => false,
-                    'by_hand' => true,
-                ])
-                ->values())
-            ->map(fn (array $row) => [...$row, 'created_at' => $now, 'updated_at' => $now]);
+            ->values();
 
         if ($added->isNotEmpty()) {
             DB::table('department_user')->insert($added->all());

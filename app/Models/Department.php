@@ -101,7 +101,7 @@ class Department extends Model
      */
     public function users(): BelongsToMany
     {
-        return $this->belongsToMany(User::class)->withPivot('is_head', 'by_hand')->withTimestamps();
+        return $this->belongsToMany(User::class)->withPivot('is_head')->withTimestamps();
     }
 
     /**
