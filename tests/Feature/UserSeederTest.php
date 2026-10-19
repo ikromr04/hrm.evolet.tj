@@ -52,8 +52,17 @@ class UserSeederTest extends TestCase
         // The demo superuser is both: an administrator, and the one who says
         // who else may be one.
         $this->assertSame(['sysadmin', 'admin'], User::role('sysadmin')->sole()->getRoleNames()->all());
+        // Leading follows from holding a leading position, so the two roles go
+        // to exactly the people the head titles went to: two departments and
+        // twelve units, which is what the structure is made of.
         $this->assertSame(2, User::role('department-head')->count());
-        $this->assertSame(6, User::role('division-head')->count());
+        $this->assertSame(12, User::role('division-head')->count());
+        $this->assertSame(
+            14,
+            User::role(['department-head', 'division-head'])
+                ->whereHas('positions', fn ($query) => $query->where('is_head', true))
+                ->count(),
+        );
     }
 
     public function test_admin_can_log_in_and_passes_every_authorization_check()

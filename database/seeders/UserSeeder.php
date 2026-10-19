@@ -7,11 +7,13 @@ use App\Models\Equipment;
 use App\Models\EquipmentType;
 use App\Models\Language;
 use App\Models\Position;
+use App\Models\PositionDuty;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
 use App\Models\UserWorkExperience;
+use App\Support\Membership;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Seeder;
@@ -379,21 +381,21 @@ class UserSeeder extends Seeder
      */
     /**
      * The last word on the structure, so that seeded data obeys the rule the
-     * application now runs on: somebody belongs to a department because they
-     * hold one of its positions, and leads it because that position is a
-     * leading one.
+     * application runs on: somebody belongs to a department because they hold
+     * one of its positions, and leads it because that position is a leading
+     * one.
      *
      * Everything above assigns departments and positions separately, the way
      * the company's own data grew, so neither agrees with the other by itself.
-     * This is the same pair of answers the two migrations write on the real
-     * rows: the position a head holds in the unit they lead is marked leading,
-     * and whatever membership no position accounts for is marked as written by
-     * hand, which is what keeps App\Support\Membership from deleting it on the
-     * first save that touches that person.
+     * Three answers settle it. The position a head holds in the unit they lead
+     * is marked leading. A head's other jobs, if the pool handed them one in
+     * another unit, are let go — a head sits in the unit they lead and nowhere
+     * else. And then the memberships are written from the positions, by the
+     * same class the application writes them with, so the demo data is exactly
+     * what a save would produce.
      *
      * Simpler than the migrations on purpose. They refuse to guess because the
-     * rows are the company's; these are made up, so a head holding two
-     * positions in their own unit simply has both marked.
+     * rows are the company's; these are made up.
      */
     private function sayWhichPositionsLead(): void
     {
@@ -411,14 +413,64 @@ class UserSeeder extends Seeder
             DB::table('positions')->whereIn('id', $leading)->update(['is_head' => true]);
         }
 
-        DB::table('department_user')
-            ->whereNotExists(fn ($query) => $query
-                ->selectRaw('1')
-                ->from('position_user')
-                ->join('positions', 'positions.id', '=', 'position_user.position_id')
-                ->whereColumn('position_user.user_id', 'department_user.user_id')
-                ->whereColumn('positions.department_id', 'department_user.department_id'))
-            ->update(['by_hand' => true]);
+        // A head sits in the unit they lead: a regular title the pool handed
+        // them in another department would put them in two, and the demo is
+        // read as a structure rather than as a puzzle.
+        $heads = array_keys(PositionSeeder::HEADS);
+
+        User::whereHas('positions', fn ($query) => $query->whereIn('name', $heads))
+            ->with('positions')
+            ->get()
+            ->each(function (User $head) use ($heads) {
+                $leads = $head->positions->first(fn (Position $position) => in_array($position->name, $heads, true));
+
+                $head->positions()->sync($head->positions
+                    ->filter(fn (Position $position) => $position->department_id === $leads->department_id)
+                    ->pluck('id')
+                    ->all());
+            });
+
+        // The role says which level somebody leads, and the title says which
+        // unit: whoever ended up with the head title of a department is a
+        // department head, and of a unit inside one, a division head. The two
+        // were handed out before the titles were, so they are put right here
+        // rather than left disagreeing with the structure.
+        User::whereHas('positions', fn ($query) => $query->whereIn('name', $heads))
+            ->with(['positions.department', 'roles'])
+            ->get()
+            ->each(function (User $head) use ($heads) {
+                $leads = $head->positions->first(fn (Position $position) => in_array($position->name, $heads, true));
+                $wanted = $leads->department?->parent_id === null ? 'department-head' : 'division-head';
+
+                // Nobody holds more than two roles, here as everywhere else:
+                // the one that says they lead, and whatever they held besides.
+                $head->syncRoles([$wanted, ...$head->roles
+                    ->pluck('name')
+                    ->reject(fn (string $role) => in_array($role, ['department-head', 'division-head'], true))
+                    ->take(1)
+                    ->all()]);
+            });
+
+        // And the duties of a job let go go with it, as they do on every save.
+        DB::table('position_user')->whereNotExists(fn ($query) => $query
+            ->selectRaw('1')
+            ->from('positions')
+            ->whereColumn('positions.id', 'position_user.position_id'))
+            ->delete();
+
+        User::with(['positions', 'duties'])->get()->each(function (User $user) {
+            $held = $user->positions->pluck('id');
+
+            $user->duties()->sync($user->duties
+                ->filter(fn (PositionDuty $duty) => $held->contains($duty->position_id))
+                ->pluck('id')
+                ->all());
+        });
+
+        // A department follows from a job in it, so the memberships are written
+        // from the positions — by the class that writes them from here on.
+        DB::table('department_user')->delete();
+        Membership::refresh(User::all());
     }
 
     private function assignPositions(): void
@@ -536,13 +588,14 @@ class UserSeeder extends Seeder
      */
     private function assignRoles(): void
     {
-        // Access roles are handed out by hand, not drawn at random; the heads
-        // are placed by the department pass above.
+        // Access roles are handed out by hand, not drawn at random. The two
+        // that say somebody leads are not among them: leading follows from
+        // holding a leading position, so those roles are given out once the
+        // titles are settled, to the people the titles went to.
         $regular = array_keys(array_diff_key(RoleSeeder::ROLES, array_flip(['sysadmin', 'admin', 'department-head', 'division-head'])));
-        $pool = [...array_fill(0, 2, 'department-head'), ...array_fill(0, 6, 'division-head')];
 
-        User::doesntHave('roles')->orderBy('id')->get()->each(function (User $user, int $index) use ($pool, $regular) {
-            $first = $pool[$index] ?? fake()->randomElement($regular);
+        User::doesntHave('roles')->orderBy('id')->get()->each(function (User $user) use ($regular) {
+            $first = fake()->randomElement($regular);
             $roles = [$first];
 
             if (fake()->boolean(17)) {
