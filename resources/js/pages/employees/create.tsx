@@ -415,9 +415,15 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
             <Head title="Новый сотрудник" />
 
             <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
-                <div className="flex flex-wrap items-end justify-between gap-3 max-md:flex-nowrap max-md:items-center">
+                {/*
+                 * The phone's own line: there the step list is a progress bar below
+                 * and the bar at the top holds nothing but the name of the page, so
+                 * who this is and the way out are said here. A desktop reads both
+                 * off the page itself — the six steps stand in the column on the
+                 * left — so above the form it keeps nothing.
+                 */}
+                <div className="flex flex-wrap items-end justify-between gap-3 max-md:flex-nowrap max-md:items-center md:hidden">
                     <div className="flex min-w-0 flex-col gap-1">
-                        {/* The bar above carries the page's name, so this line says only who and how far along. */}
                         <p className="text-muted-foreground text-sm max-md:text-[13px]">
                             {employee ? (
                                 <>
@@ -580,7 +586,9 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 placeholder="name@evolet.tj"
                                                 aria-invalid={!!main.errors.email}
                                             />
-                                            <p className="text-muted-foreground text-[13px]">С этим адресом сотрудник входит в систему.</p>
+                                            <p className="text-muted-foreground text-[13px]">
+                                                С этим адресом сотрудник входит в систему: пароль сгенерируется сам и придёт на эту почту.
+                                            </p>
                                         </Field>
                                         <Field label="Пол" error={main.errors.sex}>
                                             <SearchableSelect
@@ -1169,16 +1177,31 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                             (their words stay for screen readers) and the main one takes the
                             rest of the width. */}
                             <div className="max-md:bg-background/90 flex flex-col-reverse gap-2 border-t pt-5 max-md:sticky max-md:bottom-[calc(3.5rem+env(safe-area-inset-bottom))] max-md:z-20 max-md:-mx-4 max-md:-mb-4 max-md:flex-row max-md:items-center max-md:rounded-b-2xl max-md:px-4 max-md:py-3 max-md:backdrop-blur-xl md:flex-row md:flex-wrap md:items-center md:justify-between">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="max-md:size-11 max-md:shrink-0 max-md:px-0"
-                                    disabled={step === 0 || busy}
-                                    onClick={() => setStep(step - 1)}
-                                >
-                                    <ChevronLeft />
-                                    <span className="max-md:sr-only">Назад</span>
-                                </Button>
+                                {/* On a phone the bar is one row of its own and the wrapper steps aside. */}
+                                <div className="flex items-center gap-2 max-md:contents">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="max-md:size-11 max-md:shrink-0 max-md:px-0"
+                                        disabled={step === 0 || busy}
+                                        onClick={() => setStep(step - 1)}
+                                    >
+                                        <ChevronLeft />
+                                        <span className="max-md:sr-only">Назад</span>
+                                    </Button>
+
+                                    {/*
+                                     * Once the colleague is on the books the rest of the steps
+                                     * can wait: this leads to the card that is already there.
+                                     * The phone says it above the form instead, where its own
+                                     * bar of buttons has no room for a third word.
+                                     */}
+                                    {employee && (
+                                        <Button type="button" variant="ghost" className="max-md:hidden" disabled={busy} onClick={toProfile}>
+                                            Закончить позже
+                                        </Button>
+                                    )}
+                                </div>
 
                                 <div className="flex flex-col-reverse gap-2 max-md:min-w-0 max-md:flex-1 max-md:flex-row md:flex-row md:flex-wrap">
                                     {/*

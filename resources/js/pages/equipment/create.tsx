@@ -1,9 +1,8 @@
-import { EquipmentForm, equipmentFormBack, type EquipmentFormProps } from '@/components/equipment-form';
-import { Button } from '@/components/ui/button';
+import { EquipmentForm, type EquipmentFormProps } from '@/components/equipment-form';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 
 interface Props {
     options: {
@@ -33,30 +32,16 @@ const trail = (forEmployee: Props['forEmployee']): BreadcrumbItem[] =>
           ];
 
 export default function CreateEquipment({ options, forEmployee }: Props) {
-    // «Отмена» up here leads back where the page was opened from, the same place
-    // the form's own «Отмена» and a finished save go.
-    const back = equipmentFormBack(forEmployee);
-
     return (
         <AppLayout breadcrumbs={trail(forEmployee)}>
             <Head title="Новое оборудование" />
 
+            {/*
+             * Nothing above the form but the form: the bar names the page, the
+             * form says in its own words who the unit goes to, and it carries
+             * «Отмена» at the foot beside «Сохранить», where the choice is made.
+             */}
             <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                    <div className="flex flex-col gap-1">
-                        {/* The bar above carries the page's name, so this line says only what a save does. */}
-                        <p className="text-muted-foreground text-sm">
-                            {forEmployee
-                                ? `Единица встаёт на баланс — её сразу получит ${forEmployee.name}.`
-                                : 'Единица встаёт на баланс — её можно сразу выдать сотруднику или отделу.'}
-                        </p>
-                    </div>
-
-                    <Button variant="ghost" className="max-md:hidden" asChild>
-                        <Link href={back}>Отмена</Link>
-                    </Button>
-                </div>
-
                 <Card className="w-full rounded-xl p-4 max-md:rounded-2xl max-md:border-0 max-md:p-4! max-md:shadow-none sm:p-6">
                     <EquipmentForm options={options} forEmployee={forEmployee} layout="page" />
                 </Card>
