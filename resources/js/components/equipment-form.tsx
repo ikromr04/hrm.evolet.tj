@@ -313,8 +313,8 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
         /* noValidate: the server's rules are the real ones. */
         /* On a phone every box is 44px tall, a comfortable target for a thumb. */
         <form
-            onSubmit={submit}
             noValidate
+            onSubmit={submit}
             className={cn('flex flex-col gap-6 max-md:[&_[role=combobox]]:h-11 max-md:[&_input]:h-11', inDialog && '@container')}
         >
             {header}

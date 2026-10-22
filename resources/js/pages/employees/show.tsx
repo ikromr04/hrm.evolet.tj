@@ -2555,15 +2555,11 @@ export default function EmployeeProfile({
 
     return (
         <ProfileFields visible={visibleFields} editable={editableFields}>
-            {/*
-             * The card opens with the person's name in full, so the bar carries
-             * the way back to the list rather than saying the name again.
-             */}
-            <AppLayout breadcrumbs={breadcrumbs} trail="bar">
+            <AppLayout breadcrumbs={breadcrumbs}>
                 <Head title={shortName} />
 
                 {/* The page scrolls as a whole, header and tabs included. */}
-                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
+                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                     {/* On a phone the hero is centred, like a contact card: the face,
                     the name under it, then the ways to reach the person. */}
                     <div className="flex flex-col gap-5 px-1 pt-1 max-md:relative max-md:items-center max-md:gap-3 max-md:pb-1 max-md:text-center md:flex-row md:flex-wrap md:items-end">

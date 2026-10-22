@@ -175,7 +175,7 @@ function LeaveDialog({ kind, employee, name, onClose }: { kind: 'transfer' | 'fi
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
-                <form onSubmit={submit} className="flex flex-col gap-5">
+                <form noValidate onSubmit={submit} className="flex flex-col gap-5">
                     <DialogHeader>
                         <DialogTitle>{transfer ? `Перевести: ${name}` : `Уволить: ${name}`}</DialogTitle>
                         <DialogDescription>

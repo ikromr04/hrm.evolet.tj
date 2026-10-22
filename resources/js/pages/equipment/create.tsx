@@ -41,7 +41,7 @@ export default function CreateEquipment({ options, forEmployee }: Props) {
              * form says in its own words who the unit goes to, and it carries
              * «Отмена» at the foot beside «Сохранить», where the choice is made.
              */}
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                 <Card className="w-full rounded-xl p-4 max-md:rounded-2xl max-md:border-0 max-md:p-4! max-md:shadow-none sm:p-6">
                     <EquipmentForm options={options} forEmployee={forEmployee} layout="page" />
                 </Card>

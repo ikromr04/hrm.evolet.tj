@@ -54,15 +54,8 @@ class EmployeeStatusController extends Controller
 
             Equipment::query()->where('holder_user_id', $employee->id)->each(function (Equipment $unit) use ($note) {
                 $unit->journalNote = $note;
-                // Nobody is left to be told that the unit was taken from them.
-                $unit->unannounced = true;
                 $unit->putOnBalance();
             });
-
-            // What the bell held for them goes too: the table hangs on the
-            // person by a pair of columns rather than a foreign key, so
-            // nothing would clear it for us.
-            $employee->notifications()->delete();
 
             // Details, children, roles, positions and departments go with the row.
             $employee->delete();

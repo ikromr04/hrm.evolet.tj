@@ -414,7 +414,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Новый сотрудник" />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                 {/*
                  * The phone's own line: there the step list is a progress bar below
                  * and the bar at the top holds nothing but the name of the page, so

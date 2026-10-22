@@ -60,12 +60,24 @@ function Badge({ origin }: { origin: DocumentSection['origin'] }) {
  * width of the button to wrap short of. Asked for only where the button is
  * drawn, so a reader who cannot edit reads the heading across the whole line.
  */
-function Body({ html, empty, wide = false, corner = false }: { html: string | null; empty: string; wide?: boolean; corner?: boolean }) {
+function Body({
+    html,
+    empty,
+    wide = false,
+    corner = false,
+    className,
+}: {
+    html: string | null;
+    empty: string;
+    wide?: boolean;
+    corner?: boolean;
+    className?: string;
+}) {
     if (html === null || html.trim() === '') return <p className="text-muted-foreground text-sm">{empty}</p>;
 
     return (
         <div
-            className={cn(BODY, !wide && MEASURE, corner && '[&>:first-child]:pr-12 md:[&>:first-child]:pr-10')}
+            className={cn(BODY, !wide && MEASURE, corner && '[&>:first-child]:pr-12 md:[&>:first-child]:pr-10', className)}
             dangerouslySetInnerHTML={{ __html: html }}
         />
     );
@@ -318,6 +330,7 @@ function DocumentTitle({ title, owner, address, canEdit }: { title: string; owne
         // The whole row while it is being typed, so that a refusal has somewhere
         // to be read without pushing anything beside it out of line.
         <form
+            noValidate
             className="flex w-full flex-col gap-2"
             onSubmit={(event) => {
                 event.preventDefault();
@@ -352,6 +365,30 @@ function DocumentTitle({ title, owner, address, canEdit }: { title: string; owne
 }
 
 /**
+ * The chrome a page draws around a document that is one text, where the design
+ * asks for more than the text and a pencil.
+ *
+ * Three places, because the design has three: a band over the document, a
+ * column of contents at the left of it, and a block beside its first line — the
+ * one «УТВЕРЖДАЮ» stands in. The card knows where each goes and nothing of what
+ * is in it; the page knows what is in it and nothing of where it goes.
+ *
+ * The band is handed the pencil rather than drawing one of its own: writing the
+ * document is the card's to do, and a second button would be a second way to do
+ * it. None of this reaches a phone — there the document is a screen of its own
+ * and the pencil stays in the corner of the card — so a page that draws a frame
+ * draws it for a desktop and leaves the phone as it was.
+ */
+export interface DocumentFrame {
+    /** Drawn over the document, and handed the pencil to put where the design has it. */
+    header?: (pencil: ReactNode | null) => ReactNode;
+    /** A column at the left of the text on a wide screen. */
+    beside?: ReactNode;
+    /** A block at the right of the document's own first line. */
+    corner?: ReactNode;
+}
+
+/**
  * A document of fixed sections as its owner reads it: a heading it may correct
  * where the heading is kept apart from the text, and the blocks the document is
  * made of, each opening onto what it says.
@@ -383,6 +420,7 @@ export function DocumentCard({
     whole = null,
     empty,
     fixed,
+    frame,
 }: {
     /** The department or the position the document belongs to. */
     owner: number;
@@ -396,11 +434,25 @@ export function DocumentCard({
     empty: ReactNode;
     /** A section the application writes itself, drawn by the page that knows how. */
     fixed?: (section: DocumentSection) => ReactNode | null;
+    /** What the page draws around a document of one text — see {@link DocumentFrame}. */
+    frame?: DocumentFrame;
 }) {
     const { can_edit, title, sections } = paper;
 
     const [editing, setEditing] = useState<Editing | null>(null);
     const [restoring, setRestoring] = useState<Restoring>(null);
+
+    // A document that is one text is one section, and the pencil of the band
+    // above writes it. Built here, beside the dialog it opens, so that the page
+    // drawing the band says only where the button stands.
+    const written = whole === null ? null : (sections.find((section) => !section.computed) ?? null);
+    const pencil =
+        whole !== null && can_edit && written !== null ? (
+            <EditPencil
+                label={whole.edit}
+                onClick={() => setEditing({ mode: written.origin === 'template' ? 'standard' : 'theirs', section: written })}
+            />
+        ) : null;
 
     return (
         // Relative so that the pencil of a one-text document hangs in the corner
@@ -418,54 +470,68 @@ export function DocumentCard({
                 </header>
             )}
 
+            {frame?.header?.(pencil)}
+
             {sections.length === 0 ? (
                 // Every owner is seeded with its sections, so an empty document
                 // is not one waiting to be written — it is one that failed to
                 // arrive, and the page says which document it was.
                 <p className="text-muted-foreground max-w-[60ch] py-2 text-sm">{empty}</p>
             ) : (
-                <ul className="flex flex-col">
-                    {sections.map((section) => (
-                        // A document, read down: every section open, one after
-                        // the other, the way it comes off a printer. The rule
-                        // above each heading and the room under each text are
-                        // what divide them now that nothing folds shut.
-                        <li key={section.id} className="border-t pt-4 pb-6 first:border-t-0 first:pt-0 last:pb-0">
-                            {/* A document that is one text has nothing of ours
+                <div className={cn(frame?.beside !== undefined && 'lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start lg:gap-6')}>
+                    {frame?.beside !== undefined && <div className="max-lg:hidden">{frame.beside}</div>}
+
+                    <div className="relative min-w-0">
+                        {/* Beside the document's first line, which is its own
+                            heading: the text keeps the width of the card for the
+                            rest of the page, so the block hangs over its corner
+                            rather than taking a column away from it. */}
+                        {frame?.corner !== undefined && <div className="absolute top-0 right-0 w-[24rem] max-lg:hidden">{frame.corner}</div>}
+
+                        <ul className="flex flex-col">
+                            {sections.map((section) => (
+                                // A document, read down: every section open, one after
+                                // the other, the way it comes off a printer. The rule
+                                // above each heading and the room under each text are
+                                // what divide them now that nothing folds shut.
+                                <li key={section.id} className="border-t pt-4 pb-6 first:border-t-0 first:pt-0 last:pb-0">
+                                    {/* A document that is one text has nothing of ours
                                 above it: its own first heading is the first line
                                 of it, and the pencil that writes it stands in the
                                 corner of the card, out of the way of the words. */}
-                            {whole === null && (
-                                <div className="flex items-start gap-2">
-                                    {/* A heading, not a button: there is nothing
+                                    {whole === null && (
+                                        <div className="flex items-start gap-2">
+                                            {/* A heading, not a button: there is nothing
                                         left for it to open. The number keeps a
                                         column of its own so the titles line up
                                         down the page. */}
-                                    <h3 className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 py-1 text-sm font-semibold">
-                                        <span className="text-muted-foreground shrink-0 tabular-nums">{section.number}</span>
-                                        <span className="break-words">{section.title}</span>
-                                        <Badge origin={section.origin} />
-                                    </h3>
+                                            <h3 className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 py-1 text-sm font-semibold">
+                                                <span className="text-muted-foreground shrink-0 tabular-nums">{section.number}</span>
+                                                <span className="break-words">{section.title}</span>
+                                                <Badge origin={section.origin} />
+                                            </h3>
 
-                                    {/* A section the application writes itself has
+                                            {/* A section the application writes itself has
                                         nothing to type into it, so it carries no
                                         pencil — the way to change what it says is
                                         to change what it is drawn from. */}
-                                    {can_edit && !section.computed && (
-                                        <EditPencil
-                                            label={`Изменить раздел ${section.number} ${section.title}`}
-                                            onClick={() => setEditing({ mode: section.origin === 'template' ? 'standard' : 'theirs', section })}
-                                        />
+                                            {can_edit && !section.computed && (
+                                                <EditPencil
+                                                    label={`Изменить раздел ${section.number} ${section.title}`}
+                                                    onClick={() =>
+                                                        setEditing({ mode: section.origin === 'template' ? 'standard' : 'theirs', section })
+                                                    }
+                                                />
+                                            )}
+                                        </div>
                                     )}
-                                </div>
-                            )}
 
-                            {/* The text under its own heading rather than under
+                                    {/* The text under its own heading rather than under
                                 the number, which is the column the headings are
                                 read down — and under nothing at all where the
                                 document is one text. */}
-                            <div className={cn('flex flex-col gap-4', whole === null && 'mt-2 md:pl-[1.75rem]')}>
-                                {/* A section written here says so where it is
+                                    <div className={cn('flex flex-col gap-4', whole === null && 'mt-2 md:pl-[1.75rem]')}>
+                                        {/* A section written here says so where it is
                                     read, so that nobody wonders why it differs
                                     from the sheet next door — and the way back to
                                     the shared wording is beside it.
@@ -473,56 +539,71 @@ export function DocumentCard({
                                     A document that is one text says neither: the
                                     tab is the document and the pencil, and the
                                     company asked for nothing else on it. */}
-                                {whole === null && section.origin === 'override' && (
-                                    <div className="flex flex-col items-start gap-2 rounded-lg border border-[#F5A524]/50 bg-[#FBEFD9] p-3 text-[13px] leading-relaxed text-[#9A4A06] dark:bg-[#F5A524]/10 dark:text-[#F8C471]">
-                                        <p>
-                                            {whose === null
-                                                ? 'Раздел написан здесь: это собственный текст, а не стандартный.'
-                                                : `Раздел написан для «${whose}»: это его собственный текст, а не стандартный.`}
-                                        </p>
-                                        {can_edit && (
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="bg-background max-md:h-11"
-                                                onClick={() => setRestoring({ section })}
-                                            >
-                                                <Undo2 />
-                                                Вернуть стандартный текст
-                                            </Button>
+                                        {whole === null && section.origin === 'override' && (
+                                            <div className="flex flex-col items-start gap-2 rounded-lg border border-[#F5A524]/50 bg-[#FBEFD9] p-3 text-[13px] leading-relaxed text-[#9A4A06] dark:bg-[#F5A524]/10 dark:text-[#F8C471]">
+                                                <p>
+                                                    {whose === null
+                                                        ? 'Раздел написан здесь: это собственный текст, а не стандартный.'
+                                                        : `Раздел написан для «${whose}»: это его собственный текст, а не стандартный.`}
+                                                </p>
+                                                {can_edit && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="bg-background max-md:h-11"
+                                                        onClick={() => setRestoring({ section })}
+                                                    >
+                                                        <Undo2 />
+                                                        Вернуть стандартный текст
+                                                    </Button>
+                                                )}
+                                            </div>
                                         )}
-                                    </div>
-                                )}
 
-                                {/* A section the application fills in is drawn by
+                                        {/* A section the application fills in is drawn by
                                     whoever knows what it is made of; everything
                                     else is the text somebody wrote. */}
-                                {fixed?.(section) ?? (
-                                    <Body
-                                        html={section.body}
-                                        empty={whole === null ? 'Раздел пока пуст.' : 'Текст пока не написан.'}
-                                        wide={whole !== null}
-                                        corner={whole !== null && can_edit}
-                                    />
-                                )}
-                            </div>
+                                        {fixed?.(section) ?? (
+                                            <Body
+                                                html={section.body}
+                                                empty={whole === null ? 'Раздел пока пуст.' : 'Текст пока не написан.'}
+                                                wide={whole !== null}
+                                                corner={whole !== null && can_edit && frame?.header === undefined}
+                                                className={cn(
+                                                    // A framed document is read as a paper:
+                                                    // every part of it opens under a rule of
+                                                    // its own, and the first line — the name
+                                                    // of the paper — keeps clear of whatever
+                                                    // the page hangs in its corner.
+                                                    frame !== undefined && '[&_h2:not(:first-child)]:border-b [&_h2:not(:first-child)]:pb-2',
+                                                    frame?.corner !== undefined &&
+                                                        'lg:[&>:first-child]:min-h-[7.5rem] lg:[&>:first-child]:pr-[25.5rem]',
+                                                )}
+                                            />
+                                        )}
+                                    </div>
 
-                            {/* Last of the card in the order a keyboard walks it,
+                                    {/* Last of the card in the order a keyboard walks it,
                                 and first in the corner of it: whoever tabs
                                 through the page reads the document and then finds
                                 the way to write it, rather than meeting a lone
                                 «Изменить» before the text it belongs to. */}
-                            {whole !== null && can_edit && !section.computed && (
-                                <EditPencil
-                                    label={whole.edit}
-                                    className="absolute top-4 right-4 md:top-5 md:right-6"
-                                    onClick={() => setEditing({ mode: section.origin === 'template' ? 'standard' : 'theirs', section })}
-                                />
-                            )}
-                        </li>
-                    ))}
-                </ul>
+                                    {whole !== null && can_edit && !section.computed && (
+                                        <EditPencil
+                                            label={whole.edit}
+                                            className={cn(
+                                                'absolute top-4 right-4',
+                                                frame?.header === undefined ? 'md:top-5 md:right-6' : 'md:hidden',
+                                            )}
+                                            onClick={() => setEditing({ mode: section.origin === 'template' ? 'standard' : 'theirs', section })}
+                                        />
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
             )}
 
             {editing && (

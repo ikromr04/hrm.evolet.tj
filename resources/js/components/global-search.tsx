@@ -119,14 +119,12 @@ export function GlobalSearch() {
     const pages = useMemo(
         () =>
             [
-                { label: 'Главная', href: '/dashboard', icon: LayoutGrid },
+                { label: 'Главная', href: '/', icon: LayoutGrid },
                 ...(can('employees.view') ? [{ label: 'Сотрудники', href: '/employees', icon: Users }] : []),
-                { label: 'Структура компании', href: '/departments', icon: Network },
-                // The other two tabs of the section above. Neither is a page of
-                // its own any more, but both are named here, because a tab is
-                // what one types when looking for it — and each takes the right
-                // its list has always been read by.
-                ...(can('directories.view.departments') ? [{ label: 'Подразделении', href: '/departments/units', icon: Building2 }] : []),
+                { label: 'Оргструктура', href: '/org-chart', icon: Network },
+                // The other two pages of the section. Each takes the right its
+                // list has always been read by.
+                ...(can('directories.view.departments') ? [{ label: 'Подразделения', href: '/departments', icon: Building2 }] : []),
                 ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
                 // Any part of the fleet — own, the department's or all of it — opens the section.
                 ...(seesEquipment(can) ? [{ label: 'Оборудование', href: '/equipment', icon: Laptop }] : []),

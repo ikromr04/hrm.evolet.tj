@@ -321,12 +321,6 @@ class EquipmentFieldsTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->assertSame($holder->id, $unit->fresh()->holder_user_id);
-        // The letter still reads as a sentence: the unit it is about has no name
-        // to put in it, and says so instead of leaving a gap.
-        $this->assertSame(
-            'Вам выдано: Без наименования',
-            $holder->notifications()->latest('id')->first()->data['text'],
-        );
 
         // The holder's own card names it the same way as it lists what they hold.
         $this->actingAs($this->sysadmin())

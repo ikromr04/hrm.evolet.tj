@@ -1,6 +1,9 @@
+import { CardSection } from '@/components/card-section';
+import { ComingSoon } from '@/components/coming-soon';
 import { MobileRow } from '@/components/data-table';
 import { DepartmentEditor, type DepartmentRecord } from '@/components/department-editor';
 import { DepartmentName, departmentTitle } from '@/components/department-name';
+import { DepartmentOverview } from '@/components/department-overview';
 import { DepartmentProfile, type Profile } from '@/components/department-profile';
 import { DepartmentRegulation, type Regulation } from '@/components/department-regulation';
 import { DocumentTabs } from '@/components/document-tabs';
@@ -10,6 +13,7 @@ import { PhoneViewSwitch } from '@/components/org-chart';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PositionName, positionTitle, type PositionUnit } from '@/components/position-name';
+import { PositionSheet } from '@/components/position-sheet';
 import { StatusBadge, statusTones } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -132,20 +136,25 @@ function Neighbours({ prev, next }: { prev: Neighbour; next: Neighbour }) {
     );
 }
 
-type View = 'list' | 'regulation' | 'sfd' | 'equipment';
+type View = 'list' | 'overview' | 'regulation' | 'sfd' | 'staff' | 'equipment';
 
-/** What the main column can hold, which is everything but the list. */
+/** What the main column can hold, which is everything but the phone's list. */
 type Document = Exclude<View, 'list'>;
 
 /**
- * The three things the main column holds. The equipment is not a document, but
- * it is read the same way and from the same place — what belongs to this
- * department — so it is a tab beside the other two rather than a page of its
- * own that the structure would have to link to.
+ * The strip over the page. Neither the overview, the staff nor the equipment is
+ * a document, but all three are read the same way and from the same place —
+ * what this department is — so they are tabs beside the two papers rather than
+ * pages of their own that the structure would have to link to.
+ *
+ * «Обзор» opens the page: it is what a department is looked up for most often,
+ * and the papers are read rather than looked up.
  */
 const DOCUMENTS: { key: Document; title: string }[] = [
+    { key: 'overview', title: 'Обзор' },
     { key: 'regulation', title: 'Положение' },
     { key: 'sfd', title: 'СФД' },
+    { key: 'staff', title: 'Штат' },
     { key: 'equipment', title: 'Оборудование' },
 ];
 
@@ -292,26 +301,6 @@ interface Equipment {
  */
 function DepartmentPencil({ busy, onClick, className }: { busy: boolean; onClick: () => void; className?: string }) {
     return <EditPencil label="Изменить подразделение" tip="Изменить подразделение" busy={busy} className={className} onClick={onClick} />;
-}
-
-function Section({ title, count, action, children }: { title: string; count?: number; action?: ReactNode; children: ReactNode }) {
-    return (
-        <Card className="flex flex-col gap-4 rounded-xl px-4 py-5 md:px-6">
-            {/* A block of this column is a block of a colleague's card: the name
-                on a ruled band flush with the card's own edges, the pencil at
-                the end of that band. A card with nothing to press keeps the
-                band all the same, so blocks with a button and blocks without
-                still read as one set. */}
-            <div className="bg-muted/60 -mx-4 -mt-5 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-t-xl border-b px-4 py-2 md:-mx-6 md:px-6">
-                <h2 className="flex min-w-0 items-baseline gap-2 text-base font-semibold">
-                    {title}
-                    {count !== undefined && <span className="text-muted-foreground text-sm font-normal tabular-nums">{count}</span>}
-                </h2>
-                {action}
-            </div>
-            {children}
-        </Card>
-    );
 }
 
 function Avatar({ person, className }: { person: Person; className?: string }) {
@@ -511,10 +500,10 @@ export default function DepartmentPage({
 
         if (next === 'equipment' && equipment.can_read && !asked.current) askUnits();
 
-        // Only the two the page has always remembered are written down; СФД and
-        // the equipment are asked for afresh each visit, because nobody has
-        // asked for a page that opens on either.
-        if (next === 'sfd' || next === 'equipment') return;
+        // Only the two the page has always remembered are written down; СФД,
+        // the staff and the equipment are asked for afresh each visit, because
+        // nobody has asked for a page that opens on one of them.
+        if (next === 'sfd' || next === 'staff' || next === 'equipment') return;
 
         try {
             localStorage.setItem(VIEW_KEY, next);
@@ -555,10 +544,11 @@ export default function DepartmentPage({
         if (view === 'equipment' && equipment.can_read) askUnits();
     };
 
-    // Which document the main column holds. On a phone the list is a view of its
-    // own and the column is hidden under it; on a desktop the list has a column
-    // of its own, so «Список» there simply means the document last open.
-    const open: Document = view === 'list' ? 'regulation' : view;
+    // Which tab the main column holds. On a phone the list is a view of its own
+    // and the column is hidden under it; on a desktop the list has a column of
+    // its own, so «Список» there means the overview, which is where a desktop
+    // opens a department unless the last visit left the положение open.
+    const open: Document = view === 'list' ? 'overview' : view;
 
     const personHref = usePersonHref();
     // The people of this department itself and not the ones who lead it, which
@@ -574,16 +564,19 @@ export default function DepartmentPage({
     // where somebody lands to find out what an abbreviation elsewhere meant.
     const title = departmentTitle(department.full_name, department.name);
 
-    // The trail is now the only thing on the page that says where the department
-    // sits, so it says the whole way down to it rather than the last step alone.
-    // Abbreviations, because a trail is read across rather than down, and the
-    // heading right below spells this department's name out.
-    // The list of departments, not the chart: this page is one of its rows,
-    // and the way back from a department is to the list it was opened from.
+    // The trail says the whole way down to the department rather than the last
+    // step alone: the section it belongs to, the list it is a row of, and then
+    // every department above this one. Abbreviations, because a trail is read
+    // across rather than down, and the heading right below spells this
+    // department's name out.
+    // The list of departments and not the chart in the second step: this page is
+    // one of that list's rows, and the way back from a department is to the list
+    // it was opened from.
     const units = companySections.find((section) => section.key === 'units');
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: units?.title ?? 'Подразделении', href: units?.href ?? '/departments/units' },
+        { title: 'Структура компании', href: companySections[0].href },
+        { title: units?.title ?? 'Подразделении', href: units?.href ?? '/departments' },
         ...department.parents.map((parent) => ({ title: parent.name, href: route('departments.show', parent.id) })),
         { title: department.name, href: route('departments.show', department.id) },
     ];
@@ -591,13 +584,13 @@ export default function DepartmentPage({
     return (
         // The page scrolls: the document is as long as the department wrote it
         // and the blocks beside it are as long as the staff is.
-        // The bar says the department's whole name, where its crumb says the
-        // initials the rest of the system knows it by; the phone's bar keeps the
-        // initials, which is all a 390px line can hold.
-        <AppLayout breadcrumbs={breadcrumbs} title={title}>
+        // The bar says the trail and nothing else; the initials it ends on are
+        // what the rest of the system knows this department by, and «Название»
+        // in the card below spells them out.
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={title} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                 {/* A phone: the top bar already names the department, so the head of
                     the page is a grouped card of facts, the way into the staff list is
                     a row of its own and the two views share one segmented control. */}
@@ -694,6 +687,13 @@ export default function DepartmentPage({
                 {/* The page scrolls as a whole, head and tabs included, the way a
                     colleague's card does: one record, read from the top down. */}
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_24rem]">
+                    {/* The page writes its own name, both ways at once: the bar
+                        above says the way down to this department and ends on
+                        the initials, and this is where they are spelled out.
+                        The phone has it in the bar instead — one line there is
+                        all there is room for. */}
+                    <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden lg:col-span-2">{title}</h1>
+
                     {/* The documents on the left, the way through the structure on the right. */}
                     <div className="flex items-center gap-3 max-md:hidden lg:col-span-2">
                         <DocumentTabs
@@ -716,35 +716,72 @@ export default function DepartmentPage({
                             // different reasons to be here, and neither is worth
                             // scrolling past the other.
                             view === 'list' && 'max-md:hidden',
+                            // The overview carries a column of its own at the
+                            // right, so it takes the width of both.
+                            open === 'overview' && 'lg:col-span-2',
                         )}
                     >
-                        <Card
-                            role="tabpanel"
-                            id={`department-panel-${open}`}
-                            aria-labelledby={`department-tab-${open}`}
-                            className="min-w-0 rounded-xl max-md:rounded-2xl max-md:border-0 max-md:shadow-none"
-                        >
-                            {open === 'regulation' && <DepartmentRegulation department={department.id} regulation={regulation} />}
-                            {open === 'sfd' && <DepartmentSheet profile={profile} department={department.id} />}
-                            {open === 'equipment' &&
-                                (equipment.can_read ? (
-                                    <DepartmentEquipment units={equipmentUnits} loading={loading} />
-                                ) : (
-                                    // Said of the viewer and not of the
-                                    // department: the fleet is a section with
-                                    // rights of its own, and «ничего нет» here
-                                    // would send somebody looking for equipment
-                                    // that is standing right in front of them.
-                                    <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">
-                                        Оборудование доступно не всем — у вас нет доступа к нему.
-                                    </p>
-                                ))}
-                        </Card>
+                        {open === 'overview' ? (
+                            <div
+                                role="tabpanel"
+                                id="department-panel-overview"
+                                aria-labelledby="department-tab-overview"
+                                className="min-w-0 max-md:hidden"
+                            >
+                                <DepartmentOverview />
+                            </div>
+                        ) : (
+                            <Card
+                                role="tabpanel"
+                                id={`department-panel-${open}`}
+                                aria-labelledby={`department-tab-${open}`}
+                                className="min-w-0 rounded-xl max-md:rounded-2xl max-md:border-0 max-md:shadow-none"
+                            >
+                                {open === 'regulation' && <DepartmentRegulation department={department.id} regulation={regulation} />}
+                                {open === 'sfd' && (
+                                    <>
+                                        {/* The design draws this tab as the profile
+                                        of a job — the department's jobs in a
+                                        strip and the sheet of the one that is
+                                        open — so that is what a desktop shows.
+                                        A phone keeps what this tab has always
+                                        held: the department's own sheet, which
+                                        is a document somebody wrote and can
+                                        still write. */}
+                                        <div className="max-md:hidden">
+                                            <PositionSheet positions={department.positions} />
+                                        </div>
+                                        <div className="md:hidden">
+                                            <DepartmentSheet profile={profile} department={department.id} />
+                                        </div>
+                                    </>
+                                )}
+                                {/* The staff is the next drawing to be built; the tab
+                                is here so the strip is the one the design has, and it
+                                says so the way every unbuilt section does. */}
+                                {open === 'staff' && <ComingSoon what="Штатное расписание" back={false} className="m-4 md:m-6" />}
+                                {open === 'equipment' &&
+                                    (equipment.can_read ? (
+                                        <DepartmentEquipment units={equipmentUnits} loading={loading} />
+                                    ) : (
+                                        // Said of the viewer and not of the
+                                        // department: the fleet is a section with
+                                        // rights of its own, and «ничего нет» here
+                                        // would send somebody looking for equipment
+                                        // that is standing right in front of them.
+                                        <p className="text-muted-foreground px-4 py-4 text-sm md:px-6 md:py-5">
+                                            Оборудование доступно не всем — у вас нет доступа к нему.
+                                        </p>
+                                    ))}
+                            </Card>
+                        )}
                     </div>
 
                     {/* The column is narrow, so a colleague's address goes under
-                        their name rather than at the right of their row. */}
-                    <aside className="flex min-w-0 flex-col gap-4 max-md:hidden">
+                        their name rather than at the right of their row. The
+                        overview has a column of its own, so this one stands down
+                        while it is open. */}
+                    <aside className={cn('flex min-w-0 flex-col gap-4 max-md:hidden', open === 'overview' && 'hidden')}>
                         {/* What the sheet used to open with. «01 ОБЩАЯ
                             ИНФОРМАЦИЯ» was where the unit sits, who leads it,
                             how many work there and what is under it — and three
@@ -758,7 +795,7 @@ export default function DepartmentPage({
                             same form. It stands on the card the department
                             itself is read from — the one above the heads and
                             the staff it edits. */}
-                        <Section
+                        <CardSection
                             title="Подразделение"
                             action={
                                 editor.can_edit && (
@@ -770,7 +807,7 @@ export default function DepartmentPage({
                                 {/* No «Название» row: the phone has one because
                                     its top bar says «ОД» and nothing else, while
                                     the heading of this page spells the name out
-                                    two lines above. Every fact once. */}
+                                    above the tabs. Every fact once. */}
                                 {department.parents.length > 0 && (
                                     <div className="flex items-baseline justify-between gap-3">
                                         <dt className="text-muted-foreground shrink-0">Входит в</dt>
@@ -804,10 +841,10 @@ export default function DepartmentPage({
                                     <dd className="min-w-0 text-right tabular-nums">{department.total_count}</dd>
                                 </div>
                             </dl>
-                        </Section>
+                        </CardSection>
 
                         {department.positions.length > 0 && (
-                            <Section title="Должности" count={department.positions.length}>
+                            <CardSection title="Должности" count={department.positions.length}>
                                 {/*
                                  * Badges rather than rows: a job is drawn this way
                                  * everywhere else it is named — on a colleague's card,
@@ -850,14 +887,14 @@ export default function DepartmentPage({
                                         </li>
                                     ))}
                                 </ul>
-                            </Section>
+                            </CardSection>
                         )}
 
                         {/* Everybody who works here, the units under this one included:
                             a face, a name and the jobs they hold. The address is left
                             out — this is a list to read the department by, and a dozen
                             e-mails under a dozen names is a wall of brand colour. */}
-                        <Section title="Сотрудники" count={department.members.length}>
+                        <CardSection title="Сотрудники" count={department.members.length}>
                             {department.members.length === 0 ? (
                                 <p className="text-muted-foreground text-sm">В отделе пока нет сотрудников.</p>
                             ) : (
@@ -867,10 +904,10 @@ export default function DepartmentPage({
                                     ))}
                                 </ul>
                             )}
-                        </Section>
+                        </CardSection>
 
                         {department.children.length > 0 && (
-                            <Section title="Подотделы" count={department.children.length}>
+                            <CardSection title="Подотделы" count={department.children.length}>
                                 <ul className="-mx-2 flex flex-col">
                                     {department.children.map((child) => (
                                         <li key={child.id}>
@@ -900,7 +937,7 @@ export default function DepartmentPage({
                                         </li>
                                     ))}
                                 </ul>
-                            </Section>
+                            </CardSection>
                         )}
                     </aside>
 

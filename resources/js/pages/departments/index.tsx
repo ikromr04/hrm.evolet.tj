@@ -1,13 +1,16 @@
 import { MobileRow } from '@/components/data-table';
 import { groupByParent, OrgChart, type OrgDepartment, PhoneViewSwitch } from '@/components/org-chart';
-import { PageActions } from '@/components/page-actions';
 import { Card } from '@/components/ui/card';
-import CompanyStructureLayout from '@/layouts/company-structure-layout';
+import AppLayout from '@/layouts/app-layout';
 import { peopleLabel } from '@/lib/employee';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
+import { type BreadcrumbItem } from '@/types';
+import { Head } from '@inertiajs/react';
 import { Building2, CornerDownRight, Users } from 'lucide-react';
 import { useState } from 'react';
+
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оргструктура', href: '/org-chart' }];
 
 type View = 'list' | 'chart';
 
@@ -112,48 +115,47 @@ export default function Departments({ departments, employees_count }: { departme
     };
 
     return (
-        // The chart scrolls inside its own frame.
-        <CompanyStructureLayout>
-            {/*
-             * What the chart adds up to. On a desktop it reads at the end of the
-             * line of tabs, where every page of this section keeps what belongs
-             * to the open tab; on a phone that line is a scrolling strip of
-             * chips with no room beside them, so there it keeps its own line
-             * under them.
-             */}
-            <PageActions>
-                <p className="text-muted-foreground text-sm">{summary}</p>
-            </PageActions>
-            <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px] md:hidden">{summary}</p>
+        // The chart scrolls inside its own frame, and the frame fills the window.
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+            <Head title="Оргструктура" />
 
-            {departments.length === 0 ? (
-                <Card className="text-muted-foreground rounded-xl p-12 text-center text-sm max-md:rounded-2xl max-md:border-0 max-md:p-8 max-md:shadow-none">
-                    Отделов пока нет.
-                </Card>
-            ) : (
-                <>
-                    <PhoneViewSwitch
-                        value={view}
-                        onChange={changeView}
-                        options={[
-                            { value: 'list', label: 'Список' },
-                            { value: 'chart', label: 'Схема' },
-                        ]}
-                    />
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-6 md:px-4 md:py-6 lg:px-6">
+                {/* The page writes its own name, and what the chart adds up to
+                   stands at the end of that line. */}
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+                    <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Оргструктура</h1>
+                    <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">{summary}</p>
+                </div>
 
-                    {view === 'list' && <DepartmentList departments={departments} />}
-
-                    {/* From `md` up the chart is the page, whatever a phone last chose. */}
-                    <Card
-                        className={cn(
-                            'bg-sidebar flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1',
-                            view === 'list' && 'max-md:hidden',
-                        )}
-                    >
-                        <OrgChart departments={departments} employeesCount={employees_count} />
+                {departments.length === 0 ? (
+                    <Card className="text-muted-foreground rounded-xl p-12 text-center text-sm max-md:rounded-2xl max-md:border-0 max-md:p-8 max-md:shadow-none">
+                        Отделов пока нет.
                     </Card>
-                </>
-            )}
-        </CompanyStructureLayout>
+                ) : (
+                    <>
+                        <PhoneViewSwitch
+                            value={view}
+                            onChange={changeView}
+                            options={[
+                                { value: 'list', label: 'Список' },
+                                { value: 'chart', label: 'Схема' },
+                            ]}
+                        />
+
+                        {view === 'list' && <DepartmentList departments={departments} />}
+
+                        {/* From `md` up the chart is the page, whatever a phone last chose. */}
+                        <Card
+                            className={cn(
+                                'bg-sidebar flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1',
+                                view === 'list' && 'max-md:hidden',
+                            )}
+                        >
+                            <OrgChart departments={departments} employeesCount={employees_count} />
+                        </Card>
+                    </>
+                )}
+            </div>
+        </AppLayout>
     );
 }

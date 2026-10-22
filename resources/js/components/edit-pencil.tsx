@@ -9,10 +9,13 @@ import { LoaderCircle, Pencil } from 'lucide-react';
  *
  * One treatment wherever a page is written on in place: a section of a
  * document, the document as a whole, the department the column beside it
- * describes. It is a ghost icon button the width of a finger on a phone, named
- * out loud for whoever cannot see where it sits, and saying on hover and on
- * focus what it opens — because the button itself has no words, and a page may
- * carry two of them at once.
+ * describes. It is a bordered icon button, the width of a finger on a phone and
+ * the height of the buttons it stands beside, named out loud for whoever cannot
+ * see where it sits and saying on hover and on focus what it opens — because
+ * the button itself has no words, and a page may carry two of them at once.
+ *
+ * Bordered rather than bare: it is a button among buttons wherever the design
+ * puts it, and a bare icon over a card read as part of the card.
  */
 export function EditPencil({
     label,
@@ -36,7 +39,7 @@ export function EditPencil({
                 <TooltipTrigger asChild>
                     <Button
                         type="button"
-                        variant="ghost"
+                        variant="outline"
                         size="icon"
                         className={cn('text-muted-foreground size-9 shrink-0 max-md:size-11', className)}
                         aria-label={label}

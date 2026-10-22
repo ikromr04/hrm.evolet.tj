@@ -59,7 +59,7 @@ export default function Password() {
                         <HeadingSmall title="Смена пароля" description="Выберите длинный пароль, который больше нигде не используется" />
                     </div>
 
-                    <form onSubmit={updatePassword} className="space-y-6 max-md:space-y-4">
+                    <form noValidate onSubmit={updatePassword} className="space-y-6 max-md:space-y-4">
                         {/* On a phone the three fields are one grouped card on the grey page. */}
                         <div className="max-md:bg-card space-y-6 max-md:space-y-4 max-md:rounded-2xl max-md:p-4">
                             <div className="grid content-start gap-2">

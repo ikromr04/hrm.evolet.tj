@@ -380,7 +380,7 @@ export function DirectoryEditor({
                     fieldTypes && 'sm:max-w-2xl',
                 )}
             >
-                <form onSubmit={submit} className="flex flex-col gap-5">
+                <form noValidate onSubmit={submit} className="flex flex-col gap-5">
                     <DialogHeader>
                         <DialogTitle>{item ? labels.edit : labels.create}</DialogTitle>
                         <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>

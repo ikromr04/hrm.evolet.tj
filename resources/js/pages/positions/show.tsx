@@ -12,6 +12,7 @@ import { PositionRegulation } from '@/components/position-regulation';
 import { StatusBadge, type StatusTone } from '@/components/status-badge';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
+import { companySections } from '@/lib/access';
 import { type Sex } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
@@ -352,6 +353,9 @@ export default function PositionPage({
     };
 
     const breadcrumbs: BreadcrumbItem[] = [
+        // A job is kept under the structure of the company, as a department is,
+        // and its trail opens with that section for the same reason.
+        { title: 'Структура компании', href: companySections[0].href },
         { title: 'Должности', href: route('positions.index') },
         // The crumb is the one line that has to stand on its own among the
         // crumbs of every other position, so it carries the department.
@@ -359,13 +363,13 @@ export default function PositionPage({
     ];
 
     return (
-        // The bar carries the name on its own, as a department's page has it:
-        // where the position sits and who holds it are in the column beside the
-        // documents, and the trail above says the rest.
-        <AppLayout breadcrumbs={breadcrumbs} title={position.name}>
+        // The bar carries the trail, which ends on this position named with its
+        // department: where it sits and who holds it are in the column beside
+        // the documents, and the trail says the rest.
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={position.display_name} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:p-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                 {/* The two documents are the page, and what is known about the
                     position stands beside them rather than in place of them. Both
                     columns are told they may be narrower than their contents: a

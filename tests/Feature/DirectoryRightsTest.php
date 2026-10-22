@@ -23,7 +23,7 @@ use Tests\TestCase;
  *
  * The job titles and the departments are rights of the section too, and read
  * with every other one here, although neither page is a tab of it: they are kept
- * at /positions and /departments/units now, and moving a page moved nothing
+ * at /positions and /departments now, and moving a page moved nothing
  * about what it takes to open.
  */
 class DirectoryRightsTest extends TestCase

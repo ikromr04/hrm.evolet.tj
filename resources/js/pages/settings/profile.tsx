@@ -51,7 +51,7 @@ export default function Profile({ pendingEmail, status }: { pendingEmail: string
                         <HeadingSmall title="Учётная запись" description="Адрес, с которым вы входите в систему" />
                     </div>
 
-                    <form onSubmit={submit} className="space-y-6 max-md:space-y-4">
+                    <form noValidate onSubmit={submit} className="space-y-6 max-md:space-y-4">
                         {/* On a phone the field and the note on it are one grouped card on the grey page. */}
                         <div className="max-md:bg-card grid max-w-md content-start gap-2 max-md:max-w-none max-md:rounded-2xl max-md:p-4">
                             <Label htmlFor="email">Электронная почта</Label>

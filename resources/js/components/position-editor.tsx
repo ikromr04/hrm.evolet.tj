@@ -93,7 +93,7 @@ export function PositionEditor({
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-lg">
-                <form onSubmit={submit} className="flex flex-col gap-5">
+                <form noValidate onSubmit={submit} className="flex flex-col gap-5">
                     <DialogHeader>
                         <DialogTitle>{position ? 'Изменить должность' : 'Новая должность'}</DialogTitle>
                         <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>

@@ -27,7 +27,7 @@ export interface DepartmentRecord {
  */
 export const departmentDirectory = {
     field: 'name',
-    route: 'departments.units',
+    route: 'departments',
     labels: { add: 'Добавить отдел', create: 'Новый отдел', edit: 'Изменить отдел', accusative: 'отдел' },
     abbreviation: true,
     tree: true,

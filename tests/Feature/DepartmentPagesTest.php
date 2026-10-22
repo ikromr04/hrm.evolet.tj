@@ -20,7 +20,7 @@ use Tests\TestCase;
 /**
  * "Структура компании": the chart everybody signed in may read, the departments
  * themselves, and — since the list left "Справочники" — the tab that writes that
- * structure down, at /departments/units.
+ * structure down, at /departments.
  */
 class DepartmentPagesTest extends TestCase
 {
@@ -28,7 +28,7 @@ class DepartmentPagesTest extends TestCase
 
     public function test_guests_are_sent_to_login()
     {
-        $this->get('/departments')->assertRedirect('/login');
+        $this->get('/org-chart')->assertRedirect('/login');
     }
 
     public function test_every_employee_sees_the_structure_with_heads_and_counts()
@@ -41,7 +41,7 @@ class DepartmentPagesTest extends TestCase
         $top->users()->attach($head, ['is_head' => true]);
         $unit->users()->attach([$a->id => ['is_head' => false], $b->id => ['is_head' => false], $fired->id => ['is_head' => false]]);
 
-        $this->actingAs($this->mayLookAround($a))->get('/departments')->assertOk()->assertInertia(fn (Assert $page) => $page
+        $this->actingAs($this->mayLookAround($a))->get('/org-chart')->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/index')
             ->where('employees_count', 3)
             ->where('departments.0.name', 'Департамент')
@@ -123,7 +123,7 @@ class DepartmentPagesTest extends TestCase
 
         $this->actingAs($this->colleague());
 
-        $this->get('/departments')->assertOk()->assertInertia(fn (Assert $page) => $page
+        $this->get('/org-chart')->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('departments/index')
             ->where('departments', fn ($chart) => $named($chart, $top->id) === 'ДМ')
             ->where('departments', fn ($chart) => $named($chart, $unit->id) === 'ОД')
@@ -202,7 +202,7 @@ class DepartmentPagesTest extends TestCase
         $this->assertSame(['Ноутбук Бобоева'], array_column($props['equipmentUnits']['people'], 'name'));
         $this->assertSame('Бобоев Сухроб', $props['equipmentUnits']['people'][0]['holder']['name']);
         // And nothing else was read to answer a question about equipment.
-        $this->assertSame(['equipmentUnits'], array_keys(array_diff_key($props, array_flip(['auth', 'ziggy', 'notifications', 'flash', 'errors']))));
+        $this->assertSame(['equipmentUnits'], array_keys(array_diff_key($props, array_flip(['auth', 'ziggy', 'flash', 'errors']))));
     }
 
     /**
@@ -343,7 +343,7 @@ class DepartmentPagesTest extends TestCase
 
         // Exactly what the window sends: the two names, the placement, and
         // which of the department's positions carry the crown.
-        $this->actingAs($keeper)->put("/departments/units/{$unit->id}", [
+        $this->actingAs($keeper)->put("/departments/{$unit->id}", [
             'name' => 'Отдел Дизайна',
             'abbreviation' => 'ОД',
             'parent_id' => null,
@@ -364,7 +364,7 @@ class DepartmentPagesTest extends TestCase
 
         // The address is the one the list saves through, so it is shut to
         // somebody without the right wherever the window was opened from.
-        $this->actingAs($this->colleague())->put("/departments/units/{$unit->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
+        $this->actingAs($this->colleague())->put("/departments/{$unit->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
     }
 
     /**
@@ -404,27 +404,27 @@ class DepartmentPagesTest extends TestCase
         $department = Department::create(['name' => 'Отдел Дизайна']);
 
         $colleague = $this->colleague();
-        $this->actingAs($colleague)->get('/departments')->assertOk();
+        $this->actingAs($colleague)->get('/org-chart')->assertOk();
         $this->actingAs($colleague)->get("/departments/{$department->id}")->assertOk();
-        $this->actingAs($colleague)->get('/departments/units')->assertForbidden();
-        $this->actingAs($colleague)->post('/departments/units', ['name' => 'Отдел продаж'])->assertForbidden();
+        $this->actingAs($colleague)->get('/departments')->assertForbidden();
+        $this->actingAs($colleague)->post('/departments', ['name' => 'Отдел продаж'])->assertForbidden();
         $this->assertNull(Department::firstWhere('name', 'Отдел продаж'));
 
         // Reading the list and keeping it are two rights still, and the page says
         // which of them it is looking at.
         $reader = User::factory()->create()->givePermissionTo(Directories::viewPermission('departments'));
-        $this->actingAs($reader)->get('/departments')->assertOk();
-        $this->assertFalse($this->actingAs($reader)->get('/departments/units')->assertOk()->viewData('page')['props']['canEdit']);
-        $this->actingAs($reader)->put("/departments/units/{$department->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
+        $this->actingAs($reader)->get('/org-chart')->assertOk();
+        $this->assertFalse($this->actingAs($reader)->get('/departments')->assertOk()->viewData('page')['props']['canEdit']);
+        $this->actingAs($reader)->put("/departments/{$department->id}", ['name' => 'Отдел сбыта'])->assertForbidden();
 
         $keeper = User::factory()->create()->givePermissionTo([
             Directories::viewPermission('departments'),
             Directories::editPermission('departments'),
         ]);
-        $this->assertTrue($this->actingAs($keeper)->get('/departments/units')->assertOk()->viewData('page')['props']['canEdit']);
-        $this->actingAs($keeper)->put("/departments/units/{$department->id}", ['name' => 'Отдел сбыта'])->assertRedirect();
+        $this->assertTrue($this->actingAs($keeper)->get('/departments')->assertOk()->viewData('page')['props']['canEdit']);
+        $this->actingAs($keeper)->put("/departments/{$department->id}", ['name' => 'Отдел сбыта'])->assertRedirect();
         $this->assertSame('Отдел сбыта', $department->fresh()->name);
-        $this->actingAs($keeper)->delete("/departments/units/{$department->id}")->assertRedirect();
+        $this->actingAs($keeper)->delete("/departments/{$department->id}")->assertRedirect();
         $this->assertNull(Department::find($department->id));
     }
 
@@ -449,7 +449,7 @@ class DepartmentPagesTest extends TestCase
         // departments — that list is elsewhere now and answers for itself.
         $reader = User::factory()->create()->givePermissionTo(Directories::viewPermission('departments'));
         $this->actingAs($reader)->get('/directories')->assertForbidden();
-        $this->actingAs($reader)->get('/departments/units')->assertOk();
+        $this->actingAs($reader)->get('/departments')->assertOk();
 
         // The two rights are still the two rights, and the access table still
         // offers both: the production table is keyed by these very strings.

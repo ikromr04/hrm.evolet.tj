@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
-use App\Notifications\PlacementChanged;
 use App\Support\Directories;
 use App\Support\Membership;
 use Closure;
@@ -84,20 +83,9 @@ class DepartmentController extends Controller
     {
         [$data, $leading] = $this->validated($request, $department);
 
-        // Everybody the save could move: whoever is in the department now, and
-        // whoever holds one of its positions. The two are the same list once
-        // the data agrees with itself, and they are not while the thirteen
-        // hand-written memberships are still on file.
-        $people = [
-            ...$department->users()->pluck('users.id'),
-            ...Membership::within($department)->modelKeys(),
-        ];
-
-        $this->telling($request, $people, function () use ($department, $data, $leading) {
-            DB::transaction(function () use ($department, $data, $leading) {
-                $department->update($data);
-                $this->markLeadingPositions($department, $leading);
-            });
+        DB::transaction(function () use ($department, $data, $leading) {
+            $department->update($data);
+            $this->markLeadingPositions($department, $leading);
         });
 
         return back();
@@ -112,37 +100,14 @@ class DepartmentController extends Controller
      * were grouped in is not a reason to lose them. Employees simply lose this
      * membership.
      */
-    public function destroy(Request $request, Department $department): RedirectResponse
+    public function destroy(Department $department): RedirectResponse
     {
-        $this->telling($request, $department->users()->pluck('users.id')->all(), function () use ($department) {
-            DB::transaction(function () use ($department) {
-                Department::where('parent_id', $department->id)->update(['parent_id' => $department->parent_id]);
-                $department->delete();
-            });
+        DB::transaction(function () use ($department) {
+            Department::where('parent_id', $department->id)->update(['parent_id' => $department->parent_id]);
+            $department->delete();
         });
 
         return back();
-    }
-
-    /**
-     * Make a change to who is in a department, and tell the people it moved.
-     *
-     * Putting somebody into a department here is the same act as picking the
-     * department on their card, so they hear about it the same way. Only those
-     * whose own list of departments came out different are told: a rename, or
-     * a save that left them where they were, is not news to them.
-     *
-     * @param  array<int, int>  $people  Everybody the change could touch.
-     * @param  Closure(): void  $save
-     */
-    private function telling(Request $request, array $people, Closure $save): void
-    {
-        $people = User::query()->active()->whereKey(array_unique($people))->get();
-        $before = $people->mapWithKeys(fn (User $user) => [$user->id => PlacementChanged::snapshot($user, ['departments'])]);
-
-        $save();
-
-        $people->each(fn (User $user) => PlacementChanged::announce($user, $before[$user->id], $request->user()));
     }
 
     /**

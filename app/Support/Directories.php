@@ -18,7 +18,7 @@ use App\Models\User;
  * Two of them no longer share that page. The job titles are read far more often
  * than they are changed, so "Должности" became a section of its own at
  * /positions; and the tree of departments is the company structure itself, so
- * "Отделы" went to live beside the chart that draws it, at /departments/units.
+ * "Отделы" went to live beside the chart that draws it, at /departments.
  * The rights behind either of them did not move, and this is still the
  * catalogue they come from.
  */

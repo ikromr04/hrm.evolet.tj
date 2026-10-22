@@ -820,7 +820,7 @@ export default function SectionForm({
     };
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-5">
+        <form noValidate onSubmit={submit} className="flex flex-col gap-5">
             {!whole && (
                 <div className="grid content-start gap-2">
                     <Label htmlFor="document-section-title">Заголовок</Label>
