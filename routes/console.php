@@ -80,9 +80,3 @@ Schedule::call(fn () => Artisan::call('auth:clear-resets'))
 | while one due at 09:00 is met by any such interval.
 |
 */
-
-// Units whose inventory date has come, told once to whoever keeps them: the
-// command remembers what it has already said, so a second run adds nothing.
-Schedule::call(fn () => Artisan::call('hrm:inventory-due'))
-    ->name('hrm:inventory-due')
-    ->dailyAt('09:00');
