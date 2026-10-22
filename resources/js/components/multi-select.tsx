@@ -144,7 +144,7 @@ export function MultiSelect<T extends string | number>({
                                 else if (matches.length > 0 && !value.includes(matches[0].value)) toggle(matches[0].value);
                             }}
                             placeholder={searchPlaceholder}
-                            className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-hidden lg:h-9"
+                            className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-hidden"
                         />
                     </label>
                     <ul role="listbox" aria-multiselectable="true" className="max-h-64 overflow-y-auto p-1">

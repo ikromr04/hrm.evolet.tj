@@ -123,7 +123,7 @@ export function SearchableSelect({
                     aria-invalid={invalid}
                     disabled={disabled}
                     className={cn(
-                        'border-input bg-background ring-offset-background focus:ring-ring flex h-10 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+                        'border-input bg-background ring-offset-background focus:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
                         'aria-invalid:border-red-600',
                         className,
                     )}
@@ -135,7 +135,7 @@ export function SearchableSelect({
 
             <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0" onKeyDown={onKeyDown}>
                 {/* A search row, not a field inside a field: no border, no ring of its own. */}
-                <div className="flex h-10 items-center gap-2 border-b px-3">
+                <div className="flex h-9 items-center gap-2 border-b px-3">
                     <Search className="text-muted-foreground size-4 shrink-0" />
                     <input
                         autoFocus

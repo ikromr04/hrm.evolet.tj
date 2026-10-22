@@ -243,7 +243,7 @@ function PhoneTextButton({ label, onClick, children }: { label?: string; onClick
             type="button"
             onClick={onClick}
             aria-label={label}
-            className="text-brand-strong -my-2.5 -mr-1 flex h-10 shrink-0 items-center px-1 text-[15px] font-medium normal-case active:opacity-60 md:hidden dark:text-[#C5E27A]"
+            className="text-brand-strong -my-2.5 -mr-1 flex h-9 shrink-0 items-center px-1 text-[15px] font-medium normal-case active:opacity-60 md:hidden dark:text-[#C5E27A]"
         >
             {children}
         </button>
@@ -385,7 +385,7 @@ function MoveGroup({ moves, onPick }: { moves: { kind: AskedMove; icon: LucideIc
                     onClick={() => onPick(kind)}
                     title={moveLabel[kind]}
                     className={cn(
-                        'hover:bg-accent focus-visible:ring-ring flex min-h-10 min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden lg:min-h-0',
+                        'hover:bg-accent focus-visible:ring-ring flex min-h-9 min-w-0 flex-1 items-center justify-center gap-1.5 px-2 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-hidden lg:min-h-0',
                         index > 0 && 'border-l',
                         danger && 'text-[#B42318] dark:text-[#F7A19A]',
                     )}
@@ -1496,7 +1496,7 @@ export default function EquipmentShow({
                                             <Photos photos={repair.photos} className="mt-1.5" />
                                             {/* Until the work has an end date the unit counts as being looked after. */}
                                             {can.service && repair.ended_at === null && (
-                                                <Button variant="outline" className="mt-2 h-10 self-start" onClick={() => setClosing(repair)}>
+                                                <Button variant="outline" className="mt-2 self-start" onClick={() => setClosing(repair)}>
                                                     <Check />
                                                     Завершить
                                                 </Button>
@@ -1527,7 +1527,7 @@ export default function EquipmentShow({
                                                                 <Button
                                                                     variant="outline"
                                                                     size="sm"
-                                                                    className="h-9 lg:h-8"
+                                                                    className="h-9"
                                                                     onClick={() => setClosing(repair)}
                                                                 >
                                                                     <Check />
@@ -1570,7 +1570,7 @@ export default function EquipmentShow({
                     <div className="flex flex-col gap-3 md:min-h-0 md:flex-1">
                         {memory.offered && (
                             <div className="flex items-center max-md:hidden">
-                                <TableMemoryButton memory={memory} className="h-10 lg:h-8" />
+                                <TableMemoryButton memory={memory} className="h-9" />
                             </div>
                         )}
 

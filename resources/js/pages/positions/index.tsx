@@ -400,12 +400,12 @@ function RowActions({ position, onEdit, onDelete }: { position: Position; onEdit
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-44">
-                <DropdownMenuItem className="max-md:min-h-10 max-md:text-[15px]" onSelect={onEdit}>
+                <DropdownMenuItem className="max-md:min-h-9 max-md:text-[15px]" onSelect={onEdit}>
                     <Pencil />
                     Изменить
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                    className="text-[#B42318] focus:text-[#B42318] max-md:min-h-10 max-md:text-[15px] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current!"
+                    className="text-[#B42318] focus:text-[#B42318] max-md:min-h-9 max-md:text-[15px] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current!"
                     onSelect={onDelete}
                 >
                     <Trash2 />

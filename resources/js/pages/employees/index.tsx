@@ -809,7 +809,7 @@ export default function Employees({
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                             placeholder="Поиск по всем полям"
-                            className="max-md:bg-card h-9 pl-9 text-sm max-md:h-10 max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
+                            className="max-md:bg-card h-9 pl-9 text-sm max-md:h-9 max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                         />
                     </div>
 

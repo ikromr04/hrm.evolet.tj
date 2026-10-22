@@ -258,7 +258,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                             max={to || undefined}
                             onChange={(event) => setFrom(event.target.value)}
                             onBlur={() => from !== (filters.from ?? '') && visit({ filters: { from: from || null } })}
-                            className="h-10 min-w-0 flex-1 sm:w-40 sm:flex-none lg:h-8"
+                            className="h-9 min-w-0 flex-1 sm:w-40 sm:flex-none"
                         />
 
                         <span className="text-muted-foreground text-sm">–</span>
@@ -270,7 +270,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                             min={from || undefined}
                             onChange={(event) => setTo(event.target.value)}
                             onBlur={() => to !== (filters.to ?? '') && visit({ filters: { to: to || null } })}
-                            className="h-10 min-w-0 flex-1 sm:w-40 sm:flex-none lg:h-8"
+                            className="h-9 min-w-0 flex-1 sm:w-40 sm:flex-none"
                         />
                     </div>
 
@@ -280,7 +280,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                                 key={preset.days}
                                 variant={inForce(preset.days) ? 'default' : 'outline'}
                                 aria-pressed={inForce(preset.days)}
-                                className="h-10 min-w-0 px-2 sm:px-4 lg:h-8"
+                                className="h-9 min-w-0 px-2 sm:px-4"
                                 onClick={() => period(preset.days)}
                             >
                                 {preset.label}
@@ -323,7 +323,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                     />
 
                     {/* The columns ride in the same menu as the view they are part of. */}
-                    <TableMemoryButton memory={memory} className="h-10 max-md:hidden sm:ml-auto lg:h-8">
+                    <TableMemoryButton memory={memory} className="h-9 max-md:hidden sm:ml-auto">
                         {orderedColumns(columns, order).map((column) => (
                             <DropdownMenuCheckboxItem
                                 key={column.key}
@@ -337,7 +337,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                         ))}
                     </TableMemoryButton>
 
-                    <Button variant="outline" className="h-10 max-md:hidden lg:h-8" asChild>
+                    <Button variant="outline" className="h-9 max-md:hidden" asChild>
                         {/* The list of units, which is what the button says — the page opens on who holds what. */}
                         <Link href={route('equipment.index', { view: 'list' })}>К списку оборудования</Link>
                     </Button>

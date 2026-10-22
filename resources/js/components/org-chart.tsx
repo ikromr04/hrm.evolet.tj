@@ -221,7 +221,7 @@ function ZoomControls({
             >
                 <Minus />
             </Button>
-            <Button variant="ghost" className="h-9 w-14 px-0 text-xs tabular-nums max-md:hidden lg:h-8" onClick={onReset} title="Сбросить до 100%">
+            <Button variant="ghost" className="h-9 w-14 px-0 text-xs tabular-nums max-md:hidden" onClick={onReset} title="Сбросить до 100%">
                 {Math.round(scale * 100)}%
             </Button>
             <Button

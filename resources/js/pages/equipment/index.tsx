@@ -275,7 +275,7 @@ const HELD_SHOWN = 3;
  * than being cut short.
  */
 const viewChoice =
-    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:px-2 max-md:text-[13px] lg:h-8 lg:flex-none dark:data-[state=on]:bg-white/10';
+    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:px-2 max-md:text-[13px] lg:flex-none dark:data-[state=on]:bg-white/10';
 
 /** Red, for the one action that cannot be undone. */
 const dangerItem = 'text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] [&_svg]:text-current!';
@@ -940,7 +940,7 @@ function HolderFilters({
             }}
         >
             <PopoverTrigger asChild>
-                <Button variant="outline" className="h-10 font-normal max-md:hidden lg:h-8">
+                <Button variant="outline" className="h-9 font-normal max-md:hidden">
                     <ListFilter />
                     Фильтры
                     {active > 0 && <span className="text-brand-strong font-semibold tabular-nums dark:text-[#C5E27A]">{active}</span>}
@@ -1277,7 +1277,7 @@ export default function EquipmentIndex({
                     as a row of chips; the rest is reached from the tab bar or the round button. */}
                 <div className="flex flex-wrap items-center gap-2 md:-mb-2">
                     {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
-                    <label className="border-input bg-background text-muted-foreground focus-within:ring-ring max-md:bg-card flex h-10 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:min-w-0 max-md:rounded-xl max-md:border-transparent max-md:shadow-none lg:h-8">
+                    <label className="border-input bg-background text-muted-foreground focus-within:ring-ring max-md:bg-card flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:min-w-0 max-md:rounded-xl max-md:border-transparent max-md:shadow-none">
                         <Search className="size-4 shrink-0" />
                         <span className="sr-only">Поиск по всем полям</span>
                         <input
@@ -1348,7 +1348,7 @@ export default function EquipmentIndex({
                                         onClick={() => visit({ tab: item.key })}
                                         aria-current={active ? 'page' : undefined}
                                         className={cn(
-                                            'flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors max-md:h-8 max-md:rounded-full max-md:px-3 md:h-9 md:rounded-md md:px-2.5 lg:h-8',
+                                            'flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors max-md:h-8 max-md:rounded-full max-md:px-3 md:h-9 md:rounded-md md:px-2.5',
                                             active
                                                 ? 'max-md:bg-brand-soft max-md:text-foreground md:bg-brand-soft md:text-foreground font-semibold max-md:font-medium max-md:font-semibold max-md:dark:bg-white/10 md:dark:bg-white/10'
                                                 : 'max-md:bg-card max-md:text-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground',
@@ -1370,7 +1370,7 @@ export default function EquipmentIndex({
                     )}
 
                     {/* The columns ride in the same menu as the view they are part of. */}
-                    <TableMemoryButton memory={memory} className="h-10 max-md:hidden lg:h-8">
+                    <TableMemoryButton memory={memory} className="h-9 max-md:hidden">
                         {listed.map((column) => (
                             <DropdownMenuCheckboxItem
                                 key={column.key}
@@ -1400,7 +1400,7 @@ export default function EquipmentIndex({
                     {(canJournal || can.create) && (
                         <>
                             {canJournal && (
-                                <Button variant="outline" className="h-10 max-md:hidden lg:h-8" asChild>
+                                <Button variant="outline" className="h-9 max-md:hidden" asChild>
                                     <Link href={route('equipment.journal')}>
                                         <History />
                                         Журнал
@@ -1409,7 +1409,7 @@ export default function EquipmentIndex({
                             )}
 
                             {can.create && (
-                                <Button className="h-10 max-md:hidden lg:h-8" asChild>
+                                <Button className="h-9 max-md:hidden" asChild>
                                     <Link href={route('equipment.create')}>
                                         <Plus />
                                         Добавить оборудование

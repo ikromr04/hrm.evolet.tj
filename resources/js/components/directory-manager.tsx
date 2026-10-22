@@ -137,7 +137,7 @@ type Row = DirectoryItem & { depth: number };
  * way search sits over a list in a mobile app, rather than a bordered input.
  */
 export const searchBox =
-    'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-10 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none lg:h-8';
+    'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none';
 
 /** Items in tree order (parents first, children indented), or as given when flat. */
 /** The order a list opens in — by name, which is how the server sends it. */
