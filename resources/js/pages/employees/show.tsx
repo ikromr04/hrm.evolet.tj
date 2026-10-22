@@ -22,6 +22,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/app-layout';
@@ -193,38 +194,33 @@ function useTab(available: readonly TabKey[]): [TabKey, (key: TabKey) => void] {
     ];
 }
 
-function Tabs({ tabs, active, onChange }: { tabs: readonly { key: TabKey; title: string }[]; active: TabKey; onChange: (key: TabKey) => void }) {
+function ProfileTabs({
+    tabs,
+    active,
+    onChange,
+}: {
+    tabs: readonly { key: TabKey; title: string }[];
+    active: TabKey;
+    onChange: (key: TabKey) => void;
+}) {
     return (
-        // One strip that scrolls sideways on a phone: wrapped, the underline of the
+        // One strip that scrolls sideways on a phone: wrapped, the line under the
         // open tab would sit between two rows and read as belonging to neither.
         // On a phone the strip also stays under the top bar while the card scrolls,
         // on a frosted band that runs from edge to edge of the screen.
-        //
-        // On a desktop the sections are chips, the way the directories and the
-        // staff lists are switched: the open one a soft brand plate, the rest
-        // plain words. The phone keeps its underline — a 2px line under a word is
-        // read as a tab there, and the band it sits on is already the divider.
-        <nav
-            aria-label="Разделы профиля"
-            className="max-md:bg-background/90 flex overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-12 max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:border-b max-md:px-4 max-md:backdrop-blur-xl md:min-w-0 md:gap-1 [&::-webkit-scrollbar]:hidden"
-        >
-            {tabs.map((tab) => (
-                <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => onChange(tab.key)}
-                    aria-current={tab.key === active ? 'page' : undefined}
-                    className={cn(
-                        'shrink-0 text-sm whitespace-nowrap transition-colors max-md:border-b-2 max-md:px-1 max-md:pt-3 max-md:pb-2.5 max-md:font-medium md:flex md:h-8 md:items-center md:rounded-md md:px-2.5',
-                        tab.key === active
-                            ? 'max-md:border-brand max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold md:dark:bg-white/10'
-                            : 'max-md:text-muted-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground max-md:border-transparent',
-                    )}
-                >
-                    {tab.title}
-                </button>
-            ))}
-        </nav>
+        <Tabs value={active} onValueChange={(next) => onChange(next as TabKey)} className="min-w-0">
+            <TabsList
+                variant="line"
+                aria-label="Разделы профиля"
+                className="max-md:bg-background/90 overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-12 max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:px-4 max-md:backdrop-blur-xl [&::-webkit-scrollbar]:hidden"
+            >
+                {tabs.map((tab) => (
+                    <TabsTrigger key={tab.key} value={tab.key}>
+                        {tab.title}
+                    </TabsTrigger>
+                ))}
+            </TabsList>
+        </Tabs>
     );
 }
 
@@ -2257,11 +2253,11 @@ function EquipmentList({ items }: { items: ProfilePrivate['equipment'] }) {
 function LockedFace() {
     return (
         <div
-            className="bg-muted text-muted-foreground flex size-[72px] shrink-0 items-center justify-center rounded-full md:size-28"
+            className="bg-muted text-muted-foreground flex size-[72px] shrink-0 items-center justify-center rounded-full md:size-[88px]"
             title="Фотография закрыта"
             aria-label="Фотография закрыта"
         >
-            <Lock className="size-7 md:size-8" />
+            <Lock className="size-7" />
         </div>
     );
 }
@@ -2293,10 +2289,10 @@ function Avatar({ employee, canEdit, onDelete }: { employee: Employee; canEdit: 
         <img
             src={employee.avatar}
             alt={`Фотография: ${employee.surname} ${employee.name}`}
-            className="size-[72px] rounded-full object-cover md:size-28"
+            className="size-[72px] rounded-full object-cover md:size-[88px]"
         />
     ) : (
-        <PersonAvatar name={`${employee.name} ${employee.surname}`} className="size-[72px] text-2xl md:size-28 md:text-4xl" />
+        <PersonAvatar name={`${employee.name} ${employee.surname}`} className="size-[72px] text-2xl md:size-[88px] md:text-3xl" />
     );
 
     return (
@@ -2420,8 +2416,8 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         return (
             <Button
                 variant="outline"
-                // The same height as the tabs they share the line with.
-                className="h-8 flex-1 px-3 sm:flex-none sm:px-4"
+                // 36px, as every control the page puts in a line of its own is.
+                className="h-9 flex-1 sm:flex-none"
                 disabled={!to}
                 aria-label={to ? `${label}: ${to.name}` : label}
                 title={to?.name}
@@ -2445,7 +2441,7 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
     };
 
     return (
-        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto">
+        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto md:self-start">
             {arrow(prev, 'Предыдущий', ChevronLeft)}
             {arrow(next, 'Следующий', ChevronRight)}
         </div>
@@ -2673,13 +2669,10 @@ export default function EmployeeProfile({
                         </div>
 
                         {neighbours !== null && <NeighbourCorners prev={neighbours.prev} next={neighbours.next} tab={tab} />}
-                    </div>
-
-                    {/* The sections on the left, the way through the staff on the right. */}
-                    <div className="md:mt-1 md:flex md:items-center md:gap-3 lg:mt-3">
-                        <Tabs tabs={tabs} active={tab} onChange={setTab} />
                         {neighbours !== null && <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />}
                     </div>
+
+                    <ProfileTabs tabs={tabs} active={tab} onChange={setTab} />
 
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
