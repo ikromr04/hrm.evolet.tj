@@ -24,7 +24,7 @@ export default function VerifyEmail({ status }: { status?: string }) {
                 </div>
             )}
 
-            <form className="flex flex-col gap-6" onSubmit={submit}>
+            <form noValidate className="flex flex-col gap-6" onSubmit={submit}>
                 <Button type="submit" variant="secondary" className="w-full" disabled={processing}>
                     {processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
                     Отправить письмо ещё раз

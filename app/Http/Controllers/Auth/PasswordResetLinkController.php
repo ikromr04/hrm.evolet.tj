@@ -23,7 +23,14 @@ class PasswordResetLinkController extends Controller
     }
 
     /**
-     * Handle an incoming password reset link request.
+     * Send the letter, and say plainly whether there was anybody to send it to.
+     *
+     * An address nobody works under is answered with «такого аккаунта нет»
+     * rather than with the same reassurance a real one gets: the company asked
+     * for the page to say which it was, so that somebody mistyping their own
+     * address learns it here instead of waiting for a letter that is not
+     * coming. The cost is that the form confirms whether an address belongs to
+     * somebody here — it is an internal portal, and that was the trade made.
      *
      * @throws ValidationException
      */
@@ -33,10 +40,14 @@ class PasswordResetLinkController extends Controller
             'email' => 'required|email',
         ]);
 
-        Password::sendResetLink(
-            $request->only('email')
-        );
+        $status = Password::sendResetLink($request->only('email'));
 
-        return back()->with('status', __('A reset link will be sent if the account exists.'));
+        if ($status === Password::RESET_LINK_SENT) {
+            return back()->with('status', __($status));
+        }
+
+        // «Не удалось найти пользователя…» or «Подождите перед повторной
+        // попыткой», each said under the field it is about.
+        throw ValidationException::withMessages(['email' => __($status)]);
     }
 }

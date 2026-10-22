@@ -28,7 +28,7 @@ export default function ConfirmPassword() {
         <AuthLayout title="Подтвердите пароль" description="Это защищённый раздел. Чтобы продолжить, введите свой пароль ещё раз">
             <Head title="Подтверждение пароля" />
 
-            <form className="flex flex-col gap-6" onSubmit={submit}>
+            <form noValidate className="flex flex-col gap-6" onSubmit={submit}>
                 <div className="grid content-start gap-2">
                     <Label htmlFor="password">Пароль</Label>
                     <Input

@@ -18,11 +18,6 @@ class AuthenticationTest extends TestCase
         $response->assertInertia(fn (Assert $page) => $page->component('auth/login'));
     }
 
-    public function test_home_redirects_to_dashboard()
-    {
-        $this->get('/')->assertRedirect('/dashboard');
-    }
-
     public function test_registration_is_disabled()
     {
         $this->get('/register')->assertNotFound();

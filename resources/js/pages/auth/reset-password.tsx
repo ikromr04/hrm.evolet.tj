@@ -40,7 +40,7 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
         <AuthLayout title="Новый пароль" description="Придумайте новый пароль для входа в систему">
             <Head title="Сброс пароля" />
 
-            <form className="flex flex-col gap-6" onSubmit={submit}>
+            <form noValidate className="flex flex-col gap-6" onSubmit={submit}>
                 <div className="grid content-start gap-2">
                     <Label htmlFor="email">Электронная почта</Label>
                     <Input
