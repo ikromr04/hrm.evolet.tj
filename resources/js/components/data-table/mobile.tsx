@@ -73,7 +73,6 @@ export function MobileListTools({
     onSort,
     defaultSort,
     defaultSortLabel,
-    onReset,
     className,
 }: {
     columns: ColumnDef[];
@@ -83,12 +82,10 @@ export function MobileListTools({
     sort: Sort;
     sortable: string[];
     onSort: (key: string, direction?: 'asc' | 'desc') => void;
-    /** The order the list opens in; sorted otherwise, the list counts as changed and "reset all" brings it back. */
+    /** The order the list opens in; sorted otherwise, the list counts as changed. */
     defaultSort?: Sort;
     /** Names the opening order when it reads no column of the table, such as the date a row was added. */
     defaultSortLabel?: string;
-    /** Clears the filters and the sorting in one visit, so neither undoes the other. */
-    onReset?: () => void;
     className?: string;
 }) {
     const [open, setOpen] = useState(false);
@@ -219,17 +216,6 @@ export function MobileListTools({
                     </div>
 
                     <div className="flex gap-2 border-t px-4 py-3">
-                        {changed > 0 && (
-                            <Button
-                                variant="outline"
-                                className="h-11 flex-1"
-                                onClick={() =>
-                                    onReset ? onReset() : onFilter(Object.assign({}, ...active.map((column) => clearedFilter(column.filter!))))
-                                }
-                            >
-                                Сбросить всё
-                            </Button>
-                        )}
                         <Button className="h-11 flex-1" onClick={() => setOpen(false)}>
                             Готово
                         </Button>

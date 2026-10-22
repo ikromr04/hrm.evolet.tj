@@ -406,11 +406,25 @@ export function DataTable<Row>({
         // column alone is about as wide as the screen and would leave nothing
         // to scroll, so there the columns all move together; the row actions
         // stay at the edge, being narrow.
+        //
+        // Every pinned column carries the line on the side it is held to — the
+        // left-hand ones on their right, the right-hand ones on their left — so
+        // a pin is read as a pin wherever it stands in the run.
+        //
+        // The line is drawn inside the cell rather than beside it: the borders
+        // of this table are collapsed, and a collapsed table paints nothing a
+        // cell puts outside its own edge, shadows included. Inside, it does. A
+        // header cell carries the line under the head in the same shadow — one
+        // box-shadow is all a cell has, and the later rule would otherwise take
+        // the first — and both are spelled out in full, a class built by halves
+        // being a class the stylesheet never hears of.
         return cn(
             'lg:sticky',
-            header ? 'bg-sidebar z-20' : 'bg-card z-[1]',
-            side === 'left' && column === left[left.length - 1] && 'lg:shadow-[1px_0_0_var(--border)]',
-            side === 'right' && column === right[0] && 'lg:shadow-[-1px_0_0_var(--border)]',
+            header ? 'bg-sidebar z-20' : 'bg-card group-hover/row:bg-muted/40 z-[1] transition-colors',
+            side === 'left' &&
+                (header ? 'lg:shadow-[inset_-1px_0_0_var(--border),inset_0_-1px_0_var(--border)]' : 'lg:shadow-[inset_-1px_0_0_var(--border)]'),
+            side === 'right' &&
+                (header ? 'lg:shadow-[inset_1px_0_0_var(--border),inset_0_-1px_0_var(--border)]' : 'lg:shadow-[inset_1px_0_0_var(--border)]'),
         );
     };
 
@@ -437,7 +451,7 @@ export function DataTable<Row>({
         if (!next || (!gridlines && !column.fenced && !next.fenced)) return '';
 
         const side = pinSide(column.key);
-        const pinDraws = (side === 'left' && column === left[left.length - 1]) || (side === null && right[0] === next);
+        const pinDraws = side === 'left' || pinSide(next.key) === 'right';
 
         return cn('border-r', pinDraws && 'lg:border-r-0');
     };
@@ -511,7 +525,13 @@ export function DataTable<Row>({
                                         className={cn(
                                             // relative: the handle that widens the column lies
                                             // along this cell's own right edge.
-                                            'group/header relative px-4 py-2.5 font-semibold',
+                                            //
+                                            // The line under the head is drawn by the cells
+                                            // themselves rather than by the border of the first
+                                            // row: a collapsed border belongs to the table, and
+                                            // the head holds still while the table runs past it,
+                                            // so the line would stay behind with the rows.
+                                            'group/header relative px-4 py-2.5 font-semibold shadow-[inset_0_-1px_0_var(--border)]',
                                             index === 0 && 'pl-6',
                                             index === visible.length - 1 && !actions && 'pr-6',
                                             stickyClass(column, true),
@@ -739,7 +759,7 @@ export function DataTable<Row>({
                                 <th
                                     scope="col"
                                     style={{ width: actionsCell }}
-                                    className="bg-sidebar sticky right-0 z-20 shadow-[-1px_0_0_var(--border)]"
+                                    className="bg-sidebar sticky right-0 z-20 shadow-[inset_1px_0_0_var(--border),inset_0_-1px_0_var(--border)]"
                                 >
                                     <span className="sr-only">Действия</span>
                                 </th>
@@ -748,7 +768,16 @@ export function DataTable<Row>({
                     </thead>
                     <tbody>
                         {rows.map((row) => (
-                            <tr key={rowKey(row)} className="border-t align-top">
+                            // The first row draws no line of its own: the head
+                            // already carries one along its bottom edge, and two
+                            // lines in one place read as a thicker one.
+                            // Under the cursor the row lifts a shade, and fades
+                            // back when the cursor leaves it. The row itself is
+                            // not what lights up: each cell washes over its own
+                            // ground, so the thin colour falls once everywhere
+                            // rather than twice over the pinned cells, which
+                            // carry a ground of their own.
+                            <tr key={rowKey(row)} className="group/row border-t align-top first:border-t-0">
                                 {visible.map((column, index) => {
                                     const span = rowSpan ? rowSpan(column, row) : 1;
 
@@ -767,15 +796,14 @@ export function DataTable<Row>({
                                             rowSpan={span > 1 ? span : undefined}
                                             style={stickyStyle(column)}
                                             className={cn(
-                                                'px-4 py-3',
-                                                // A cell of one row is cut off at its own
-                                                // edge. One that covers several is not:
-                                                // hiding what overflows would make the cell
-                                                // a scrolling box of its own, and a label
-                                                // kept in view inside it would have nothing
-                                                // left to move against and would never
-                                                // budge.
-                                                span > 1 ? 'whitespace-nowrap' : 'truncate',
+                                                // A cell says everything it holds: the text
+                                                // wraps onto as many lines as the column's
+                                                // width asks for, and the row grows to the
+                                                // tallest of them. A run of characters with
+                                                // nowhere to break — an address, a long
+                                                // email — is broken rather than let out past
+                                                // the column's edge.
+                                                'group-hover/row:bg-muted/40 px-4 py-3 break-words whitespace-normal transition-colors',
                                                 index === 0 && 'pl-6',
                                                 index === visible.length - 1 && !actions && 'pr-6',
                                                 stickyClass(column, false),
@@ -789,13 +817,15 @@ export function DataTable<Row>({
                                     );
                                 })}
                                 {actions && (
-                                    <td className="bg-card sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[-1px_0_0_var(--border)]">{actions(row)}</td>
+                                    <td className="bg-card group-hover/row:bg-muted/40 sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[inset_1px_0_0_var(--border)] transition-colors">
+                                        {actions(row)}
+                                    </td>
                                 )}
                             </tr>
                         ))}
 
                         {rows.length === 0 && (
-                            <tr className="border-t">
+                            <tr className="border-t first:border-t-0">
                                 <td colSpan={visible.length + (actions ? 1 : 0)} className="text-muted-foreground px-6 py-16 text-center">
                                     {empty}
                                 </td>
@@ -807,7 +837,8 @@ export function DataTable<Row>({
 
             {footer && (
                 // From sm up rows-per-page and the paging share a line; a phone shows only the paging.
-                <div className="flex shrink-0 flex-col items-stretch gap-2 border-t px-4 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 md:px-6 md:py-3">
+                // The same ground the head stands on: the two bands hold the rows between them and read as one frame.
+                <div className="bg-sidebar flex shrink-0 flex-col items-stretch gap-2 border-t px-4 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 md:px-6 md:py-3">
                     {footer}
                 </div>
             )}

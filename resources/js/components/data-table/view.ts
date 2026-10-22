@@ -26,9 +26,56 @@ function clampWidth(width: number): number {
     return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width)));
 }
 
-function load(key: string, fallback: ViewState, known: string[]): ViewState {
+/** One of the arrangements a viewer has kept for a table, under the name they gave it. */
+export interface SavedView {
+    id: string;
+    name: string;
+    view: ViewState;
+    /** The filters, the sorting and the search this view was kept with. */
+    query: string;
+}
+
+/** Everything kept for one table: the views, and which of them is in force. */
+interface Catalogue {
+    active: string | null;
+    views: SavedView[];
+}
+
+const NO_VIEWS: Catalogue = { active: null, views: [] };
+
+/**
+ * What is in storage for a table, whichever way it was written.
+ *
+ * A table used to keep the one arrangement, written down as the arrangement
+ * itself; it now keeps as many as the viewer names. One kept the old way is
+ * read as the first of the new ones, so nobody loses the columns they had.
+ */
+function parseCatalogue(raw: string | null): Catalogue {
     try {
-        const saved = JSON.parse(localStorage.getItem(key) ?? 'null') as ViewState | null;
+        const saved = JSON.parse(raw ?? 'null') as (Catalogue & ViewState) | null;
+        if (!saved) return NO_VIEWS;
+
+        if (Array.isArray(saved.views)) {
+            const views = saved.views.filter((one) => one?.id && one?.view?.hidden && one.view.pinned);
+
+            return { active: views.some((one) => one.id === saved.active) ? saved.active : null, views };
+        }
+
+        if (saved.hidden && saved.pinned) {
+            const legacy: SavedView = { id: 'kept', name: 'Вид 1', view: saved, query: '' };
+
+            return { active: legacy.id, views: [legacy] };
+        }
+
+        return NO_VIEWS;
+    } catch {
+        return NO_VIEWS;
+    }
+}
+
+/** A kept view read against the columns there are now, rather than trusted as written. */
+function sanitise(saved: ViewState | undefined, fallback: ViewState, known: string[]): ViewState {
+    try {
         if (!saved?.hidden || !saved?.pinned) return fallback;
 
         // A saved view may mention columns that were renamed or removed since.
@@ -57,12 +104,21 @@ function load(key: string, fallback: ViewState, known: string[]): ViewState {
     }
 }
 
-function save(key: string, view: ViewState) {
+/** What storage holds for a table, or nothing at all where there is no storage. */
+function readCatalogue(key: string): Catalogue {
     try {
-        localStorage.setItem(key, JSON.stringify(view));
+        return parseCatalogue(localStorage.getItem(key));
     } catch {
-        // Storage can be unavailable (private mode); the view just won't persist.
+        // Storage can be unavailable (private mode): the table opens as the page draws it.
+        return NO_VIEWS;
     }
+}
+
+/** The arrangement a table opens in: the view in force, where one is kept. */
+function load(key: string, fallback: ViewState, known: string[]): ViewState {
+    const catalogue = readCatalogue(key);
+
+    return sanitise(catalogue.views.find((one) => one.id === catalogue.active)?.view, fallback, known);
 }
 
 /**
@@ -144,13 +200,13 @@ export function orderedColumns<Column extends { key: string }>(columns: Column[]
 
 /**
  * Which columns a viewer hid, pinned, dragged into another order or dragged
- * wider, remembered between visits. The key carries a version: bump it when the
- * columns change so badly that an old view would be nonsense.
+ * wider. A view kept from an earlier visit opens the table; a view arranged in
+ * this one is kept only when the viewer asks for it — see `useTableMemory`. The
+ * key carries a version: bump it when the columns change so badly that an old
+ * view would be nonsense.
  */
 export function useTableView(storageKey: string, columnKeys: string[], fallback: ViewState) {
     const [view, setView] = useState<ViewState>(() => load(storageKey, fallback, columnKeys));
-
-    useEffect(() => save(storageKey, view), [storageKey, view]);
 
     const pin = (key: string, side: 'left' | 'right' | null) =>
         setView((current) => ({
@@ -213,11 +269,15 @@ export function resetView(storageKey: string) {
 }
 
 /**
- * Keeps a list's filters, sorting and search between visits. The list lives in
- * its query string, so that string is what is remembered — all of it but the
- * page, which may not exist once the list has changed. A visit with a query of
- * its own (a link to a narrowed list) wins over what was remembered; a bare one,
- * from the menu, is sent on to the remembered list.
+ * Opens a list with the filters, the sorting and the search a viewer asked to
+ * keep. The list lives in its query string, so that string is what is kept —
+ * all of it but the page, which may not exist once the list has changed.
+ *
+ * Nothing is written here: a list is kept only when the viewer presses the
+ * button for it (`useTableMemory`). What is read is read once, on the way in. A
+ * visit with a query of its own — a link to a narrowed list, the back button —
+ * is the list that was asked for and stands; a bare one, from the menu, is sent
+ * on to the kept list.
  */
 export function useRememberedQuery(storageKey: string) {
     const { url } = usePage();
@@ -248,14 +308,170 @@ export function useRememberedQuery(storageKey: string) {
             }
         }
         restored.current = true;
+    }, [storageKey, url]);
+}
+
+/** A query string as it is written down: the page left out, the rest in one order. */
+function canonicalQuery(query: string): string {
+    const params = new URLSearchParams(query);
+    params.delete('page');
+    params.sort();
+
+    return params.toString();
+}
+
+/** A view as it is written down: the same arrangement always reads the same. */
+function fingerprint(view: ViewState): string {
+    return JSON.stringify({
+        hidden: [...view.hidden].sort(),
+        left: view.pinned.left,
+        right: view.pinned.right,
+        order: view.order ?? [],
+        widths: Object.fromEntries(Object.entries(view.widths ?? {}).sort(([a], [b]) => a.localeCompare(b))),
+    });
+}
+
+/** «Вид 3»: the name a new one is offered under, after the highest already taken. */
+function nextName(views: SavedView[]): string {
+    const taken = views.map((one) => Number(/^Вид (\d+)$/.exec(one.name)?.[1] ?? 0));
+
+    return `Вид ${Math.max(0, ...taken) + 1}`;
+}
+
+export interface TableMemory {
+    /** Whether there is anything for the menu to say. */
+    offered: boolean;
+    /** The views kept for this table, in the order they were made. */
+    views: SavedView[];
+    /** The view the table was last put into, even if it has been dragged about since. */
+    activeId: string | null;
+    /** Where the table stands: the page's own arrangement, a kept one, or neither. */
+    current: 'default' | 'saved' | 'custom';
+    /** The name a new view would be offered under. */
+    suggestedName: string;
+    /** Show the page's own arrangement, or one that was kept. */
+    choose: (id: string | null) => void;
+    /** Keep what is on screen as a view of its own. */
+    save: (name: string) => void;
+    /** Put what is on screen into a view that is already kept. */
+    overwrite: (id: string) => void;
+    rename: (id: string, name: string) => void;
+    remove: (id: string) => void;
+}
+
+/**
+ * The arrangements a viewer keeps for a table, and which of them it stands in.
+ *
+ * Sorting, widths, pins, the order of the columns, which of them are shown and
+ * every filter are one answer to «how I want this list», and a viewer may have
+ * several: the whole staff by department, the people who left this year, the
+ * four columns somebody reads every Monday. Each is kept under a name, by the
+ * press that makes it — until then nothing is written at all, a list narrowed
+ * to answer one question being no list anybody wants back next week.
+ *
+ * A table therefore stands in the page's own arrangement, in one of the kept
+ * ones, or in neither, having been dragged about since. The menu says which,
+ * moves between them, and writes down what is on screen.
+ */
+export function useTableMemory({
+    viewKey,
+    queryKey,
+    columnKeys,
+    view,
+    setView,
+    fallback,
+}: {
+    viewKey: string;
+    /** Where the filters live, for a table whose list is a page of its own. */
+    queryKey?: string;
+    /** The columns there are, for reading a kept view that may name others. */
+    columnKeys: string[];
+    view: ViewState;
+    setView: (view: ViewState) => void;
+    /** The arrangement the page opens with when nothing is kept. */
+    fallback: ViewState;
+}): TableMemory {
+    const { url } = usePage();
+    const [kept, setKept] = useState(() => readCatalogue(viewKey));
+
+    const query = canonicalQuery(url.split('?')[1] ?? '');
+    const shown = fingerprint(view);
+    // A table whose list is narrowed in the page rather than in the address bar
+    // has no query to keep, and is not asked about one.
+    const tracksQuery = queryKey !== undefined;
+
+    const active = kept.views.find((one) => one.id === kept.active) ?? null;
+    const asActive = active !== null && shown === fingerprint(active.view) && (!tracksQuery || query === canonicalQuery(active.query));
+    const asPage = active === null && shown === fingerprint(fallback) && (!tracksQuery || query === '');
+    const current = asActive ? 'saved' : asPage ? 'default' : 'custom';
+
+    /**
+     * Writes the catalogue down, and beside it the query of whichever view is in
+     * force — on the way in, the list is sent to that query before the page it
+     * belongs to has been drawn, so it is read from a key of its own.
+     */
+    const keep = (next: Catalogue) => {
+        setKept(next);
 
         try {
-            if (query) localStorage.setItem(storageKey, query);
-            else localStorage.removeItem(storageKey);
+            if (next.views.length === 0) localStorage.removeItem(viewKey);
+            else localStorage.setItem(viewKey, JSON.stringify(next));
+
+            if (!queryKey) return;
+
+            const chosen = next.views.find((one) => one.id === next.active);
+            if (chosen) localStorage.setItem(queryKey, chosen.query);
+            else localStorage.removeItem(queryKey);
         } catch {
-            // As above: the list just won't be remembered.
+            // Storage can be unavailable (private mode); the arrangement then
+            // lasts as long as the page does, which is all it ever did.
         }
-    }, [storageKey, url]);
+    };
+
+    /** The list as one address, with the questions it is being asked, or without them. */
+    const go = (next: string) => router.get(`${window.location.pathname}${next ? `?${next}` : ''}`, {}, { preserveScroll: true, replace: true });
+
+    const show = (one: SavedView | null) => {
+        // Read rather than trusted: a kept view may name a column this page no
+        // longer has, and the columns may have been renamed since.
+        setView(one ? sanitise(one.view, fallback, columnKeys) : fallback);
+
+        const wanted = one ? canonicalQuery(one.query) : '';
+        if (tracksQuery && query !== wanted) go(one?.query ?? '');
+    };
+
+    const choose = (id: string | null) => {
+        const one = id === null ? null : (kept.views.find((view) => view.id === id) ?? null);
+
+        keep({ ...kept, active: one?.id ?? null });
+        show(one);
+    };
+
+    const save = (name: string) => {
+        const one: SavedView = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, name, view, query };
+
+        keep({ active: one.id, views: [...kept.views, one] });
+    };
+
+    const overwrite = (id: string) => keep({ active: id, views: kept.views.map((one) => (one.id === id ? { ...one, view, query } : one)) });
+
+    const rename = (id: string, name: string) => keep({ ...kept, views: kept.views.map((one) => (one.id === id ? { ...one, name } : one)) });
+
+    /** What was on screen stays there; only the view it was kept under goes. */
+    const remove = (id: string) => keep({ active: kept.active === id ? null : kept.active, views: kept.views.filter((one) => one.id !== id) });
+
+    return {
+        offered: current !== 'default' || kept.views.length > 0,
+        views: kept.views,
+        activeId: kept.active,
+        current,
+        suggestedName: nextName(kept.views),
+        choose,
+        save,
+        overwrite,
+        rename,
+        remove,
+    };
 }
 
 /**

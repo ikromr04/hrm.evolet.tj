@@ -1,5 +1,5 @@
 import { CategoryFieldInputs, FieldInput } from '@/components/category-field-inputs';
-import { countActiveFilters, DataTable, MobileListTools, useTableView, type ColumnDef, type ViewState } from '@/components/data-table';
+import { DataTable, MobileListTools, TableMemoryButton, useTableMemory, useTableView, type ColumnDef, type ViewState } from '@/components/data-table';
 import { ChangeLines, EventRow } from '@/components/equipment-changes';
 import { CategoryChip } from '@/components/equipment-icon';
 import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
@@ -45,7 +45,6 @@ import {
     Plus,
     Trash2,
     UserPlus,
-    X,
     type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
@@ -1090,11 +1089,20 @@ export default function EquipmentShow({
     // Columns cannot be hidden here — there is no "Колонки" menu to bring one
     // back from — but a pin and an order of their own are remembered between
     // visits; both are offered in each column's own menu.
-    const { view, pin, reorder } = useTableView(
+    const journalDefaults = useMemo(journalView, []);
+    const { view, setView, pin, reorder } = useTableView(
         JOURNAL_VIEW_KEY,
         columns.map((column) => column.key),
-        journalView(),
+        journalDefaults,
     );
+    // A pin or an order of their own is kept when the viewer asks for it.
+    const memory = useTableMemory({
+        viewKey: JOURNAL_VIEW_KEY,
+        columnKeys: columns.map((column) => column.key),
+        view,
+        setView,
+        fallback: journalDefaults,
+    });
     const shown = narrowJournal(events, journalFilters);
 
     const journalCell = (column: ColumnDef, event: JournalEvent) => {
@@ -1125,8 +1133,6 @@ export default function EquipmentShow({
                 );
         }
     };
-    const activeFilters = countActiveFilters(columns, journalFilters as unknown as Record<string, unknown>, () => true);
-
     /** Which block of the card is open in a form. */
     const [editing, setEditing] = useState<'specs' | 'accessories' | 'state' | null>(null);
 
@@ -1157,12 +1163,10 @@ export default function EquipmentShow({
     }
 
     return (
-        // The card opens with the name of the unit in full, so the bar carries the
-        // way back to the list rather than saying that name again.
-        <AppLayout breadcrumbs={breadcrumbs} trail="bar">
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={called} />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:p-4">
+            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
                 {/* Aligned along the bottom, so the title, the actions and the arrows sit on one line. */}
                 {/* On a phone the name wraps to several lines, so the chip sits by its top instead,
                     and the arrows shrink to two chevrons in the top right corner. */}
@@ -1564,12 +1568,9 @@ export default function EquipmentShow({
 
                 {tab === 'journal' && (
                     <div className="flex flex-col gap-3 md:min-h-0 md:flex-1">
-                        {activeFilters > 0 && (
+                        {memory.offered && (
                             <div className="flex items-center max-md:hidden">
-                                <Button variant="ghost" className="h-10 lg:h-8" onClick={() => setJournalFilters(noJournalFilters)}>
-                                    <X />
-                                    Сбросить фильтры ({activeFilters})
-                                </Button>
+                                <TableMemoryButton memory={memory} className="h-10 lg:h-8" />
                             </div>
                         )}
 

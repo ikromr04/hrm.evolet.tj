@@ -284,9 +284,12 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.departments.0.name', 'Департамент маркетинга')
                 ->where('employees.data.0.departments.1.path', 'Департамент маркетинга › Отдел Дизайна')
+                // Each column asks about its own level of the tree.
                 ->where('options.departments', [
                     ['id' => $marketing->id, 'name' => 'Департамент маркетинга', 'full_name' => 'Департамент маркетинга', 'depth' => 0],
-                    ['id' => $design->id, 'name' => 'Отдел Дизайна', 'full_name' => 'Отдел Дизайна', 'depth' => 1],
+                ])
+                ->where('options.units', [
+                    ['id' => $design->id, 'name' => 'Отдел Дизайна', 'full_name' => 'Отдел Дизайна', 'depth' => 0],
                 ])
             );
     }
@@ -309,7 +312,9 @@ class EmployeeDirectoryTest extends TestCase
                 // option carries the full name the filter prints beside it.
                 ->where('options.departments', [
                     ['id' => $marketing->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга', 'depth' => 0],
-                    ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'depth' => 1],
+                ])
+                ->where('options.units', [
+                    ['id' => $design->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна', 'depth' => 0],
                 ])
             );
     }
@@ -355,6 +360,31 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $designer->id));
 
         $this->get('/employees?department[]=999999')->assertSessionHasErrors('department.0');
+    }
+
+    public function test_the_unit_filter_narrows_within_the_department()
+    {
+        $marketing = Department::create(['name' => 'Департамент маркетинга']);
+        $design = Department::create(['name' => 'Отдел Дизайна', 'parent_id' => $marketing->id]);
+        $copy = Department::create(['name' => 'Отдел Текста', 'parent_id' => $marketing->id]);
+
+        $designer = User::factory()->create();
+        $designer->departments()->attach($design);
+        User::factory()->create()->departments()->attach($copy);
+        $this->actingAs($this->colleague());
+
+        // The unit is asked for on its own, and the two questions narrow together.
+        $this->get('/employees?unit[]='.$design->id)
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('employees.data', 1)
+                ->where('employees.data.0.id', $designer->id)
+                ->where('filters.unit', [$design->id])
+            );
+
+        $this->get('/employees?department[]='.$marketing->id.'&unit[]='.$design->id)
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 1)->where('employees.data.0.id', $designer->id));
+
+        $this->get('/employees?unit[]=999999')->assertSessionHasErrors('unit.0');
     }
 
     public function test_directory_sorts_by_department()

@@ -1,14 +1,14 @@
 import {
-    clearedFilter,
     countActiveFilters,
     cycleSort,
     DataTable,
     MobileListTools,
     MobileRow,
     orderedColumns,
-    resetView,
+    TableMemoryButton,
     useDebouncedSearch,
     useRememberedQuery,
+    useTableMemory,
     useTableView,
     type ColumnDef,
     type Sort,
@@ -29,10 +29,8 @@ import {
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -44,11 +42,11 @@ import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
 import { statusLabel, statusTone, type EquipmentStatus as Status } from '@/lib/equipment';
 import { cn } from '@/lib/utils';
+import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     ChevronDown,
-    Columns3,
     Ellipsis,
     Eraser,
     History,
@@ -56,16 +54,16 @@ import {
     ListFilter,
     LoaderCircle,
     Plus,
-    RotateCcw,
     Search,
     Trash2,
     UserPlus,
     Users,
     Wrench,
-    X,
     type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
+
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оборудование', href: '/equipment' }];
 
 interface Department {
     /** The abbreviation where the department has one, the full name otherwise. */
@@ -240,6 +238,7 @@ interface Props {
 // column of its own: a view that had never heard of it would show it, and the
 // table is meant to open without it.
 const STORAGE_KEY = 'equipment.table.view.v4';
+const QUERY_KEY = 'equipment.table.query';
 /** The other table's columns are the categories, so its own vista is kept apart. */
 const HOLDERS_STORAGE_KEY = 'equipment.holders.view.v2';
 
@@ -678,13 +677,13 @@ function buildColumns(options: Options): ColumnDef[] {
         // in and no column at all — the one question the table answered with no
         // header to press — until the structure took that place; so it has a
         // column of its own now rather than becoming a thing only a hand-typed
-        // address could ask for. Hidden until somebody turns it on in
-        // «Колонки», so the table is no wider than it was for everybody else.
+        // address could ask for. Hidden until somebody turns it on in the
+        // «Вид» menu, so the table is no wider than it was for everybody else.
         { key: 'created', label: 'Добавлено', width: 190 },
     ];
 }
 
-/** The column the list opens without; «Колонки» is where it is turned on. */
+/** The column the list opens without; the «Вид» menu is where it is turned on. */
 const HIDDEN_BY_DEFAULT = ['created'];
 
 /**
@@ -950,6 +949,7 @@ function HolderFilters({
             </PopoverTrigger>
             <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-3">
                 <form
+                    noValidate
                     className="flex flex-col gap-3"
                     onSubmit={(event) => {
                         event.preventDefault();
@@ -1064,7 +1064,17 @@ export default function EquipmentIndex({
     /* Both tables can be dragged into another order, so the menu reads along whichever is on screen. */
     const listed = orderedColumns(columns, order);
 
-    useRememberedQuery('equipment.table.query');
+    useRememberedQuery(QUERY_KEY);
+    // The table on screen is the one whose arrangement a press keeps; the
+    // questions are the page's own and are kept with whichever that is.
+    const memory = useTableMemory({
+        viewKey: storageKey,
+        queryKey: QUERY_KEY,
+        columnKeys: columns.map((column) => column.key),
+        view: layout,
+        setView: setLayout,
+        fallback: defaults,
+    });
     const [asking, setAsking] = useState<{ unit: Unit; kind: AskedMove } | null>(null);
     const [deleting, setDeleting] = useState<Unit | null>(null);
 
@@ -1164,13 +1174,8 @@ export default function EquipmentIndex({
      */
     const narrowing = byHolder ? [...columns.filter((column) => column.filter), ...holderFilters] : columns.filter((column) => column.filter);
     const activeFilters = countActiveFilters(narrowing, filters as unknown as Record<string, unknown>, () => true);
-    // A sorting of the viewer's own counts as one more change to reset.
+    // A sorting of the viewer's own counts as one more change to the list.
     const changed = activeFilters + (sortedByColumn ? 1 : 0);
-    const resetAll = () =>
-        visit({
-            filters: narrowing.reduce<Partial<Filters>>((acc, column) => ({ ...acc, ...clearedFilter(column.filter!) }), {}),
-            sort: null,
-        });
 
     const cell = (column: ColumnDef, unit: Unit) => {
         switch (column.key) {
@@ -1263,10 +1268,10 @@ export default function EquipmentIndex({
     );
 
     return (
-        <AppLayout title="Оборудование" fitViewport>
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Оборудование" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">
                 {/* Search, the status lists, the view and the one thing you can add: one line.
                     On a phone: the search and the sorting-and-filters button, then the tabs
                     as a row of chips; the rest is reached from the tab bar or the round button. */}
@@ -1297,7 +1302,6 @@ export default function EquipmentIndex({
                         // a department's rows together — so the sheet names it
                         // above the columns.
                         defaultSortLabel={OPENING_LABEL}
-                        onReset={resetAll}
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
@@ -1365,17 +1369,22 @@ export default function EquipmentIndex({
                         </nav>
                     )}
 
-                    {changed > 0 && (
-                        <Button
-                            variant="ghost"
-                            // On a phone the filters are cleared in their own sheet.
-                            className="h-10 max-md:hidden lg:h-8"
-                            onClick={resetAll}
-                        >
-                            <X />
-                            Сбросить фильтры ({changed})
-                        </Button>
-                    )}
+                    {/* The columns ride in the same menu as the view they are part of. */}
+                    <TableMemoryButton memory={memory} className="h-10 max-md:hidden lg:h-8">
+                        {listed.map((column) => (
+                            <DropdownMenuCheckboxItem
+                                key={column.key}
+                                checked={!isHidden(column.key)}
+                                // The column a row is known by stays: the name of a unit
+                                // in the list, the name of a colleague in the other view.
+                                disabled={column.key === (byHolder ? 'holder' : 'name')}
+                                onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
+                                onSelect={(event) => event.preventDefault()}
+                            >
+                                {column.label}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </TableMemoryButton>
 
                     {/* The questions about equipment that «По сотрудникам» has no column
                         to ask them under; in the list every one of them is a header. */}
@@ -1387,43 +1396,6 @@ export default function EquipmentIndex({
                             onApply={(changes) => visit({ filters: changes })}
                         />
                     )}
-
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="h-10 font-normal max-md:hidden lg:h-8">
-                                <Columns3 />
-                                Колонки
-                                <ChevronDown className="text-muted-foreground" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
-                            <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {listed.map((column) => (
-                                <DropdownMenuCheckboxItem
-                                    key={column.key}
-                                    checked={!isHidden(column.key)}
-                                    // The column a row is known by stays: the name of a unit
-                                    // in the list, the name of a colleague in the other view.
-                                    disabled={column.key === (byHolder ? 'holder' : 'name')}
-                                    onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
-                                    onSelect={(event) => event.preventDefault()}
-                                >
-                                    {column.label}
-                                </DropdownMenuCheckboxItem>
-                            ))}
-
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    resetView(storageKey);
-                                    setLayout(defaults);
-                                }}
-                            >
-                                <RotateCcw />
-                                Сбросить вид
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
 
                     {(canJournal || can.create) && (
                         <>

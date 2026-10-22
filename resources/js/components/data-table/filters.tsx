@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { ListFilter } from 'lucide-react';
+import { ListFilter, Search } from 'lucide-react';
 import { useState } from 'react';
 import { HeaderHint } from './hint';
 import { type ColumnDef, type FilterDef, type FilterValues } from './types';
@@ -41,10 +41,13 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
     const [text, setText] = useState(filter.type === 'text' ? ((filters[filter.param] as string) ?? '') : '');
     const [from, setFrom] = useState(filter.type === 'dates' ? ((filters[filter.from] as string) ?? '') : '');
     const [to, setTo] = useState(filter.type === 'dates' ? ((filters[filter.to] as string) ?? '') : '');
+    /* What is being looked for in a long list of boxes to tick. */
+    const [lookup, setLookup] = useState('');
 
     if (filter.type === 'text') {
         return (
             <form
+                noValidate
                 className="flex flex-col gap-2"
                 onSubmit={(event) => {
                     event.preventDefault();
@@ -85,32 +88,66 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
         const toggle = (value: string | number, on: boolean) =>
             onApply({ [filter.param]: on ? [...selected, value] : selected.filter((item) => item !== value) });
 
-        return (
-            <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
-                {filter.options.length === 0 && <p className="text-muted-foreground px-2 py-1.5 text-sm">Нет значений</p>}
-                {filter.options.map((option) => {
-                    const id = `filter-${filter.param}-${option.value}`;
+        // A list is looked through rather than scrolled: every funnel with boxes
+        // to tick opens on a line to type in, whether it holds the department
+        // tree or five languages, so the way to find a value is the same one
+        // everywhere. The needle is matched against what the line says — its
+        // label and the full name beside it.
+        const needle = lookup.trim().toLowerCase();
+        const shown =
+            needle === '' ? filter.options : filter.options.filter((option) => `${option.label} ${option.hint ?? ''}`.toLowerCase().includes(needle));
 
-                    return (
-                        <div
-                            key={id}
-                            className="hover:bg-accent flex items-center gap-2 rounded-md px-2 py-1.5"
-                            style={option.depth ? { paddingLeft: 8 + option.depth * 20 } : undefined}
-                        >
-                            <Checkbox id={id} checked={selected.includes(option.value)} onCheckedChange={(on) => toggle(option.value, on === true)} />
-                            <Label htmlFor={id} className="flex-1 cursor-pointer font-normal">
-                                {option.label}
-                                {option.hint && <span className="text-muted-foreground ml-1.5 text-xs">{option.hint}</span>}
-                            </Label>
-                        </div>
-                    );
-                })}
+        return (
+            <div className="flex flex-col gap-2">
+                <div className="relative">
+                    <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+                    <Input
+                        autoFocus
+                        value={lookup}
+                        onChange={(event) => setLookup(event.target.value)}
+                        placeholder="Поиск"
+                        aria-label="Поиск по списку"
+                        className="h-9 pl-8"
+                    />
+                </div>
+
+                <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
+                    {filter.options.length === 0 && <p className="text-muted-foreground px-2 py-1.5 text-sm">Нет значений</p>}
+                    {filter.options.length > 0 && shown.length === 0 && (
+                        <p className="text-muted-foreground px-2 py-1.5 text-sm">Ничего не найдено</p>
+                    )}
+                    {shown.map((option) => {
+                        const id = `filter-${filter.param}-${option.value}`;
+
+                        return (
+                            <div
+                                key={id}
+                                className="hover:bg-accent flex items-center gap-2 rounded-md px-2 py-1.5"
+                                // A tree is indented by where a line sits in it,
+                                // but not while the list is being looked through:
+                                // what is found stands on its own.
+                                style={option.depth && needle === '' ? { paddingLeft: 8 + option.depth * 20 } : undefined}
+                            >
+                                <Checkbox
+                                    id={id}
+                                    checked={selected.includes(option.value)}
+                                    onCheckedChange={(on) => toggle(option.value, on === true)}
+                                />
+                                <Label htmlFor={id} className="flex-1 cursor-pointer font-normal">
+                                    {option.label}
+                                    {option.hint && <span className="text-muted-foreground ml-1.5 text-xs">{option.hint}</span>}
+                                </Label>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
         );
     }
 
     return (
         <form
+            noValidate
             className="flex flex-col gap-2"
             onSubmit={(event) => {
                 event.preventDefault();

@@ -3,6 +3,8 @@ import {
     DataTable,
     MobileListTools,
     MobileRow,
+    TableMemoryButton,
+    useTableMemory,
     useTableView,
     type ColumnDef,
     type FilterDef,
@@ -468,7 +470,11 @@ function DeleteDialog({ position, onClose }: { position: Position; onClose: () =
 const NOTHING_CHOSEN: Narrowing = { department: [], unit: [] };
 
 export default function PositionsIndex({ positions, options, canEdit }: Props) {
-    const { view, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
+    const { view, setView, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
+    // The columns as this viewer arranged them, kept by a press rather than
+    // behind their back. The list itself is narrowed in the page rather than in
+    // the address bar, so there is no query to keep beside them.
+    const memory = useTableMemory({ viewKey: STORAGE_KEY, columnKeys, view, setView, fallback: defaultView });
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
     // The departments and the units the list is narrowed to, kept here beside
@@ -638,15 +644,17 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                     // read down, which is no one column — so the sheet names it
                     // above the columns, and the three presses come back to it.
                     defaultSortLabel={STRUCTURE_LABEL}
-                    // One visit clears both, so neither is left narrowing a list
-                    // somebody has just put back in order.
-                    onReset={() => {
-                        setSort(DEFAULT_SORT);
-                        setChosen(NOTHING_CHOSEN);
-                    }}
                     className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                 />
             </div>
+
+            {/* Only while there is something to say, and only where there is room
+                to say it: the phone has no pins to keep. */}
+            {memory.offered && (
+                <div className="flex justify-end max-md:hidden">
+                    <TableMemoryButton memory={memory} />
+                </div>
+            )}
 
             <DataTable
                 columns={tableColumns}

@@ -1,16 +1,15 @@
 import { CitizenshipBadges } from '@/components/citizenship-badges';
 import {
-    clearedFilter,
-    countActiveFilters,
     cycleSort,
     DataTable,
     isSorted,
     MobileListTools,
     MobileRow,
     orderedColumns,
-    resetView,
+    TableMemoryButton,
     useDebouncedSearch,
     useRememberedQuery,
+    useTableMemory,
     useTableView,
     type ColumnDef as TableColumn,
     type FilterDef as TableFilter,
@@ -29,21 +28,23 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type PrivateDetails, type Sex, type SpokenLanguage } from '@/lib/employee';
 import { cn } from '@/lib/utils';
-import { type SharedData } from '@/types';
+import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, Columns3, Lock, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { ChevronDown, Lock, Plus, Search } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
+
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Сотрудники', href: '/employees' }];
 
 /* ------------------------------------------------------------------ types */
 
@@ -100,6 +101,7 @@ interface Filters {
     role: string[];
     position: number[];
     department: number[];
+    unit: number[];
     language: number[];
     sex: Sex | null;
     birth_from: string | null;
@@ -153,8 +155,10 @@ interface EmployeesProps {
         roles: { name: string; title: string }[];
         /** With «display_name» — «Администратор (ОАП)» — since one name may now be filed in several departments. */
         positions: { id: number; name: string; display_name: string }[];
-        /** The department tree flattened, parents first. */
+        /** The departments that stand on their own — the «Департамент» funnel. */
         departments: { id: number; name: string; full_name: string; depth: number }[];
+        /** What hangs inside them, a unit of a unit indented under its own — the «Отдел» funnel. */
+        units: { id: number; name: string; full_name: string; depth: number }[];
         languages: { id: number; name: string }[];
         nationalities: string[];
         citizenships: string[];
@@ -176,7 +180,7 @@ type FilterDef =
     | { type: 'select'; param: 'sex' | 'marital_status'; options: Option<string>[] }
     | {
           type: 'multi';
-          param: 'role' | 'position' | 'department' | 'language' | 'nationality' | 'citizenship' | 'children';
+          param: 'role' | 'position' | 'department' | 'unit' | 'language' | 'nationality' | 'citizenship' | 'children';
           options: Option<string | number>[];
       }
     | { type: 'dates'; from: 'birth_from' | 'hired_from'; to: 'birth_to' | 'hired_to' };
@@ -194,13 +198,22 @@ interface ColumnDef {
 
 /* ---------------------------------------------------------------- helpers */
 
-const fullName = (row: EmployeeRow) => [row.surname, row.name].filter(Boolean).join(' ');
+/* ФИО in full, as far as the viewer may read it: the patronymic travels only
+   to those who may see that line, and a row without it simply shows ФИ. */
+const fullName = (row: EmployeeRow) => [row.surname, row.name, row.patronymic].filter(Boolean).join(' ');
+
+/* A level of the structure as a funnel reads it: the short name on the line and
+   the long one under it, indented by how deep it sits in its own list. */
+const departmentOptions = (level: { id: number; name: string; full_name: string; depth: number }[]) =>
+    level.map((d) => ({ value: d.id, label: d.name, hint: d.full_name === d.name ? undefined : d.full_name, depth: d.depth }));
 
 function RoleBadges({ titles }: { titles: string[] }) {
     return (
         <div className="flex flex-wrap gap-1 whitespace-normal">
             {titles.map((title) => (
-                <StatusBadge key={title} tone="info">
+                // A badge long enough to outrun its column breaks onto a
+                // second line instead of being cut off at the edge of it.
+                <StatusBadge key={title} tone="info" className="h-auto flex-wrap py-[3px] whitespace-normal">
                     {title}
                 </StatusBadge>
             ))}
@@ -211,11 +224,30 @@ function RoleBadges({ titles }: { titles: string[] }) {
 function PositionBadges({ positions }: { positions: PositionRef[] }) {
     return (
         <div className="flex flex-wrap gap-1 whitespace-normal">
-            {positions.map((position) => (
-                <StatusBadge key={position.id ?? position.name} tone="success">
-                    <PositionName name={position.name} unit={position.unit} />
-                </StatusBadge>
-            ))}
+            {positions.map((position) => {
+                const badge = (
+                    <StatusBadge tone="success" className="h-auto flex-wrap py-[3px] whitespace-normal">
+                        <PositionName name={position.name} unit={position.unit} />
+                    </StatusBadge>
+                );
+
+                // The badge is the way to the job for whoever may read the jobs,
+                // and a word for the rest: a position arrives without an id
+                // where it is not theirs to open, and a link into a refusal is
+                // no better than no link at all.
+                return position.id === null ? (
+                    <span key={position.name}>{badge}</span>
+                ) : (
+                    <Link
+                        key={position.id}
+                        href={route('positions.show', position.id)}
+                        title={`Открыть должность: ${positionTitle(position)}`}
+                        className="rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
+                    >
+                        {badge}
+                    </Link>
+                );
+            })}
         </div>
     );
 }
@@ -401,20 +433,15 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 label: 'Департамент',
                 width: 215,
                 private: false,
-                // The one funnel the two columns share, and the whole tree in
-                // it: picking a department takes in everyone in its units too,
-                // so this answers for both columns at once. A second funnel on
-                // «Отдел» would write the same parameter and quietly throw away
-                // whatever the first had chosen.
+                // Each column asks about its own level of the tree, and the two
+                // narrow together: the department names the branch — everyone in
+                // its units included — and the unit the place inside it. They
+                // write their own parameters, so neither throws away what the
+                // other has chosen.
                 filter: {
                     type: 'multi',
                     param: 'department',
-                    options: options.departments.map((d) => ({
-                        value: d.id,
-                        label: d.name,
-                        hint: d.full_name === d.name ? undefined : d.full_name,
-                        depth: d.depth,
-                    })),
+                    options: departmentOptions(options.departments),
                 },
                 cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="department" /> : <Empty />),
             },
@@ -423,6 +450,11 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 label: 'Отдел',
                 width: 180,
                 private: false,
+                filter: {
+                    type: 'multi',
+                    param: 'unit',
+                    options: departmentOptions(options.units),
+                },
                 cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="unit" /> : <Empty />),
             },
             {
@@ -437,17 +469,21 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 filter: { type: 'text', param: 'search', placeholder: 'ФИО или почта' },
                 cell: (row) => (
                     <div className="flex items-center gap-3">
-                        <Face row={row} visible={visible} className="size-[38px] text-[13px]" />
+                        {/* The face opens the card the name opens: it is the same
+                            person, and a picture is the easier thing to aim at. */}
+                        <Link href={route('employees.show', row.id)} tabIndex={-1} aria-hidden className="shrink-0">
+                            <Face row={row} visible={visible} className="size-[38px] text-[13px]" />
+                        </Link>
                         <div className="flex min-w-0 flex-col gap-0.5">
                             <Link
                                 href={route('employees.show', row.id)}
-                                className="hover:text-brand-strong truncate font-semibold hover:underline dark:hover:text-[#C5E27A]"
+                                className="hover:text-brand-strong font-semibold break-words hover:underline dark:hover:text-[#C5E27A]"
                             >
                                 {fullName(row)}
                             </Link>
                             <a
                                 href={`mailto:${row.email}`}
-                                className="text-brand-strong truncate text-[13px] hover:underline dark:text-[#C5E27A]"
+                                className="text-brand-strong text-[13px] break-words hover:underline dark:text-[#C5E27A]"
                                 title={`Написать: ${row.email}`}
                             >
                                 {row.email}
@@ -504,7 +540,9 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
             {
                 key: 'sex',
                 label: 'Пол',
-                width: 130,
+                // Short as the word is, the head above it is not: the title,
+                // the sorting arrows, the funnel and the menu all stand there.
+                width: 170,
                 private: false,
                 filter: {
                     type: 'select',
@@ -575,7 +613,9 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
             {
                 key: 'children',
                 label: 'Дети',
-                width: 130,
+                // The same head as «Пол»: a short word with everything the head
+                // carries beside it.
+                width: 170,
                 private: true,
                 filter: {
                     type: 'multi',
@@ -611,6 +651,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
 // beside it. Applying the half of it that still fits would leave a table
 // nobody arranged, so the saved views start again here.
 const STORAGE_KEY = 'employees.table.view.v6';
+const QUERY_KEY = 'employees.table.query';
 
 function defaultView() {
     return {
@@ -689,7 +730,17 @@ export default function Employees({
         columns.map((c) => c.key),
         defaults,
     );
-    useRememberedQuery('employees.table.query');
+    useRememberedQuery(QUERY_KEY);
+    // Everything the viewer has done to this list — the columns and the
+    // questions both — is kept by one press and forgotten by the next.
+    const memory = useTableMemory({
+        viewKey: STORAGE_KEY,
+        queryKey: QUERY_KEY,
+        columnKeys: columns.map((c) => c.key),
+        view,
+        setView,
+        fallback: defaults,
+    });
 
     const visit = (next: { filters?: Partial<Filters>; sort?: Sort; perPage?: number; status?: EmploymentStatus }) => {
         router.get(
@@ -715,40 +766,52 @@ export default function Employees({
     // A column may carry a filter the viewer must not use on everyone.
     // Everything on screen may be filtered by: what may not be read is not here.
     const canFilter = (column: ColumnDef) => Boolean(column.filter);
-    const activeFilters = countActiveFilters(columns as unknown as TableColumn[], filters as unknown as Record<string, unknown>, (column) =>
-        canFilter(column as unknown as ColumnDef),
-    );
-
-    // A sorting of the viewer's own counts as one more change to reset.
-    const changed = activeFilters + (isSorted(sort, DEFAULT_SORT) ? 1 : 0);
-    const resetAll = () =>
-        visit({
-            filters: columns.filter(canFilter).reduce<Partial<Filters>>((acc, c) => ({ ...acc, ...clearedFilter(c.filter!) }), {}),
-            sort: DEFAULT_SORT,
-        });
-
     const sortBy = (key: string, direction?: 'asc' | 'desc') =>
         visit({ sort: direction ? { key: key as Sort['key'], direction } : (cycleSort(sort, key, DEFAULT_SORT) as Sort) });
 
     return (
-        <AppLayout title="Сотрудники" fitViewport>
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Сотрудники" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-4 md:px-4 md:py-6 lg:px-6">
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Сотрудники</h1>
+
                 {/* On a phone this is one line — the search and the button behind
                 which sorting and filters wait — with the lists as chips under it. */}
-                <div className="-mb-2 flex flex-wrap items-center gap-2 max-md:mb-0 max-md:flex-nowrap">
-                    <label className="border-input bg-background text-muted-foreground focus-within:ring-ring max-md:bg-card flex h-10 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:min-w-0 max-md:rounded-xl max-md:border-transparent max-md:shadow-none lg:h-8">
-                        <Search className="size-4 shrink-0" />
-                        <span className="sr-only">Поиск по всем полям</span>
-                        <input
+                <div className="flex flex-wrap items-center gap-3 max-md:flex-nowrap max-md:gap-2">
+                    {/* The lists the page can show, as plain tabs. Choosing one
+                        is a visit, so the value is the address's and the strip
+                        only says which of them is open. */}
+                    {statusCounts && (
+                        <Tabs value={status} onValueChange={(next) => visit({ status: next as EmploymentStatus })} className="shrink-0 max-md:hidden">
+                            <TabsList aria-label="Списки сотрудников">
+                                {statusTabs.map((tab) => (
+                                    <TabsTrigger key={tab.status} value={tab.status}>
+                                        {tab.label}
+                                        <span className="text-muted-foreground text-xs tabular-nums">{statusCounts[tab.status]}</span>
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                        </Tabs>
+                    )}
+
+                    {/* The application's own field, with the magnifier laid over
+                        its left padding: one input everywhere, and the icon says
+                        what this one is for. */}
+                    <div className="relative w-80 min-w-48 max-md:w-auto max-md:min-w-0 max-md:flex-1 md:mr-auto">
+                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                        <Label htmlFor="employees-search" className="sr-only">
+                            Поиск по всем полям
+                        </Label>
+                        <Input
+                            id="employees-search"
                             type="search"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                             placeholder="Поиск по всем полям"
-                            className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden"
+                            className="max-md:bg-card h-9 pl-9 text-sm max-md:h-10 max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                         />
-                    </label>
+                    </div>
 
                     <MobileListTools
                         columns={columns as unknown as TableColumn[]}
@@ -760,77 +823,27 @@ export default function Employees({
                         onSort={sortBy}
                         defaultSort={DEFAULT_SORT}
                         defaultSortLabel="Дата добавления"
-                        onReset={resetAll}
                         className="bg-card rounded-xl border-transparent shadow-none"
                     />
 
-                    {statusCounts && (
-                        <nav aria-label="Списки сотрудников" className="flex flex-wrap items-center gap-1 text-sm max-md:hidden">
-                            {statusTabs.map((tab) => (
-                                <button
-                                    key={tab.status}
-                                    type="button"
-                                    onClick={() => visit({ status: tab.status })}
-                                    aria-current={status === tab.status ? 'page' : undefined}
-                                    className={cn(
-                                        'flex h-10 items-center gap-1.5 rounded-md px-2.5 whitespace-nowrap transition-colors lg:h-8',
-                                        status === tab.status
-                                            ? 'bg-brand-soft text-foreground font-semibold dark:bg-white/10'
-                                            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                                    )}
-                                >
-                                    {tab.label}
-                                    <span className="text-muted-foreground text-xs font-semibold tabular-nums">{statusCounts[tab.status]}</span>
-                                </button>
-                            ))}
-                        </nav>
-                    )}
-
-                    {/* The phone's filter sheet has its own "reset all". */}
-                    {changed > 0 && (
-                        <Button variant="ghost" className="h-10 max-md:hidden lg:h-8" onClick={resetAll}>
-                            <X />
-                            Сбросить фильтры ({changed})
-                        </Button>
-                    )}
-
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="h-10 font-normal max-md:hidden lg:h-8">
-                                <Columns3 />
-                                Колонки
-                                <ChevronDown className="text-muted-foreground" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
-                            <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {orderedColumns(columns, order).map((column) => (
-                                <DropdownMenuCheckboxItem
-                                    key={column.key}
-                                    checked={!isHidden(column.key)}
-                                    disabled={column.key === 'name'}
-                                    onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
-                                    onSelect={(event) => event.preventDefault()}
-                                >
-                                    {column.label}
-                                </DropdownMenuCheckboxItem>
-                            ))}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    resetView(STORAGE_KEY);
-                                    setView(defaults);
-                                }}
+                    {/* The columns ride in the same menu as the view they are part of. */}
+                    <TableMemoryButton memory={memory} className="max-md:hidden">
+                        {orderedColumns(columns, order).map((column) => (
+                            <DropdownMenuCheckboxItem
+                                key={column.key}
+                                checked={!isHidden(column.key)}
+                                disabled={column.key === 'name'}
+                                onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
+                                onSelect={(event) => event.preventDefault()}
                             >
-                                <RotateCcw />
-                                Сбросить вид
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                                {column.label}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </TableMemoryButton>
 
                     {canCreate && (
                         // A page of its own: the form runs over several steps.
-                        <Button className="h-10 max-md:hidden lg:h-8" asChild>
+                        <Button className="h-9 max-md:hidden" asChild>
                             <Link href={route('employees.create')}>
                                 <Plus />
                                 Добавить сотрудника
@@ -894,10 +907,11 @@ export default function Employees({
                     onFilter={(changes) => applyFilters(changes as Partial<Filters>)}
                     canFilter={(column) => canFilter(column as unknown as ColumnDef)}
                     wideFilter={(column) => {
-                        // The department tree needs more room than a short list.
+                        // The structure needs more room than a short list: the
+                        // names are long and a unit carries the way to it.
                         const filter = column.filter as TableFilter | undefined;
 
-                        return filter?.type === 'multi' && filter.param === 'department';
+                        return filter?.type === 'multi' && (filter.param === 'department' || filter.param === 'unit');
                     }}
                     view={view}
                     onPin={pin}

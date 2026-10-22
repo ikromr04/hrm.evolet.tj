@@ -1,5 +1,17 @@
 import { type CardFieldGroup, type PlainRight } from '@/components/card-fields';
-import { cycleSort, DataTable, isSorted, MobileRow, useTableView, type CellRenderer, type ColumnDef, type Sort } from '@/components/data-table';
+import {
+    cycleSort,
+    DataTable,
+    isSorted,
+    MobileRow,
+    TableMemoryButton,
+    useTableMemory,
+    useTableView,
+    type CellRenderer,
+    type ColumnDef,
+    type Sort,
+    type ViewState,
+} from '@/components/data-table';
 import { DirectoryEditor, rowLabel, type DirectoryItem, type Labels } from '@/components/directory-editor';
 import { IconChip } from '@/components/equipment-icon';
 import { type EquipmentScope } from '@/components/equipment-scopes';
@@ -189,11 +201,12 @@ export function DirectoryManager({
         [countLabel],
     );
 
-    const { view, pin, toggleHidden, reorder } = useTableView(
-        `directory:${routeName}`,
-        columns.map((column) => column.key),
-        { hidden: [], pinned: { left: [], right: [] } },
-    );
+    const viewKey = `directory:${routeName}`;
+    const defaults = useMemo<ViewState>(() => ({ hidden: [], pinned: { left: [], right: [] } }), []);
+    const columnKeys = useMemo(() => columns.map((column) => column.key), [columns]);
+    const { view, setView, pin, toggleHidden, reorder } = useTableView(viewKey, columnKeys, defaults);
+    // Kept when the viewer says so, not because they once dragged a column.
+    const memory = useTableMemory({ viewKey, columnKeys, view, setView, fallback: defaults });
 
     const rows = useMemo(() => orderRows(items, tree), [items, tree]);
     const countOf = (row: Row) => row.total_count ?? row.users_count;
@@ -415,10 +428,17 @@ export function DirectoryManager({
              * The desktop list is the table the rest of the app uses: its columns
              * sort, narrow, hide, pin and drag like the ones in the employee and
              * equipment lists, and what a viewer makes of them is remembered
-             * between visits. The phone keeps the list above instead — three
-             * columns do not fit 390px however they are arranged.
+             * between visits, once they ask for it. The phone keeps the list
+             * above instead — three columns do not fit 390px however they are
+             * arranged.
              */}
             <div className="flex min-h-0 flex-1 flex-col max-md:hidden">
+                {memory.offered && (
+                    <div className="flex justify-end pb-2">
+                        <TableMemoryButton memory={memory} />
+                    </div>
+                )}
+
                 <DataTable
                     columns={columns}
                     rows={visible}

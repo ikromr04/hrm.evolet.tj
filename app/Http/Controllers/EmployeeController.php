@@ -17,7 +17,6 @@ use App\Models\UserDetail;
 use App\Models\UserEducation;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
-use App\Notifications\EmployeeAdded;
 use App\Support\Access;
 use App\Support\Directories;
 use App\Support\EmployeeFields;
@@ -25,7 +24,6 @@ use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
 use App\Support\EquipmentName;
 use App\Support\Placements;
-use App\Support\Recipients;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,7 +32,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -111,6 +108,8 @@ class EmployeeController extends Controller
             'role.*' => ['string', Rule::exists('roles', 'name')],
             'department' => $private('departments', ['nullable', 'array']),
             'department.*' => ['integer', Rule::exists('departments', 'id')],
+            'unit' => $private('departments', ['nullable', 'array']),
+            'unit.*' => ['integer', Rule::exists('departments', 'id')],
             'language' => $private('languages', ['nullable', 'array']),
             'language.*' => ['integer', Rule::exists('languages', 'id')],
             'sex' => $private('sex', ['nullable', Rule::in(['male', 'female'])]),
@@ -136,6 +135,7 @@ class EmployeeController extends Controller
             'position' => array_map('intval', $input['position'] ?? []),
             'role' => array_values($input['role'] ?? []),
             'department' => array_map('intval', $input['department'] ?? []),
+            'unit' => array_map('intval', $input['unit'] ?? []),
             'language' => array_map('intval', $input['language'] ?? []),
             'sex' => $input['sex'] ?? null,
             'birth_from' => $input['birth_from'] ?? null,
@@ -219,7 +219,8 @@ class EmployeeController extends Controller
                 // filed in two of them, and a filter offering «Аналитик» twice
                 // over would be asking somebody to guess which is which.
                 'positions' => Placements::options()['positions'],
-                'departments' => $this->departmentOptions(),
+                'departments' => $this->departmentLevel(false),
+                'units' => $this->departmentLevel(true),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
                 'citizenships' => $shows('citizenship') ? $this->citizenships() : [],
@@ -309,14 +310,6 @@ class EmployeeController extends Controller
         });
 
         $employee->notify(new AccountCreated($password));
-
-        // The others who add people hear that this one is on the books now.
-        // Whoever added them was there and needs no telling, and neither does
-        // the newcomer, should their position be one that adds people too.
-        Notification::send(
-            Recipients::holding('employees.create')->reject(fn (User $user) => $user->is($request->user()) || $user->is($employee)),
-            new EmployeeAdded($employee),
-        );
 
         // Whoever added them fills the rest of their card in, every line of it,
         // through the ordinary forms of the card: those ask EmployeeFields, which
@@ -686,6 +679,13 @@ class EmployeeController extends Controller
                 'departments',
                 fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)),
             ))
+            // A unit is asked for on its own, the two narrowing together: the
+            // department names the branch, the unit the place inside it. What
+            // hangs under a unit comes with it, as it does under a department.
+            ->when($filters['unit'], fn (Builder $q, array $ids) => $q->whereHas(
+                'departments',
+                fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)),
+            ))
             ->when($filters['sex'], fn (Builder $q, string $sex) => $q->where('sex', $sex))
             // Whoever holds every one of the chosen citizenships, picked by name, as with languages.
             ->when($filters['citizenship'], function (Builder $q, array $names) {
@@ -872,7 +872,7 @@ class EmployeeController extends Controller
     }
 
     /**
-     * The tree flattened for the filter: parents first, children indented.
+     * The tree flattened for the filters: parents first, children indented.
      *
      * @return list<array{id: int, name: string, full_name: string, depth: int}>
      */
@@ -886,6 +886,24 @@ class EmployeeController extends Controller
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * One part of that tree, for one of the two columns that ask about it.
+     *
+     * «Департамент» offers the branches — the departments that stand on their
+     * own — and «Отдел» what hangs inside them. A unit of a unit stays in the
+     * second list, indented under the one above it, and the list starts flush:
+     * the depth it is drawn at is counted from the level the list begins at.
+     *
+     * @return list<array{id: int, name: string, full_name: string, depth: int}>
+     */
+    private function departmentLevel(bool $units): array
+    {
+        return array_values(array_map(
+            fn (array $option) => [...$option, 'depth' => $option['depth'] - ($units ? 1 : 0)],
+            array_filter($this->departmentOptions(), fn (array $option) => $units ? $option['depth'] > 0 : $option['depth'] === 0),
+        ));
     }
 
     /**

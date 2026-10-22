@@ -1,11 +1,10 @@
 import {
-    clearedFilter,
-    countActiveFilters,
     DataTable,
     MobileListTools,
     orderedColumns,
-    resetView,
+    TableMemoryButton,
     useRememberedQuery,
+    useTableMemory,
     useTableView,
     type ColumnDef,
     type Sort,
@@ -23,11 +22,8 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -36,7 +32,7 @@ import { eventLabel, eventTone, formatMoment, type EventChanges, type EventKind,
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { ChevronDown, Columns3, RotateCcw, X } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface JournalEvent {
@@ -80,6 +76,7 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 const STORAGE_KEY = 'equipment.journal.view.v1';
+const QUERY_KEY = 'equipment.journal.query';
 const DEFAULT_SORT: Sort = { key: 'at', direction: 'desc' };
 
 /** The columns, each with the filter that narrows it. */
@@ -141,7 +138,15 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
     );
     const isHidden = (key: string) => view.hidden.includes(key);
 
-    useRememberedQuery('equipment.journal.query');
+    useRememberedQuery(QUERY_KEY);
+    const memory = useTableMemory({
+        viewKey: STORAGE_KEY,
+        queryKey: QUERY_KEY,
+        columnKeys: columns.map((column) => column.key),
+        view,
+        setView,
+        fallback: defaults,
+    });
     const [from, setFrom] = useState(filters.from ?? '');
     const [to, setTo] = useState(filters.to ?? '');
 
@@ -183,11 +188,6 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
 
         return Math.round((new Date(filters.to).getTime() - new Date(filters.from).getTime()) / 86400000) + 1 === days;
     };
-
-    // The period is a filter like any other now that the page can open without
-    // one, so it is counted and cleared along with the rest.
-    const narrowing = columns.filter((column) => column.filter);
-    const activeFilters = countActiveFilters(narrowing, filters as unknown as Record<string, unknown>, () => true);
 
     const cell = (column: ColumnDef, event: JournalEvent) => {
         switch (column.key) {
@@ -239,15 +239,13 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
     };
 
     return (
-        // The trail is drawn nowhere: the bar names the page, and a line under it
-        // saying «Оборудование › Журнал операций» only repeated that name and
-        // pushed the table down. The crumbs are still named, because the phone
-        // bar reads them — this page for its name, the equipment list for the
-        // arrow back to it.
-        <AppLayout breadcrumbs={breadcrumbs} trail="none" fitViewport>
+        // The bar says «Оборудование › Журнал операций» and the table starts
+        // right under it; the phone reads the same crumbs the other way, this
+        // page for its name and the equipment list for the arrow back to it.
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Журнал операций" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:p-4">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">
                 {/* On a phone one line: the quick periods as chips and the button to
                     the sheet, where an exact period is picked along with the rest. */}
                 <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap md:-mb-2">
@@ -324,59 +322,20 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
-                    {activeFilters > 0 && (
-                        <Button
-                            variant="ghost"
-                            // On a phone the filters are cleared in their own sheet.
-                            className="h-10 max-md:hidden lg:h-8"
-                            onClick={() => {
-                                // The boxes empty with it, or they would keep
-                                // showing a period that is no longer in force.
-                                setFrom('');
-                                setTo('');
-                                visit({
-                                    filters: narrowing.reduce<Partial<Filters>>((acc, column) => ({ ...acc, ...clearedFilter(column.filter!) }), {}),
-                                });
-                            }}
-                        >
-                            <X />
-                            Сбросить фильтры ({activeFilters})
-                        </Button>
-                    )}
-
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="h-10 font-normal max-md:hidden sm:ml-auto lg:h-8">
-                                <Columns3 />
-                                Колонки
-                                <ChevronDown className="text-muted-foreground" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="max-h-96 w-60 overflow-y-auto">
-                            <DropdownMenuLabel>Показывать колонки</DropdownMenuLabel>
-                            {orderedColumns(columns, order).map((column) => (
-                                <DropdownMenuCheckboxItem
-                                    key={column.key}
-                                    checked={!isHidden(column.key)}
-                                    disabled={column.key === 'at'}
-                                    onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
-                                    onSelect={(event) => event.preventDefault()}
-                                >
-                                    {column.label}
-                                </DropdownMenuCheckboxItem>
-                            ))}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onSelect={() => {
-                                    resetView(STORAGE_KEY);
-                                    setView(defaults);
-                                }}
+                    {/* The columns ride in the same menu as the view they are part of. */}
+                    <TableMemoryButton memory={memory} className="h-10 max-md:hidden sm:ml-auto lg:h-8">
+                        {orderedColumns(columns, order).map((column) => (
+                            <DropdownMenuCheckboxItem
+                                key={column.key}
+                                checked={!isHidden(column.key)}
+                                disabled={column.key === 'at'}
+                                onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
+                                onSelect={(event) => event.preventDefault()}
                             >
-                                <RotateCcw />
-                                Сбросить вид
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                                {column.label}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </TableMemoryButton>
 
                     <Button variant="outline" className="h-10 max-md:hidden lg:h-8" asChild>
                         {/* The list of units, which is what the button says — the page opens on who holds what. */}
