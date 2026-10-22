@@ -242,3 +242,18 @@
         background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
     }
 }
+
+@layer components {
+    /*
+     * A field that came back wrong says so in its own name too, not only under
+     * itself: the eye lands on what has to be fixed rather than on the line
+     * explaining it. Bound to the field's own `aria-invalid`, so it goes out
+     * the moment the field is corrected, and only for the label that stands
+     * immediately over that field — a heading further up the form keeps its
+     * colour.
+     */
+    label:has(+ [aria-invalid='true']),
+    label:has(+ * [aria-invalid='true']) {
+        color: var(--destructive);
+    }
+}

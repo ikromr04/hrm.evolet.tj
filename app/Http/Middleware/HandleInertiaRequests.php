@@ -56,9 +56,6 @@ class HandleInertiaRequests extends Middleware
             // The number beside the bell, and nothing more: the list itself is
             // fetched when the bell is pressed. Counted on every visit, so the
             // badge is as fresh as the page under it.
-            'notifications' => [
-                'unread' => fn () => $request->user()?->unreadNotifications()->count() ?? 0,
-            ],
             // What a form hands back to itself: the colleague the "new
             // employee" wizard has just created, or the unit of equipment the
             // add form filed while staying open for the next one.

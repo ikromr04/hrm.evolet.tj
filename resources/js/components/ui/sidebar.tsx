@@ -14,7 +14,8 @@ import { cn } from '@/lib/utils';
 
 const SIDEBAR_COOKIE_NAME = 'sidebar:state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = '16rem';
+// The width shadcn's dashboard block gives it: calc(var(--spacing) * 72).
+const SIDEBAR_WIDTH = '18rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
@@ -282,14 +283,12 @@ const SidebarInset = React.forwardRef<HTMLDivElement, React.ComponentProps<'main
             ref={ref}
             className={cn(
                 'relative flex min-h-svh flex-1 flex-col bg-background',
-                // The design has the content fill the window beside the sidebar: no
-                // gap around it and no rounded corner, so the only thing dividing the
-                // two is their colour. The minimum height is left as it was for the
-                // phone, where this panel never had a margin to begin with. In the dark
-                // the two surfaces part by their own colours, as the design draws
-                // them; in the light they are a hair apart, so there a line does it.
-                'peer-data-[variant=inset]:min-h-[calc(100svh-(--spacing(4)))] md:peer-data-[variant=inset]:shadow-sm',
-                'md:peer-data-[variant=inset]:border-l md:peer-data-[variant=inset]:border-sidebar-border md:dark:peer-data-[variant=inset]:border-l-0',
+                // The page is a card on the sidebar's ground, as the design has
+                // it: 8px of air around it, a 12px corner, a hairline and the
+                // faintest shadow. A phone has no room for that frame and keeps
+                // the full width, as it always has.
+                'peer-data-[variant=inset]:min-h-[calc(100svh-(--spacing(4)))]',
+                'md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:shadow-sm',
                 className,
             )}
             {...props}
@@ -354,7 +353,10 @@ const SidebarGroupLabel = React.forwardRef<HTMLDivElement, React.ComponentProps<
                 data-sidebar="group-label"
                 className={cn(
                     'flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-hidden ring-sidebar-ring transition-[margin,opa] duration-200 ease-linear focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0',
-                    'group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0',
+                    // Collapsed, the label is pulled up over the row above it and
+                    // faded out — so it must stop catching the mouse, or that row
+                    // answers to nothing where the invisible label covers it.
+                    'group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0',
                     className,
                 )}
                 {...props}

@@ -2,7 +2,7 @@ import { PageActionsProvider } from '@/components/page-actions';
 import AppLayout from '@/layouts/app-layout';
 import { directoryLists, useCan } from '@/lib/access';
 import { cn } from '@/lib/utils';
-import { type SharedData } from '@/types';
+import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 import { useEffect, useRef, type ReactNode } from 'react';
 
@@ -29,16 +29,23 @@ export default function DirectoriesLayout({ title, children }: { title: string; 
         strip.scrollLeft += to.left - from.left - (from.width - to.width) / 2;
     }, [url]);
 
+    // The way back from a list is to the section, which has no page of its own:
+    // its first step is the first list this person may open.
+    const breadcrumbs: BreadcrumbItem[] = [
+        { title: 'Справочники', href: tabs[0]?.href ?? url },
+        { title, href: url },
+    ];
+
     return (
-        // The bar names the section and the strip below it names the open list;
-        // on a phone it is the other way round, the bar naming the list and the
-        // chips under it the section.
-        <AppLayout title="Справочники" fitViewport>
+        // The bar says the trail — the section and the open list — and the strip
+        // below it is where the list is switched; on a phone the bar names the
+        // list and the chips under it the section.
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title={`${title} — справочники`} />
 
             <PageActionsProvider>
                 {(actions) => (
-                    <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:p-4">
+                    <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:px-4 md:py-4 lg:px-6">
                         {/*
                          * One tab is not a choice: with a single list open the strip only
                          * repeats the heading and the breadcrumb, so it is left out and

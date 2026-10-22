@@ -30,10 +30,11 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::redirect('/', '/dashboard')->name('home');
-
 Route::middleware(['auth'])->group(function () {
-    Route::get('dashboard', DashboardController::class)->name('dashboard');
+    // The main page is the root address: there is no public page in front of
+    // the application, so «/» is where somebody signed in lands, and the name it
+    // is called by everywhere stays «dashboard».
+    Route::get('/', DashboardController::class)->name('dashboard');
     Route::get('employees', [EmployeeController::class, 'index'])
         ->middleware('can:employees.view')
         ->name('employees.index');
@@ -84,7 +85,9 @@ Route::middleware(['auth'])->group(function () {
     // Who works where is nobody's secret: the structure of the company is open
     // to everybody who signs in, and the pages show names and nothing more.
     // "Органограмма", the tab the section opens on.
-    Route::get('departments', [DepartmentController::class, 'index'])->name('departments.index');
+    // The chart of the company at an address of its own: «/departments» is
+    // the list of them, which is what it has always read as.
+    Route::get('org-chart', [DepartmentController::class, 'index'])->name('org-chart');
 
     // "Подразделения": the same tree, written out as a list and kept there. It
     // was a tab of "Справочники" and is a tab of the structure now, because it
@@ -95,19 +98,17 @@ Route::middleware(['auth'])->group(function () {
     //
     // Before the department page below, or "units" would be taken for an id and
     // the wildcard would answer first.
-    Route::get('departments/units', [Directories\DepartmentController::class, 'index'])
+    Route::get('departments', [Directories\DepartmentController::class, 'index'])
         ->middleware('can:'.DirectoryLists::viewPermission('departments'))
-        ->name('departments.units.index');
+        ->name('departments.index');
+    // Where the list used to be read from, for whatever still points there.
+    Route::redirect('departments/units', '/departments');
 
     Route::get('departments/{department}', [DepartmentController::class, 'show'])->name('departments.show');
 
-    // What the bell opens. Everybody has notifications of their own and nobody
-    // reads anyone else's, so there is no right to ask for: each address works
-    // on the signed-in person's own list.
+    // Notifications are not built yet; the page says so, and the menu and the
+    // bell both lead here rather than nowhere.
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
-    // Before the single one, or "read" would be taken for a notification's id.
-    Route::post('notifications/read', [NotificationController::class, 'readAll'])->name('notifications.read-all');
-    Route::post('notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
 });
 
 // Putting a new colleague on the books.
@@ -222,7 +223,7 @@ Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions
 // same pair of rights as when it was a tab of "Справочники", asked as the one
 // gate — changing a list takes being able to read it, and the bare edit right
 // would pass on its own.
-Route::middleware(['auth', 'can:directories.manage.departments'])->prefix('departments/units')->name('departments.units.')->group(function () {
+Route::middleware(['auth', 'can:directories.manage.departments'])->prefix('departments')->name('departments.')->group(function () {
     Route::post('/', [Directories\DepartmentController::class, 'store'])->name('store');
     Route::put('{department}', [Directories\DepartmentController::class, 'update'])->name('update');
     Route::delete('{department}', [Directories\DepartmentController::class, 'destroy'])->name('destroy');
@@ -365,7 +366,7 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
     // and adding to it and renaming in it. "Доступы" is one of them too, further
     // down: it is a page of its own rather than a resource.
     // Neither "Должности" nor "Отделы" is among them any more: both are tabs of
-    // a section of their own, at /positions and /departments/units, and both are
+    // a section of their own, at /positions and /departments, and both are
     // read and kept by the very same two rights they always were.
     $lists = [
         'roles' => Directories\RoleController::class,

@@ -1,64 +1,11 @@
 import { PageActionsProvider } from '@/components/page-actions';
 import AppLayout from '@/layouts/app-layout';
-import { companySections, type CompanySection } from '@/lib/access';
-import { rememberSection, savedSection, useCompanyTabs } from '@/lib/company-section';
+import { companySections } from '@/lib/access';
+import { useCompanyTabs } from '@/lib/company-section';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { useEffect, useRef, type ReactNode } from 'react';
-
-/**
- * Sends a bare visit on to the tab the viewer was last on, which is how
- * `useRememberedQuery` carries a list's filters between visits — the same shape,
- * because this is the same promise: ask for the section and find the page you
- * left.
- *
- * This is the long way round, and it is here for whoever arrives at the bare
- * address by a typed url, a bookmark or a link from elsewhere: the chart is
- * drawn first and swapped out a moment later. The menu does not come this way —
- * its entry carries the remembered address itself, so a press is one visit.
- *
- * Only the chart shares an address with the section itself, so only a visit to
- * it can have named nothing; the other two tabs name themselves and a link that
- * names something wins. A press on "Органограмма" names it by writing it down on
- * the way, so arriving at the shared address with the chart remembered is a
- * visit that asked for the chart and stays on it.
- *
- * A tab the viewer may no longer open is nowhere to send anybody: it is not
- * among the ones offered, so the chart stands and is written down in its place.
- */
-function useRememberedSection(current: CompanySection, offered: CompanySection[]) {
-    const { url } = usePage();
-    const restored = useRef(false);
-    // The strip is built afresh on every render; the visit below reads the
-    // latest one rather than running again because the array is new.
-    const latest = useRef(offered);
-
-    useEffect(() => {
-        latest.current = offered;
-    });
-
-    useEffect(() => {
-        if (!restored.current && current.key === companySections[0].key && !url.includes('?')) {
-            const saved = savedSection(latest.current);
-            const target = saved?.key === current.key ? null : saved;
-
-            if (target) {
-                // On a first load the router is set up only after the page's own
-                // effects have run, so the visit waits a tick for it.
-                const timer = setTimeout(() => {
-                    restored.current = true;
-                    router.get(target.href, {}, { preserveScroll: true, replace: true });
-                });
-
-                return () => clearTimeout(timer);
-            }
-        }
-
-        restored.current = true;
-        rememberSection(current.key);
-    }, [current, url]);
-}
 
 /** Shell for the company structure: title, tabs, then the tab that is open. */
 export default function CompanyStructureLayout({ children }: { children: ReactNode }) {
@@ -71,8 +18,6 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
     // it, and leaves the chart standing.
     const path = url.split('?')[0];
     const current = tabs.find((section) => section.href === path) ?? companySections[0];
-
-    useRememberedSection(current, tabs);
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Структура компании', href: companySections[0].href },
@@ -93,22 +38,16 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
     }, [url]);
 
     return (
-        // The bar names the section and the strip below it names the open tab,
-        // which is what the phone's bar has always done the other way round:
-        // there the bar names the tab, because the chips under it name the
-        // section.
-        //
-        // The trail itself is drawn nowhere: on a desktop the bar and the strip
-        // together already say where this is, and a third line saying it again
-        // only pushed the page down. The crumbs are still named, because the
-        // phone's bar reads them — the open tab for its name, the section for
-        // the arrow back.
-        <AppLayout breadcrumbs={breadcrumbs} title="Структура компании" trail="none" fitViewport>
+        // The bar says the trail — the section and the open tab — and the strip
+        // below it is where the tab is switched. The phone's bar reads the same
+        // crumbs the other way round: there the bar names the tab, because the
+        // chips under it name the section.
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title={`${current.title} — структура компании`} />
 
             <PageActionsProvider>
                 {(actions) => (
-                    <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:p-4">
+                    <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:px-4 md:py-4 lg:px-6">
                         {/*
                          * One tab is not a choice: with the chart alone open the strip
                          * only repeats the heading and the breadcrumb, so it is left out.
@@ -136,10 +75,6 @@ export default function CompanyStructureLayout({ children }: { children: ReactNo
                                                     key={tab.key}
                                                     href={tab.href}
                                                     prefetch
-                                                    // Written down before the visit, so that the
-                                                    // tab whose address is the section's own is
-                                                    // asked for rather than passed through.
-                                                    onClick={() => rememberSection(tab.key)}
                                                     aria-current={active ? 'page' : undefined}
                                                     ref={active ? activeTab : undefined}
                                                     className={cn(

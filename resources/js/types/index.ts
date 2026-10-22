@@ -53,7 +53,6 @@ export interface SharedData {
     quote: { message: string; author: string };
     auth: Auth;
     /** The number beside the bell; the list itself is fetched when the bell opens. */
-    notifications: { unread: number };
     /** What one step of a multi-step form hands to the next. */
     flash: {
         employee: { id: number; name: string } | null;

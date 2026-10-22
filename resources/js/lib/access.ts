@@ -173,8 +173,8 @@ export interface CompanySection {
 
 /** The tabs in the order they stand in; the first is the section's own address. */
 export const companySections: CompanySection[] = [
-    { key: 'chart', title: 'Органограмма', href: '/departments' },
-    { key: 'units', title: 'Подразделении', href: '/departments/units', view: 'directories.view.departments' },
+    { key: 'chart', title: 'Органограмма', href: '/org-chart' },
+    { key: 'units', title: 'Подразделении', href: '/departments', view: 'directories.view.departments' },
     { key: 'positions', title: 'Должности', href: '/positions', view: 'directories.view.positions' },
 ];
 

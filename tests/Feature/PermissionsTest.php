@@ -364,7 +364,7 @@ class PermissionsTest extends TestCase
         // Somebody whose position carries nothing whatsoever.
         $nobody = User::factory()->create();
 
-        $this->actingAs($nobody)->get('/departments')->assertOk();
+        $this->actingAs($nobody)->get('/org-chart')->assertOk();
         $this->actingAs($nobody)->get("/departments/{$department->id}")->assertOk();
 
         // And the search offers it, since there is nowhere it could not go.

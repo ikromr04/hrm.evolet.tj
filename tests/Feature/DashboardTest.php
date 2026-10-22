@@ -18,7 +18,7 @@ class DashboardTest extends TestCase
 
     public function test_guests_are_redirected_to_the_login_page()
     {
-        $this->get('/dashboard')->assertRedirect('/login');
+        $this->get('/')->assertRedirect('/login');
     }
 
     public function test_everybody_else_starts_at_their_own_card()
@@ -27,7 +27,7 @@ class DashboardTest extends TestCase
         // right, so until there is something to open line by line the page is the
         // one account's and everybody else lands on their profile.
         $this->actingAs(User::factory()->create());
-        $this->get('/dashboard')->assertRedirect('/profile');
+        $this->get('/')->assertRedirect('/profile');
     }
 
     public function test_the_system_administrator_sees_the_company_as_the_database_has_it()
@@ -71,7 +71,7 @@ class DashboardTest extends TestCase
         $latest = EquipmentEvent::query()->orderByDesc('created_at')->orderByDesc('id')->first();
 
         $this->actingAs($admin)
-            ->get('/dashboard')
+            ->get('/')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('dashboard')
@@ -103,7 +103,7 @@ class DashboardTest extends TestCase
         $this->seed(RoleSeeder::class);
         $this->actingAs(User::factory()->create()->assignRole('sysadmin'));
 
-        $this->get('/dashboard')
+        $this->get('/')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('staff', ['active' => 1, 'hired' => 0, 'fired' => 0])
