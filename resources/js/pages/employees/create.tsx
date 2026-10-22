@@ -3,7 +3,6 @@ import { MultiSelect } from '@/components/multi-select';
 import { blankPlacement, Placements, placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
 import { SearchableSelect } from '@/components/searchable-select';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/app-layout';
@@ -11,7 +10,7 @@ import { languageLevelLabels, languageLevels, sexLabels, type LanguageLevel, typ
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Check, ChevronLeft, ChevronRight, LoaderCircle, Plus, Trash2, UserPlus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LoaderCircle, Plus, Trash2, UserPlus } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /** The departments, the positions of each and the duties of each position come with the page. */
@@ -447,7 +446,9 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     </Button>
                 </div>
 
-                <div className="grid grid-cols-1 gap-5 max-md:gap-3 lg:grid-cols-[18rem_1fr] lg:items-start">
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Новый сотрудник</h1>
+
+                <div className="grid grid-cols-1 gap-5 max-md:gap-3 lg:grid-cols-[15rem_1fr] lg:items-start lg:gap-6">
                     {/* On a phone the six step buttons give way to one line and a
                     progress bar. Its segments still jump between steps once the
                     colleague is on the books, as the buttons do. */}
@@ -480,8 +481,9 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                         </div>
                     </div>
 
-                    {/* The road ahead: what is done, where you are, what is left. */}
-                    <Card className="flex flex-col gap-1 rounded-xl p-3 max-md:hidden">
+                    {/* The road ahead: what is done, where you are, what is left.
+                        It keeps to the top of the window while the form runs past. */}
+                    <nav aria-label="Шаги анкеты" className="max-md:hidden lg:sticky lg:top-6">
                         <ol
                             ref={strip}
                             className="flex gap-0.5 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden"
@@ -503,40 +505,36 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                             aria-current={current ? 'step' : undefined}
                                             onClick={() => reachable && setStep(index)}
                                             className={cn(
-                                                'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors',
-                                                current && 'bg-muted',
-                                                reachable && 'hover:bg-accent',
+                                                'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap transition-colors',
+                                                current ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground',
+                                                reachable && !current && 'hover:bg-accent hover:text-foreground',
                                                 !reachable && !current && 'cursor-default',
                                             )}
+                                            title={item.note}
                                         >
+                                            {/* The step's number, in figures of one width so the
+                                                six of them stand in a column of their own. */}
                                             <span
                                                 className={cn(
-                                                    'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
-                                                    done
-                                                        ? 'bg-brand-soft text-brand-strong dark:bg-white/10 dark:text-[#C5E27A]'
-                                                        : current
-                                                          ? 'bg-foreground text-background'
-                                                          : 'bg-muted text-muted-foreground',
+                                                    'font-mono text-[13px] tabular-nums',
+                                                    current
+                                                        ? 'text-brand-strong dark:text-[#C5E27A]'
+                                                        : done
+                                                          ? 'text-foreground/70'
+                                                          : 'text-muted-foreground',
                                                 )}
                                             >
-                                                {done ? <Check className="size-3.5" /> : index + 1}
+                                                {String(index + 1).padStart(2, '0')}
                                             </span>
-                                            <span className="flex min-w-0 flex-col">
-                                                <span
-                                                    className={cn('text-sm whitespace-nowrap lg:truncate', current ? 'font-semibold' : 'font-medium')}
-                                                >
-                                                    {item.title}
-                                                </span>
-                                                <span className="text-muted-foreground hidden truncate text-[13px] lg:block">{item.note}</span>
-                                            </span>
+                                            <span className="min-w-0 lg:truncate">{item.title}</span>
                                         </button>
                                     </li>
                                 );
                             })}
                         </ol>
-                    </Card>
+                    </nav>
 
-                    <Card className="rounded-xl p-4 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:p-6">
+                    <div className="bg-card max-md:rounded-2xl max-md:p-4 md:bg-transparent">
                         {/* noValidate: the server's rules are the real ones. */}
                         <form
                             noValidate
@@ -547,7 +545,12 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                             className="@container flex flex-col gap-6 max-md:gap-4 max-md:[&_[role=combobox]]:h-11 max-md:[&_input:not([type=checkbox])]:h-11"
                         >
                             <div className="flex flex-col gap-1 max-md:contents">
-                                <h2 className="text-base font-semibold max-md:sr-only">{steps[step].title}</h2>
+                                <h2 className="flex h-9 items-center gap-2.5 text-base font-semibold max-md:sr-only">
+                                    <span className="text-brand-strong font-mono text-sm font-medium tabular-nums dark:text-[#C5E27A]">
+                                        {String(step + 1).padStart(2, '0')}
+                                    </span>
+                                    {steps[step].title}
+                                </h2>
                                 {step > 0 && <p className="text-muted-foreground text-[13px]">Шаг необязательный — его можно пропустить.</p>}
                             </div>
 
@@ -1239,7 +1242,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                 </div>
                             </div>
                         </form>
-                    </Card>
+                    </div>
                 </div>
             </div>
         </AppLayout>
