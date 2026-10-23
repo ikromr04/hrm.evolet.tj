@@ -169,6 +169,13 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
     );
 }
 
+/**
+ * The columns whose funnel is drawn wider wherever it is opened: the structure
+ * is a list of names with the full one written beside each, and the staff list,
+ * the equipment and the directories all ask about it the same way.
+ */
+const WIDE = ['department', 'unit'];
+
 /** The funnel in a column header, and the popover it opens. */
 export function ColumnFilter({
     column,
@@ -179,12 +186,13 @@ export function ColumnFilter({
     column: ColumnDef;
     filters: FilterValues;
     onApply: (changes: FilterValues) => void;
-    /** A tree of options needs more room than a short list. */
+    /** A tree of options needs more room than a short list; said where the column alone does not say it. */
     wide?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const filter = column.filter!;
     const active = isFilterActive(filter, filters);
+    const roomy = wide ?? (WIDE.includes(column.key) || ('param' in filter && WIDE.includes(filter.param)));
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -203,7 +211,7 @@ export function ColumnFilter({
                     </button>
                 </PopoverTrigger>
             </HeaderHint>
-            <PopoverContent align="start" className={cn('max-w-[calc(100vw-2rem)] p-3', wide ? 'w-96' : 'w-64')}>
+            <PopoverContent align="start" className={cn('max-w-[calc(100vw-2rem)] p-3', roomy ? 'w-96' : 'w-64')}>
                 <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-semibold">{column.label}</span>
                     {active && (

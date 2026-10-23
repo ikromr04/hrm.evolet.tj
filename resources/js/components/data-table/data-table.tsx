@@ -24,7 +24,7 @@ import {
     PinOff,
     RotateCcw,
 } from 'lucide-react';
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type ReactNode } from 'react';
 import { ColumnFilter, isFilterActive } from './filters';
 import { HeaderHint } from './hint';
 import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type TableView } from './types';
@@ -40,6 +40,9 @@ const WIDTH_STEP = 40;
 
 /** Room for the sticky column of row actions at the right edge. */
 export const ACTIONS_WIDTH = 56;
+
+/** The air on either side of the row's actions. */
+const ACTIONS_PADDING = 16;
 
 interface DataTableProps<Row> {
     columns: ColumnDef[];
@@ -120,10 +123,12 @@ interface DataTableProps<Row> {
     /** The right-hand sticky cell, when the viewer may act on a row. */
     actions?: (row: Row) => ReactNode;
     /**
-     * How wide that cell is drawn. The default holds one icon button, which is
-     * what a row of these tables usually offers — a menu of what can be done to
-     * it. A page whose rows wear their actions openly, two buttons side by
-     * side, says so here.
+     * How wide to draw that cell on the first frame, before it has been
+     * measured: the width it settles at is what the buttons in it come to. The
+     * default holds one icon button, which is what a row of these tables
+     * usually offers — a menu of what can be done to it. A page whose rows wear
+     * their actions openly, two buttons side by side, says so here, and the
+     * column does not jump when it is drawn.
      */
     actionsWidth?: number;
     empty: ReactNode;
@@ -374,7 +379,27 @@ export function DataTable<Row>({
         setResizing(null);
     };
 
-    const actionsWidth = actions ? actionsCell : 0;
+    /**
+     * How wide that column is drawn: what the buttons in it come to, plus the
+     * air on either side. It is read off the cell rather than declared, because
+     * the pins at the right edge and the width of the whole table are measured
+     * from it, and a page may hang one button there or several.
+     */
+    const [measured, setMeasured] = useState<number | null>(null);
+    const actionsCellRef = useRef<HTMLTableCellElement>(null);
+
+    useLayoutEffect(() => {
+        const held = actionsCellRef.current?.firstElementChild;
+        if (!held) return;
+
+        const next = Math.ceil(held.getBoundingClientRect().width) + ACTIONS_PADDING * 2;
+        setMeasured((current) => (current === next ? current : next));
+        // What stands in the cell can change with the rows it belongs to — a
+        // menu a viewer may not open is not drawn — so it is read again when
+        // they do, and only then.
+    }, [actions, rows]);
+
+    const actionsWidth = actions ? (measured ?? actionsCell) : 0;
     const tableWidth = visible.reduce((sum, column) => sum + widthOf(column), 0) + actionsWidth;
 
     /**
@@ -420,7 +445,7 @@ export function DataTable<Row>({
         // being a class the stylesheet never hears of.
         return cn(
             'lg:sticky',
-            header ? 'bg-sidebar z-20' : 'bg-card group-hover/row:bg-muted/40 z-[1] transition-colors',
+            header ? 'bg-sidebar z-20' : 'bg-card z-[1] transition-colors group-hover/row:bg-(--row-hover)',
             side === 'left' &&
                 (header ? 'lg:shadow-[inset_-1px_0_0_var(--border),inset_0_-1px_0_var(--border)]' : 'lg:shadow-[inset_-1px_0_0_var(--border)]'),
             side === 'right' &&
@@ -758,7 +783,7 @@ export function DataTable<Row>({
                             {actions && (
                                 <th
                                     scope="col"
-                                    style={{ width: actionsCell }}
+                                    style={{ width: actionsWidth }}
                                     className="bg-sidebar sticky right-0 z-20 shadow-[inset_1px_0_0_var(--border),inset_0_-1px_0_var(--border)]"
                                 >
                                     <span className="sr-only">Действия</span>
@@ -777,7 +802,7 @@ export function DataTable<Row>({
                             // ground, so the thin colour falls once everywhere
                             // rather than twice over the pinned cells, which
                             // carry a ground of their own.
-                            <tr key={rowKey(row)} className="group/row border-t align-top first:border-t-0">
+                            <tr key={rowKey(row)} className="group/row border-t align-top transition-colors first:border-t-0 hover:bg-(--row-hover)">
                                 {visible.map((column, index) => {
                                     const span = rowSpan ? rowSpan(column, row) : 1;
 
@@ -802,8 +827,11 @@ export function DataTable<Row>({
                                                 // tallest of them. A run of characters with
                                                 // nowhere to break — an address, a long
                                                 // email — is broken rather than let out past
-                                                // the column's edge.
-                                                'group-hover/row:bg-muted/40 px-4 py-3 break-words whitespace-normal transition-colors',
+                                                // the column's edge, and what still will not
+                                                // fit is cut there: a cell that spilled would
+                                                // write over the column beside it, and over
+                                                // the row's own actions at the end.
+                                                'overflow-hidden px-4 py-3 break-words whitespace-normal',
                                                 index === 0 && 'pl-6',
                                                 index === visible.length - 1 && !actions && 'pr-6',
                                                 stickyClass(column, false),
@@ -817,8 +845,11 @@ export function DataTable<Row>({
                                     );
                                 })}
                                 {actions && (
-                                    <td className="bg-card group-hover/row:bg-muted/40 sticky right-0 z-[1] py-2 pr-3 pl-1 shadow-[inset_1px_0_0_var(--border)] transition-colors">
-                                        {actions(row)}
+                                    <td
+                                        ref={actionsCellRef}
+                                        className="bg-card sticky right-0 z-[1] px-4 py-2 shadow-[inset_1px_0_0_var(--border)] transition-colors group-hover/row:bg-(--row-hover)"
+                                    >
+                                        <div className="flex w-max items-center justify-end gap-1">{actions(row)}</div>
                                     </td>
                                 )}
                             </tr>

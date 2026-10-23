@@ -31,8 +31,13 @@ export interface SavedView {
     id: string;
     name: string;
     view: ViewState;
-    /** The filters, the sorting and the search this view was kept with. */
+    /** The filters, the sorting and the search this view was kept with, as a query. */
     query: string;
+    /**
+     * The same, for a list that narrows itself in the page: whatever the page
+     * hands over is written down as it stands and handed back on the way in.
+     */
+    state?: unknown;
 }
 
 /** Everything kept for one table: the views, and which of them is in force. */
@@ -380,6 +385,9 @@ export function useTableMemory({
     view,
     setView,
     fallback,
+    state,
+    onState,
+    defaultState,
 }: {
     viewKey: string;
     /** Where the filters live, for a table whose list is a page of its own. */
@@ -390,6 +398,15 @@ export function useTableMemory({
     setView: (view: ViewState) => void;
     /** The arrangement the page opens with when nothing is kept. */
     fallback: ViewState;
+    /**
+     * What a list that narrows itself in the page is holding now — its sorting,
+     * its funnels, its search — and the way to put it back. A list that lives in
+     * its address bar says nothing here and keeps its query instead.
+     */
+    state?: unknown;
+    onState?: (state: unknown) => void;
+    /** What that state is when the page opens with nothing kept. */
+    defaultState?: unknown;
 }): TableMemory {
     const { url } = usePage();
     const [kept, setKept] = useState(() => readCatalogue(viewKey));
@@ -400,9 +417,17 @@ export function useTableMemory({
     // has no query to keep, and is not asked about one.
     const tracksQuery = queryKey !== undefined;
 
+    /** The page's own narrowing, written down the one way. */
+    const held = JSON.stringify(state ?? null);
+    const opened = JSON.stringify(defaultState ?? null);
+
     const active = kept.views.find((one) => one.id === kept.active) ?? null;
-    const asActive = active !== null && shown === fingerprint(active.view) && (!tracksQuery || query === canonicalQuery(active.query));
-    const asPage = active === null && shown === fingerprint(fallback) && (!tracksQuery || query === '');
+    const asActive =
+        active !== null &&
+        shown === fingerprint(active.view) &&
+        (!tracksQuery || query === canonicalQuery(active.query)) &&
+        held === JSON.stringify(active.state ?? defaultState ?? null);
+    const asPage = active === null && shown === fingerprint(fallback) && (!tracksQuery || query === '') && held === opened;
     const current = asActive ? 'saved' : asPage ? 'default' : 'custom';
 
     /**
@@ -428,6 +453,24 @@ export function useTableMemory({
         }
     };
 
+    /**
+     * A list that narrows itself in the page opens narrowed the way the view in
+     * force was kept: nothing in the address says so, and the page itself starts
+     * from its own defaults, so the kept state is handed over once, on the way
+     * in. A list that lives in its address bar is put back by the address.
+     */
+    const restored = useRef(false);
+
+    useEffect(() => {
+        if (restored.current) return;
+        restored.current = true;
+
+        const one = kept.views.find((view) => view.id === kept.active);
+        if (one && one.state !== undefined && one.state !== null) onState?.(one.state);
+        // Once, when the list is drawn: afterwards the viewer is the one choosing.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     /** The list as one address, with the questions it is being asked, or without them. */
     const go = (next: string) => router.get(`${window.location.pathname}${next ? `?${next}` : ''}`, {}, { preserveScroll: true, replace: true });
 
@@ -435,6 +478,7 @@ export function useTableMemory({
         // Read rather than trusted: a kept view may name a column this page no
         // longer has, and the columns may have been renamed since.
         setView(one ? sanitise(one.view, fallback, columnKeys) : fallback);
+        onState?.(one ? (one.state ?? defaultState ?? null) : (defaultState ?? null));
 
         const wanted = one ? canonicalQuery(one.query) : '';
         if (tracksQuery && query !== wanted) go(one?.query ?? '');
@@ -448,12 +492,19 @@ export function useTableMemory({
     };
 
     const save = (name: string) => {
-        const one: SavedView = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, name, view, query };
+        const one: SavedView = {
+            id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            view,
+            query,
+            state: state ?? null,
+        };
 
         keep({ active: one.id, views: [...kept.views, one] });
     };
 
-    const overwrite = (id: string) => keep({ active: id, views: kept.views.map((one) => (one.id === id ? { ...one, view, query } : one)) });
+    const overwrite = (id: string) =>
+        keep({ active: id, views: kept.views.map((one) => (one.id === id ? { ...one, view, query, state: state ?? null } : one)) });
 
     const rename = (id: string, name: string) => keep({ ...kept, views: kept.views.map((one) => (one.id === id ? { ...one, name } : one)) });
 

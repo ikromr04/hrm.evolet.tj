@@ -113,6 +113,9 @@
     --chart-4: hsl(43, 74%, 66%);
     --chart-5: hsl(27, 87%, 67%);
     --radius: 0.5rem;
+    /* The wash under the row the cursor is on, mixed into the ground it lies
+       on so a pinned cell can carry it without showing what scrolls beneath. */
+    --row-hover: color-mix(in oklab, var(--muted) 40%, var(--card));
     --brand: #a8cf45;
     --brand-strong: #5a7f12;
     --brand-soft: #eef5dc;
