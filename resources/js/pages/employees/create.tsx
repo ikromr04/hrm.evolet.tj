@@ -505,6 +505,10 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     {/* The road ahead: what is done, where you are, what is left.
                         It keeps to the top of the window while the form runs past. */}
                     <nav aria-label="Шаги анкеты" className="max-md:hidden lg:sticky lg:top-6">
+                        {/* The column says what the list of steps is, written
+                            the way the menu writes the name of a group. */}
+                        <p className="text-muted-foreground flex h-8 items-center px-2.5 text-xs font-medium">Анкета</p>
+
                         <ol
                             ref={strip}
                             className="flex gap-0.5 overflow-x-auto [scrollbar-width:none] lg:flex-col lg:overflow-visible [&::-webkit-scrollbar]:hidden"
