@@ -12,7 +12,6 @@ import {
     useTableMemory,
     useTableView,
     type ColumnDef as TableColumn,
-    type FilterDef as TableFilter,
 } from '@/components/data-table';
 import { DepartmentLink } from '@/components/department-name';
 import { EmployeeActions, type EmploymentStatus } from '@/components/employee-actions';
@@ -100,6 +99,8 @@ interface Filters {
     search: string;
     role: string[];
     position: number[];
+    /** The same question by title, which is what the column's funnel asks. */
+    position_name: string[];
     department: number[];
     unit: number[];
     language: number[];
@@ -180,7 +181,7 @@ type FilterDef =
     | { type: 'select'; param: 'sex' | 'marital_status'; options: Option<string>[] }
     | {
           type: 'multi';
-          param: 'role' | 'position' | 'department' | 'unit' | 'language' | 'nationality' | 'citizenship' | 'children';
+          param: 'role' | 'position' | 'position_name' | 'department' | 'unit' | 'language' | 'nationality' | 'citizenship' | 'children';
           options: Option<string | number>[];
       }
     | { type: 'dates'; from: 'birth_from' | 'hired_from'; to: 'birth_to' | 'hired_to' };
@@ -421,6 +422,12 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
     // would be no list at all.
     const shows = (key: ColumnKey) => key === 'name' || visible.includes(COLUMN_FIELDS[key] ?? key);
 
+    /* Every job title, each one once and in order: the same title is filed in
+       several departments, and the funnel asks about the title itself. */
+    const titles = [...new Set(options.positions.map((position) => position.name))]
+        .sort((a, b) => a.localeCompare(b, 'ru'))
+        .map((name) => ({ value: name, label: name }));
+
     return (
         [
             // The row opens where the person sits and then says who they are:
@@ -431,7 +438,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
             {
                 key: 'department',
                 label: 'Департамент',
-                width: 215,
+                width: 240,
                 private: false,
                 // Each column asks about its own level of the tree, and the two
                 // narrow together: the department names the branch — everyone in
@@ -448,7 +455,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
             {
                 key: 'unit',
                 label: 'Отдел',
-                width: 180,
+                width: 200,
                 private: false,
                 filter: {
                     type: 'multi',
@@ -498,10 +505,11 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 label: 'Должность',
                 width: 240,
                 private: false,
-                // Named with the department in brackets: the list offered
-                // «Администратор» four times over, and nothing in it said which
-                // of the four was being ticked.
-                filter: { type: 'multi', param: 'position', options: options.positions.map((t) => ({ value: t.id, label: t.display_name })) },
+                // By title, each one once: «Администратор» stood in the list
+                // four times over, once per department, and nothing in it said
+                // which of the four was being ticked. Asked by title it finds
+                // them all, which is the question somebody is asking.
+                filter: { type: 'multi', param: 'position_name', options: titles },
                 cell: (row) => (row.positions?.length ? <PositionBadges positions={row.positions} /> : <Empty />),
             },
             {
@@ -906,13 +914,6 @@ export default function Employees({
                     filters={filters as unknown as Record<string, unknown>}
                     onFilter={(changes) => applyFilters(changes as Partial<Filters>)}
                     canFilter={(column) => canFilter(column as unknown as ColumnDef)}
-                    wideFilter={(column) => {
-                        // The structure needs more room than a short list: the
-                        // names are long and a unit carries the way to it.
-                        const filter = column.filter as TableFilter | undefined;
-
-                        return filter?.type === 'multi' && (filter.param === 'department' || filter.param === 'unit');
-                    }}
                     view={view}
                     onPin={pin}
                     reorderable

@@ -104,6 +104,10 @@ class EmployeeController extends Controller
             'search' => ['nullable', 'string', 'max:100'],
             'position' => $private('positions', ['nullable', 'array']),
             'position.*' => ['integer', Rule::exists('positions', 'id')],
+            // The same question asked by name: the funnel offers each title
+            // once, and a title belongs to as many departments as file it.
+            'position_name' => $private('positions', ['nullable', 'array']),
+            'position_name.*' => ['string', Rule::exists('positions', 'name')],
             'role' => $private('roles', ['nullable', 'array']),
             'role.*' => ['string', Rule::exists('roles', 'name')],
             'department' => $private('departments', ['nullable', 'array']),
@@ -133,6 +137,7 @@ class EmployeeController extends Controller
             'q' => trim($input['q'] ?? ''),
             'search' => trim($input['search'] ?? ''),
             'position' => array_map('intval', $input['position'] ?? []),
+            'position_name' => array_values($input['position_name'] ?? []),
             'role' => array_values($input['role'] ?? []),
             'department' => array_map('intval', $input['department'] ?? []),
             'unit' => array_map('intval', $input['unit'] ?? []),
@@ -667,6 +672,11 @@ class EmployeeController extends Controller
             }))
             ->when($filters['role'], fn (Builder $q, array $roles) => $q->role($roles))
             ->when($filters['position'], fn (Builder $q, array $ids) => $q->whereHas('positions', fn (Builder $q) => $q->whereIn('positions.id', $ids)))
+            // By name: whoever holds a job of that title, in any department.
+            ->when($filters['position_name'], fn (Builder $q, array $names) => $q->whereHas(
+                'positions',
+                fn (Builder $q) => $q->whereIn('positions.name', $names),
+            ))
             // Whoever speaks every one of the picked languages, at any level:
             // picking Russian and Tajik asks for people who know both.
             ->when($filters['language'], function (Builder $q, array $ids) {

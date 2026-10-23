@@ -158,8 +158,8 @@ const columns: ColumnDef[] = [
     // two to hold the longest name would take the room from the job title, which
     // is what the row is about; whoever wants the whole name has the hover and
     // the department's own page.
-    { key: 'department', label: 'Департамент', width: 215 },
-    { key: 'unit', label: 'Отдел', width: 180 },
+    { key: 'department', label: 'Департамент', width: 240 },
+    { key: 'unit', label: 'Отдел', width: 200 },
     // The column that takes whatever room the others leave, and the width is the
     // floor it fills up from rather than what it is drawn at. A job title is the
     // point of the row and the one value here that is glad of the room: it wraps
@@ -668,7 +668,6 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 onFilter={applyFilter}
                 // Both lists of departments spell a full name out beside an
                 // abbreviation, which needs more room than a short label.
-                wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                 view={view}
                 onPin={pin}
                 reorderable

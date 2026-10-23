@@ -561,7 +561,7 @@ function structureColumns(options: Options): ColumnDef[] {
         {
             key: 'department',
             label: 'Департамент',
-            width: 215,
+            width: 240,
             filter: {
                 type: 'multi',
                 param: 'department',
@@ -575,7 +575,7 @@ function structureColumns(options: Options): ColumnDef[] {
         {
             key: 'unit',
             label: 'Отдел',
-            width: 180,
+            width: 200,
             filter: {
                 type: 'multi',
                 param: 'unit',
@@ -1443,7 +1443,6 @@ export default function EquipmentIndex({
                         // Both lists of departments spell a full name out
                         // beside an abbreviation, which needs more room than a
                         // short label.
-                        wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                         view={layout}
                         onPin={pin}
                         // The columns here are the categories, and which of them
@@ -1539,7 +1538,6 @@ export default function EquipmentIndex({
                         onSort={sortBy}
                         filters={filters as unknown as Record<string, unknown>}
                         onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
-                        wideFilter={(column) => column.key === 'department' || column.key === 'unit'}
                         view={layout}
                         onPin={pin}
                         reorderable
