@@ -24,6 +24,7 @@ import {
     Speaker,
     Table,
     Tablet,
+    Vault,
     Watch,
     type LucideIcon,
 } from 'lucide-react';
@@ -63,6 +64,8 @@ export const equipmentIcons: Record<string, LucideIcon> = {
     picture: Image,
     conditioner: AirVent,
     extinguisher: FireExtinguisher,
+    // What a department keeps its papers and its money in.
+    safe: Vault,
     package: Package,
 };
 
@@ -97,6 +100,7 @@ export const equipmentIconNames: Record<string, string> = {
     picture: 'Картина',
     conditioner: 'Кондиционер',
     extinguisher: 'Огнетушитель',
+    safe: 'Сейф',
     package: 'Коробка',
 };
 /** What a category without a drawing of its own is shown by. */

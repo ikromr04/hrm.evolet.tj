@@ -18,21 +18,21 @@ import { IconChip } from '@/components/equipment-icon';
 import { type EquipmentScope } from '@/components/equipment-scopes';
 import { MobileFab } from '@/components/mobile-fab';
 import { PageActions } from '@/components/page-actions';
-import { Pickable } from '@/components/pickable';
+
+import { PositionName } from '@/components/position-name';
+import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { Link, router } from '@inertiajs/react';
-import { LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 interface DirectoryManagerProps {
@@ -56,6 +56,11 @@ interface DirectoryManagerProps {
      * than down one name indented under another.
      */
     structure?: boolean;
+    /**
+     * What to say under the table about the records it is showing — the rows
+     * that survived the funnels, not everything the page was handed.
+     */
+    summary?: (rows: DirectoryItem[]) => string;
     /** Server field that holds the label. */
     field: 'title' | 'name';
     /** Route name prefix, e.g. "directories.roles". */
@@ -161,7 +166,10 @@ export const searchBox =
 const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
 
 /** A list nobody has narrowed yet. */
-const NOTHING_NARROWED = { department: [] as number[], unit: [] as number[], counted: [] as string[] };
+/** What the «Отдел» funnel calls «Без отдела»: a department that is one itself. */
+const NO_UNIT = 'none';
+
+const NOTHING_NARROWED = { department: [] as number[], unit: [] as (number | typeof NO_UNIT)[], counted: [] as string[] };
 
 function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
     if (!tree) return items.map((item) => ({ ...item, depth: 0 }));
@@ -184,6 +192,7 @@ export function DirectoryManager({
     canEdit,
     addIn = 'shell',
     structure = false,
+    summary,
     field,
     abbreviation: abbreviated = false,
     route: routeName,
@@ -252,7 +261,14 @@ export function DirectoryManager({
                           width: 240,
                           filter: { type: 'multi', param: 'department', options: branches },
                       },
-                      { key: 'unit', label: 'Отдел', width: 200, filter: { type: 'multi', param: 'unit', options: inside } },
+                      {
+                          key: 'unit',
+                          label: 'Отдел',
+                          width: 200,
+                          // «Без отдела» asks for the departments that stand on
+                          // their own, whose cell in this column is empty.
+                          filter: { type: 'multi', param: 'unit', options: [{ value: NO_UNIT, label: 'Без отдела' }, ...inside] },
+                      },
                       {
                           key: 'count',
                           label: countLabel,
@@ -373,7 +389,7 @@ export function DirectoryManager({
             // of the records inside a branch: a department standing on its own
             // is no unit, so a funnel on «Отдел» leaves it out.
             if (narrowing.department.length > 0 && !narrowing.department.includes(topOf(row).id)) return false;
-            if (narrowing.unit.length > 0 && !narrowing.unit.includes(row.id)) return false;
+            if (narrowing.unit.length > 0 && !narrowing.unit.includes(row.parent_id ? row.id : NO_UNIT)) return false;
             // Every name asked for, not any of them: two jobs chosen means the
             // departments that have both.
             if (narrowing.counted.length > 0) {
@@ -450,30 +466,31 @@ export function DirectoryManager({
                 return (
                     <div className="flex flex-wrap gap-1 whitespace-normal">
                         {row.count_items.map((item) => {
-                            // Asked by name: the same job in another department
-                            // is the same answer to «who has an analyst», and a
-                            // viewer who may not open the jobs can still ask.
+                            // The one the funnel is set to is marked, so a list
+                            // narrowed to a name says which of them it is.
                             const picked = narrowing.counted.includes(item.name);
-
-                            return (
-                                <Pickable
-                                    key={item.id ?? item.name}
-                                    label={`${countLabel}: ${item.name}`}
-                                    picked={picked}
-                                    onPick={() =>
-                                        setNarrowing((held) => ({
-                                            ...held,
-                                            counted: picked ? held.counted.filter((one) => one !== item.name) : [...held.counted, item.name],
-                                        }))
-                                    }
+                            const badge = (
+                                <StatusBadge
+                                    tone="success"
+                                    className={cn('h-auto flex-wrap py-[3px] whitespace-normal', picked && 'ring-brand ring-1')}
                                 >
-                                    <StatusBadge
-                                        tone="success"
-                                        className={cn('h-auto flex-wrap py-[3px] whitespace-normal', picked && 'ring-brand ring-1')}
-                                    >
-                                        {item.name}
-                                    </StatusBadge>
-                                </Pickable>
+                                    <PositionName name={item.name} unit={item.unit ?? null} />
+                                </StatusBadge>
+                            );
+
+                            // The badge is the way to the record for whoever may
+                            // read that list, and a word for everybody else.
+                            return item.id === null ? (
+                                <span key={item.name}>{badge}</span>
+                            ) : (
+                                <Link
+                                    key={item.id}
+                                    href={item.url}
+                                    title={`Открыть: ${item.name}`}
+                                    className="rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
+                                >
+                                    {badge}
+                                </Link>
                             );
                         })}
                     </div>
@@ -552,17 +569,13 @@ export function DirectoryManager({
             {canEdit && addIn === 'shell' && <PageActions>{addButton}</PageActions>}
 
             <div className="flex flex-wrap items-center gap-2 md:hidden">
-                <label className={searchBox}>
-                    <Search className="size-4 shrink-0" />
-                    <span className="sr-only">Поиск</span>
-                    <input
-                        type="search"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Поиск по названию"
-                        className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
-                    />
-                </label>
+                <SearchInput
+                    value={query}
+                    onChange={setQuery}
+                    placeholder="Поиск по названию"
+                    className="min-w-0 flex-1"
+                    inputClassName="bg-card h-10 rounded-xl border-transparent text-base shadow-none"
+                />
             </div>
 
             {/*
@@ -679,23 +692,16 @@ export function DirectoryManager({
              * above instead — three columns do not fit 390px however they are
              * arranged.
              */}
-            <div className="flex min-h-0 flex-1 flex-col max-md:hidden">
-                <div className="flex items-center gap-2 pb-4">
+            <div className="flex min-h-0 flex-1 flex-col gap-4 max-md:hidden">
+                <div className="flex items-center gap-2">
                     {/* Everything the list holds, looked through from one box. */}
-                    <div className="relative mr-auto w-80">
-                        <Label htmlFor="directory-search" className="sr-only">
-                            Поиск по всем полям
-                        </Label>
-                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                        <Input
-                            id="directory-search"
-                            type="search"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Поиск по всем полям"
-                            className="pl-9"
-                        />
-                    </div>
+                    <SearchInput
+                        id="directory-search"
+                        value={search}
+                        onChange={setSearch}
+                        placeholder="Поиск по всем полям"
+                        className="mr-auto w-80"
+                    />
 
                     {/* The columns ride in the same menu as the view they are part of. */}
                     <TableMemoryButton memory={memory}>
@@ -729,7 +735,7 @@ export function DirectoryManager({
                         const picked = <T,>(key: 'department' | 'unit' | 'counted') =>
                             Array.isArray(changes[key]) ? (changes[key] as T[]) : undefined;
                         const department = picked<number>('department');
-                        const unit = picked<number>('unit');
+                        const unit = picked<number | typeof NO_UNIT>('unit');
                         const chosen = picked<string>('counted');
 
                         if (department || unit || chosen) {
@@ -776,6 +782,10 @@ export function DirectoryManager({
                     }
                     empty={<span className="text-sm">{items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}</span>}
                 />
+
+                {/* What the list adds up to — the rows it is showing, so the
+                    tally answers whatever was just asked of it. */}
+                {summary && <p className="text-muted-foreground shrink-0 text-[13px]">{summary(visible)}</p>}
             </div>
 
             {editing && (

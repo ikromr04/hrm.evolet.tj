@@ -37,6 +37,7 @@ class EquipmentIcons
         'picture',
         'conditioner',
         'extinguisher',
+        'safe',
         'package',
     ];
 }

@@ -133,7 +133,7 @@ interface Employee {
     patronymic?: string | null;
     sex?: Sex;
     email?: string;
-    /** Access roles, shown as "Позиция". */
+    /** Access roles, shown as «Роль». */
     roles?: string[];
     /**
      * Positions, shown as «Должность»; an employee can hold several. Each is
@@ -339,7 +339,7 @@ function AccessSection({ employee, access }: { employee: Employee; access: Acces
                                                     <span className="min-w-0">
                                                         <span className="text-sm">{right.title}</span>
                                                         <span className="text-muted-foreground block text-xs">
-                                                            {state?.position ? 'Позиция даёт этот доступ' : 'Позиция этот доступ не даёт'}
+                                                            {state?.position ? 'Роль даёт этот доступ' : 'Роль этот доступ не даёт'}
                                                         </span>
                                                     </span>
                                                     <ToggleGroup
@@ -593,7 +593,7 @@ function PersonalDialog({
 
                         {canEdit('roles') && (
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="personal-roles">Позиция</Label>
+                                <Label htmlFor="personal-roles">Роль</Label>
                                 <MultiSelect
                                     id="personal-roles"
                                     // A locked field still shows what the person holds, so the
@@ -2809,7 +2809,7 @@ export default function EmployeeProfile({
                                             <Field label="Домашний адрес" field="home_address">
                                                 {details.home_address}
                                             </Field>
-                                            <Field label={(employee.roles ?? []).length > 1 ? 'Позиции' : 'Позиция'} field="roles">
+                                            <Field label={(employee.roles ?? []).length > 1 ? 'Роли' : 'Роль'} field="roles">
                                                 {employee.roles?.length ? employee.roles.join(', ') : null}
                                             </Field>
                                             <Field label={(employee.positions ?? []).length > 1 ? 'Должности' : 'Должность'} field="positions">
@@ -3057,7 +3057,7 @@ export default function EmployeeProfile({
                                             <Field label="Отчество" field="patronymic">
                                                 {employee.patronymic}
                                             </Field>
-                                            <Field label={(employee.roles ?? []).length > 1 ? 'Позиции' : 'Позиция'} field="roles">
+                                            <Field label={(employee.roles ?? []).length > 1 ? 'Роли' : 'Роль'} field="roles">
                                                 {employee.roles?.length ? employee.roles.join(', ') : null}
                                             </Field>
                                             <Field label={(employee.positions ?? []).length > 1 ? 'Должности' : 'Должность'} field="positions">

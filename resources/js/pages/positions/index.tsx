@@ -3,6 +3,7 @@ import {
     DataTable,
     MobileListTools,
     MobileRow,
+    orderedColumns,
     TableMemoryButton,
     useTableMemory,
     useTableView,
@@ -13,18 +14,19 @@ import {
     type ViewState,
 } from '@/components/data-table';
 import { DepartmentLink } from '@/components/department-name';
-import { searchBox } from '@/components/directory-manager';
 import { MobileFab } from '@/components/mobile-fab';
-import { PageActions } from '@/components/page-actions';
 import { PositionEditor } from '@/components/position-editor';
+import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import CompanyStructureLayout from '@/layouts/company-structure-layout';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
-import { Link, router } from '@inertiajs/react';
-import { Ellipsis, LoaderCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { type BreadcrumbItem } from '@/types';
+import { Head, Link, router } from '@inertiajs/react';
+import { Ellipsis, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Department {
@@ -148,7 +150,7 @@ const collator = new Intl.Collator('ru');
  * is the column that fills the table, and it wraps.
  */
 /** What the one text filter looks through, said in full for whoever opens it. */
-const SEARCH_HINT = 'Поиск по названию, департаменту, отделу и обязанностям';
+const SEARCH_HINT = 'Поиск по всем полям';
 
 const columns: ColumnDef[] = [
     // Both are cut to their headers: «Департамент» has to stand beside its own
@@ -199,6 +201,8 @@ type Chosen = (number | typeof NONE)[];
 interface Narrowing {
     department: Chosen;
     unit: Chosen;
+    /** The titles asked for, each standing for every job of that name. */
+    title: string[];
 }
 
 /**
@@ -230,7 +234,7 @@ function filing(position: Position): { department: Department | null; unit: Depa
  * positions the data could not place have to be findable, and so do the ones
  * hanging off a department with no unit under them.
  */
-function buildColumns(departments: Props['options']['departments']): ColumnDef[] {
+function buildColumns(departments: Props['options']['departments'], positions: Position[]): ColumnDef[] {
     const option = (department: Department) => ({
         value: department.id,
         label: department.name,
@@ -267,6 +271,14 @@ function buildColumns(departments: Props['options']['departments']): ColumnDef[]
         },
     };
 
+    // Every title, each one once and in order: the same name is filed in
+    // several departments, and the funnel asks about the name itself.
+    filters.name = {
+        type: 'multi',
+        param: 'title',
+        options: [...new Set(positions.map((position) => position.name))].sort(collator.compare).map((name) => ({ value: name, label: name })),
+    };
+
     return columns.map((column) => (filters[column.key] ? { ...column, filter: filters[column.key] } : column));
 }
 
@@ -276,7 +288,8 @@ function inChosen(position: Position, chosen: Narrowing): boolean {
 
     return (
         (chosen.department.length === 0 || chosen.department.includes(department?.id ?? NONE)) &&
-        (chosen.unit.length === 0 || chosen.unit.includes(unit?.id ?? NONE))
+        (chosen.unit.length === 0 || chosen.unit.includes(unit?.id ?? NONE)) &&
+        (chosen.title.length === 0 || chosen.title.includes(position.name))
     );
 }
 
@@ -467,14 +480,15 @@ function DeleteDialog({ position, onClose }: { position: Position; onClose: () =
 }
 
 /** Nothing chosen in either funnel: the whole list. */
-const NOTHING_CHOSEN: Narrowing = { department: [], unit: [] };
+const NOTHING_CHOSEN: Narrowing = { department: [], unit: [], title: [] };
+
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Должности', href: '/positions' }];
 
 export default function PositionsIndex({ positions, options, canEdit }: Props) {
-    const { view, setView, pin, reorder } = useTableView(STORAGE_KEY, columnKeys, defaultView);
+    const { view, setView, pin, toggleHidden, reorder, order } = useTableView(STORAGE_KEY, columnKeys, defaultView);
     // The columns as this viewer arranged them, kept by a press rather than
     // behind their back. The list itself is narrowed in the page rather than in
     // the address bar, so there is no query to keep beside them.
-    const memory = useTableMemory({ viewKey: STORAGE_KEY, columnKeys, view, setView, fallback: defaultView });
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
     // The departments and the units the list is narrowed to, kept here beside
@@ -484,8 +498,32 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     const [editing, setEditing] = useState<Position | 'new' | null>(null);
     const [deleting, setDeleting] = useState<Position | null>(null);
 
-    const tableColumns = useMemo(() => buildColumns(options.departments), [options.departments]);
-    const filters: FilterValues = { department: chosen.department, unit: chosen.unit, q: query };
+    /**
+     * Everything the list is narrowed by, as one thing the view can keep: the
+     * order, the two funnels and the box over the table. None of it lives in
+     * the address, so the view carries it.
+     */
+    const narrowing = useMemo(() => ({ sort, chosen, query }), [sort, chosen, query]);
+    const opened = useMemo(() => ({ sort: DEFAULT_SORT, chosen: NOTHING_CHOSEN, query: '' }), []);
+    const memory = useTableMemory({
+        viewKey: STORAGE_KEY,
+        columnKeys,
+        view,
+        setView,
+        fallback: defaultView,
+        state: narrowing,
+        defaultState: opened,
+        onState: (held) => {
+            const next = (held ?? opened) as typeof narrowing;
+
+            setSort(next.sort ?? DEFAULT_SORT);
+            setChosen(next.chosen ?? NOTHING_CHOSEN);
+            setQuery(next.query ?? '');
+        },
+    });
+
+    const tableColumns = useMemo(() => buildColumns(options.departments, positions), [options.departments, positions]);
+    const filters: FilterValues = { department: chosen.department, unit: chosen.unit, title: chosen.title, q: query };
     // A funnel reports only its own column, so what it says is laid over what
     // the other one is already set to. The search is a filter like the rest,
     // and the one that is not part of the narrowing.
@@ -498,7 +536,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
         setChosen((current) => ({ ...current, ...(narrowing as Partial<Narrowing>) }));
     };
 
-    const narrowed = chosen.department.length > 0 || chosen.unit.length > 0;
+    const narrowed = chosen.department.length > 0 || chosen.unit.length > 0 || chosen.title.length > 0;
 
     // A position is searched for by what it is called, by where it sits and by
     // what it does: a duty is often what somebody remembers of a job title they
@@ -563,20 +601,24 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
 
                 return department === null ? <Unfiled>Без отдела</Unfiled> : <Empty />;
             default:
+                // The badge every list writes a job in, leading to its page. The
+                // title wraps rather than being cut at the edge of the column,
+                // and the hover names the department for whoever hid those
+                // columns. One the funnel is set to is marked, so a list
+                // narrowed to a title says which of them it is.
                 return (
-                    <span className="flex items-start gap-1.5">
-                        <Link
-                            href={route('positions.show', position.id)}
-                            // Brand colour and an underline on hover: the app's mark of a
-                            // link. A job title is the whole point of the row, so it wraps
-                            // rather than being cut at the edge of the column. The hover
-                            // names the department too, for whoever hid those columns.
-                            className="text-brand-strong font-medium whitespace-normal hover:underline dark:text-[#C5E27A]"
-                            title={`Открыть должность: ${position.display_name}`}
+                    <Link
+                        href={route('positions.show', position.id)}
+                        title={`Открыть должность: ${position.display_name}`}
+                        className="inline-block rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
+                    >
+                        <StatusBadge
+                            tone="success"
+                            className={cn('h-auto flex-wrap py-[3px] whitespace-normal', chosen.title.includes(position.name) && 'ring-brand ring-1')}
                         >
-                            {position.name}
-                        </Link>
-                    </span>
+                            {position.display_name}
+                        </StatusBadge>
+                    </Link>
                 );
         }
     };
@@ -597,119 +639,156 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
      * so the narrowing answers for itself — by name while there is one name to
      * give.
      */
+    /**
+     * What is on screen, counted the way the columns read it: the jobs, and the
+     * two steps of the structure they are filed in, each named once.
+     */
+    const summary = [
+        `${rows.length} ${plural(rows.length, ['должность', 'должности', 'должностей'])}`,
+        (() => {
+            const departments = new Set(rows.map((position) => position.department?.parent?.id ?? position.department?.id).filter(Boolean)).size;
+
+            return `${departments} ${plural(departments, ['департамент', 'департамента', 'департаментов'])}`;
+        })(),
+        (() => {
+            const units = new Set(rows.filter((position) => position.department?.parent).map((position) => position.department!.id)).size;
+
+            return `${units} ${plural(units, ['отдел', 'отдела', 'отделов'])}`;
+        })(),
+    ].join(' · ');
+
     const noneHere = narrowed && !positions.some((position) => inChosen(position, chosen));
     const empty = positions.length === 0 ? 'Должностей пока нет.' : noneHere ? emptyMessage(chosen, options.departments) : 'Ничего не найдено.';
 
     return (
-        <CompanyStructureLayout>
-            {canEdit && (
-                <PageActions>
-                    <Button className="h-8" onClick={() => setEditing('new')}>
-                        <Plus />
-                        Добавить должность
-                    </Button>
-                </PageActions>
-            )}
+        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+            <Head title="Должности" />
 
-            {/*
-             * The phone's own line: there the table is a list of cards with no
-             * headers to hang a funnel on, so the box and the sheet of tools
-             * stand above it. A desktop reads both off the headers — the search
-             * is the funnel on «Должность» — and the button that adds one sits
-             * at the end of the line of tabs, where this section keeps it.
-             */}
-            <div className="flex flex-wrap items-center gap-2 md:hidden">
-                {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
-                <label className={searchBox}>
-                    <Search className="size-4 shrink-0" />
-                    <span className="sr-only">{searchHint}</span>
-                    <input
-                        type="search"
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Должности</h1>
+
+                {/*
+                 * The phone's own line: there the table is a list of cards with no
+                 * headers to hang a funnel on, so the box and the sheet of tools
+                 * stand above it. A desktop reads both off the headers — the search
+                 * is the funnel on «Должность» — and the button that adds one sits
+                 * at the end of the line of tabs, where this section keeps it.
+                 */}
+                <div className="flex flex-wrap items-center gap-2 md:hidden">
+                    {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
+                    <SearchInput
                         value={query}
-                        onChange={(event) => setQuery(event.target.value)}
+                        onChange={setQuery}
                         placeholder={searchHint}
-                        className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
+                        className="min-w-0 flex-1"
+                        inputClassName="bg-card h-10 rounded-xl border-transparent text-base shadow-none"
                     />
-                </label>
 
-                <MobileListTools
+                    <MobileListTools
+                        columns={tableColumns}
+                        filters={filters}
+                        onFilter={applyFilter}
+                        sort={sort}
+                        sortable={sortable}
+                        onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
+                        defaultSort={DEFAULT_SORT}
+                        // No header carries the opening order — it is the structure
+                        // read down, which is no one column — so the sheet names it
+                        // above the columns, and the three presses come back to it.
+                        defaultSortLabel={STRUCTURE_LABEL}
+                        className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
+                    />
+                </div>
+
+                {/* Everything over the table on a desktop: the box that looks through
+                the list, the view it is read in with its columns, and the button
+                that adds to it. */}
+                <div className="flex items-center gap-2 max-md:hidden">
+                    <SearchInput id="positions-search" value={query} onChange={setQuery} placeholder={searchHint} className="mr-auto w-80" />
+
+                    <TableMemoryButton memory={memory}>
+                        {orderedColumns(tableColumns, order).map((column) => (
+                            <DropdownMenuCheckboxItem
+                                key={column.key}
+                                checked={!view.hidden.includes(column.key)}
+                                disabled={column.key === 'name'}
+                                onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
+                                onSelect={(event) => event.preventDefault()}
+                            >
+                                {column.label}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </TableMemoryButton>
+
+                    {canEdit && (
+                        <Button onClick={() => setEditing('new')}>
+                            <Plus />
+                            Добавить должность
+                        </Button>
+                    )}
+                </div>
+
+                <DataTable
                     columns={tableColumns}
-                    filters={filters}
-                    onFilter={applyFilter}
+                    rows={rows}
+                    rowKey={(position) => position.id}
+                    renderCell={cell}
                     sort={sort}
                     sortable={sortable}
                     onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
-                    defaultSort={DEFAULT_SORT}
-                    // No header carries the opening order — it is the structure
-                    // read down, which is no one column — so the sheet names it
-                    // above the columns, and the three presses come back to it.
-                    defaultSortLabel={STRUCTURE_LABEL}
-                    className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
+                    filters={filters}
+                    onFilter={applyFilter}
+                    // Both lists of departments spell a full name out beside an
+                    // abbreviation, which needs more room than a short label.
+                    view={view}
+                    onPin={pin}
+                    reorderable
+                    onReorder={reorder}
+                    lockedKey="name"
+                    actions={
+                        canEdit
+                            ? (position) => (
+                                  <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
+                              )
+                            : undefined
+                    }
+                    empty={empty}
+                    mobileRow={(position) => (
+                        <MobileRow
+                            href={route('positions.show', position.id)}
+                            title={<span className="truncate">{position.name}</span>}
+                            // There are no columns on a phone, so the line under the
+                            // name opens with where the position sits: twenty of these
+                            // names repeat, and a row saying «Аналитик» alone could be
+                            // any of them. It goes first because the line is cut at the
+                            // edge of the screen and two abbreviations are short — the
+                            // duties after them are what gives way, and the page the row
+                            // opens has them in full, with the holders beside them.
+                            //
+                            // It is on every row, as it is in every row of the table:
+                            // «ДАС › ОА» repeated down a list is what tells one run of
+                            // rows from the next, and the order is the same structural
+                            // one the table opens in, so those runs are there to read.
+                            subtitle={
+                                <>
+                                    <StructureLine position={position} />
+                                    {' · '}
+                                    {dutiesLine(position)}
+                                </>
+                            }
+                            trailing={
+                                canEdit ? (
+                                    <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
+                                ) : undefined
+                            }
+                        />
+                    )}
                 />
+
+                {/* What the list adds up to — what it is showing, so narrowing it
+                narrows the tally with it. */}
+                <p className="text-muted-foreground shrink-0 text-[13px] max-md:hidden">{summary}</p>
             </div>
-
-            {/* Only while there is something to say, and only where there is room
-                to say it: the phone has no pins to keep. */}
-            {memory.offered && (
-                <div className="flex justify-end max-md:hidden">
-                    <TableMemoryButton memory={memory} />
-                </div>
-            )}
-
-            <DataTable
-                columns={tableColumns}
-                rows={rows}
-                rowKey={(position) => position.id}
-                renderCell={cell}
-                sort={sort}
-                sortable={sortable}
-                onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
-                filters={filters}
-                onFilter={applyFilter}
-                // Both lists of departments spell a full name out beside an
-                // abbreviation, which needs more room than a short label.
-                view={view}
-                onPin={pin}
-                reorderable
-                onReorder={reorder}
-                lockedKey="name"
-                actions={
-                    canEdit
-                        ? (position) => <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
-                        : undefined
-                }
-                empty={empty}
-                mobileRow={(position) => (
-                    <MobileRow
-                        href={route('positions.show', position.id)}
-                        title={<span className="truncate">{position.name}</span>}
-                        // There are no columns on a phone, so the line under the
-                        // name opens with where the position sits: twenty of these
-                        // names repeat, and a row saying «Аналитик» alone could be
-                        // any of them. It goes first because the line is cut at the
-                        // edge of the screen and two abbreviations are short — the
-                        // duties after them are what gives way, and the page the row
-                        // opens has them in full, with the holders beside them.
-                        //
-                        // It is on every row, as it is in every row of the table:
-                        // «ДАС › ОА» repeated down a list is what tells one run of
-                        // rows from the next, and the order is the same structural
-                        // one the table opens in, so those runs are there to read.
-                        subtitle={
-                            <>
-                                <StructureLine position={position} />
-                                {' · '}
-                                {dutiesLine(position)}
-                            </>
-                        }
-                        trailing={
-                            canEdit ? (
-                                <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
-                            ) : undefined
-                        }
-                    />
-                )}
-            />
 
             {canEdit && <MobileFab onClick={() => setEditing('new')} label="Добавить должность" />}
             {editing && (
@@ -722,6 +801,6 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 />
             )}
             {deleting && <DeleteDialog position={deleting} onClose={() => setDeleting(null)} />}
-        </CompanyStructureLayout>
+        </AppLayout>
     );
 }

@@ -1,6 +1,8 @@
 import { departmentDirectory } from '@/components/department-editor';
+import { type DirectoryItem } from '@/components/directory-editor';
 import { DirectoryManager } from '@/components/directory-manager';
 import AppLayout from '@/layouts/app-layout';
+import { plural } from '@/lib/plural';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
 
@@ -13,7 +15,7 @@ interface DepartmentItem {
     total_count: number;
     positions_count: number;
     /** The jobs filed here; the number travels only where the viewer may open one. */
-    positions: { id: number | null; name: string }[];
+    positions: { id: number | null; name: string; unit: { name: string; full_name: string } | null }[];
 }
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Подразделения', href: '/departments' }];
@@ -24,6 +26,39 @@ const breadcrumbs: BreadcrumbItem[] = [{ title: 'Подразделения', hr
  * the page's own name, and at the end of that line whatever adds to it.
  */
 export default function Departments({ items, canEdit }: { items: DepartmentItem[]; canEdit: boolean }) {
+    /**
+     * What is on screen, counted the way the columns read it: the branches,
+     * what hangs inside them, and the jobs filed in both. The list hands over
+     * the rows it is showing, so narrowing it narrows the tally with it.
+     */
+    const above = new Map(items.map((item) => [item.id, item.parent_id]));
+
+    /** The department a row belongs to: itself, where it hangs under nothing. */
+    const branchOf = (id: number) => {
+        let held = id;
+
+        for (let parent = above.get(held); parent != null; parent = above.get(held)) {
+            if (parent === held) break;
+            held = parent;
+        }
+
+        return held;
+    };
+
+    const summary = (shown: DirectoryItem[]) => {
+        // The branches the rows stand in, each counted once however many of its
+        // units are on screen.
+        const departments = new Set(shown.map((row) => branchOf(row.id))).size;
+        const units = shown.filter((row) => row.parent_id).length;
+        const jobs = shown.reduce((total, row) => total + (row.count_items?.length ?? 0), 0);
+
+        return [
+            `${departments} ${plural(departments, ['департамент', 'департамента', 'департаментов'])}`,
+            `${units} ${plural(units, ['отдел', 'отдела', 'отделов'])}`,
+            `${jobs} ${plural(jobs, ['должность', 'должности', 'должностей'])}`,
+        ].join(' · ');
+    };
+
     return (
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Подразделения" />
@@ -45,6 +80,7 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
                         count_items: item.positions.map((position) => ({
                             id: position.id,
                             name: position.name,
+                            unit: position.unit,
                             url: position.id === null ? '' : route('positions.show', position.id),
                         })),
                         parent_id: item.parent_id,
@@ -67,6 +103,7 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
                     // The structure reads down two columns here, as it does in the
                     // staff list: the department, and the unit inside it.
                     structure
+                    summary={summary}
                 />
             </div>
         </AppLayout>

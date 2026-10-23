@@ -120,11 +120,12 @@ export default function Departments({ departments, employees_count }: { departme
             <Head title="Оргструктура" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-6 md:px-4 md:py-6 lg:px-6">
-                {/* The page writes its own name, and what the chart adds up to
-                   stands at the end of that line. */}
+                {/* The page writes its own name. What the chart adds up to
+                   stands in the corner of the chart itself; a phone, which may
+                   be reading the list instead, keeps it here. */}
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
                     <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Оргструктура</h1>
-                    <p className="text-muted-foreground text-sm max-md:px-1 max-md:text-[13px]">{summary}</p>
+                    <p className="text-muted-foreground px-1 text-[13px] md:hidden">{summary}</p>
                 </div>
 
                 {departments.length === 0 ? (
@@ -153,6 +154,10 @@ export default function Departments({ departments, employees_count }: { departme
                         >
                             <OrgChart departments={departments} employeesCount={employees_count} />
                         </Card>
+
+                        {/* What the chart adds up to, under it and to the left,
+                            where a page is read out. */}
+                        <p className="text-muted-foreground shrink-0 text-[13px] max-md:hidden">{summary}</p>
                     </>
                 )}
             </div>

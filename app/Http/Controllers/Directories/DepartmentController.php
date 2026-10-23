@@ -64,7 +64,13 @@ class DepartmentController extends Controller
                     // only for whoever may open a position, so a name stays a
                     // word for everybody else rather than a link into a refusal.
                     'positions' => $d->positions
-                        ->map(fn (Position $p) => ['id' => $opensPositions ? $p->id : null, 'name' => $p->name])
+                        ->map(fn (Position $p) => [
+                            'id' => $opensPositions ? $p->id : null,
+                            'name' => $p->name,
+                            // The department it belongs to, named the way every
+                            // badge of a job names one: short, full within reach.
+                            'unit' => $p->unit(),
+                        ])
                         ->values(),
                     // Working members of this department itself, heads included.
                     'users_count' => $d->users->count(),

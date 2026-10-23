@@ -704,7 +704,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     </div>
 
                                     <div className="grid gap-4 md:@min-[22rem]:grid-cols-2 md:@min-[30rem]:grid-cols-3">
-                                        <Field label="Позиция" error={at(main.errors, 'roles')}>
+                                        <Field label="Роль" error={at(main.errors, 'roles')}>
                                             <MultiSelect
                                                 options={options.roles.map((role) => ({
                                                     value: role.name,

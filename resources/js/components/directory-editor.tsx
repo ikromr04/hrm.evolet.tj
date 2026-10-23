@@ -68,7 +68,7 @@ export interface DirectoryItem extends EditableRecord {
      * What the count counts, named: the list is drawn in place of the number,
      * each with the way to its own page where the viewer may follow it.
      */
-    count_items?: { id: number | null; name: string; url: string }[];
+    count_items?: { id: number | null; name: string; url: string; unit?: { name: string; full_name: string } | null }[];
     /** Departments only: working employees here and in sub-departments, each counted once. */
     total_count?: number;
 }
