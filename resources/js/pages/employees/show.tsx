@@ -619,10 +619,6 @@ function PersonalDialog({
                         {canEdit('positions') && canEdit('departments') && (
                             <div className="grid content-start gap-2">
                                 <Label>Отдел и должность</Label>
-                                <p className="text-muted-foreground text-[13px]">
-                                    Сначала отдел, затем должность этого отдела и обязанности этой должности. Если сотрудник числится в нескольких
-                                    отделах, добавьте запись на каждый.
-                                </p>
                                 <Placements
                                     value={form.data.placements}
                                     onChange={(value) => form.setData('placements', value)}

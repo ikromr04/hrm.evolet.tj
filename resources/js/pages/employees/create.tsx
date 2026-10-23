@@ -1,6 +1,7 @@
+import { DatePicker } from '@/components/date-picker';
 import InputError from '@/components/input-error';
 import { MultiSelect } from '@/components/multi-select';
-import { blankPlacement, Placements, placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
+import { placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
 import { SearchableSelect } from '@/components/searchable-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,6 +162,9 @@ type SpokenLanguage = { id: string; level: LanguageLevel };
  */
 export default function CreateEmployee({ options, canIssue }: { options: Options; canIssue: boolean }) {
     const today = new Date().toISOString().slice(0, 10);
+    // A position nobody has filed in a department yet would put the person
+    // nowhere, so it is not one of the posts on offer.
+    const posts = options.positions.filter((position) => position.department_id !== null);
     const [step, setStep] = useState(0);
     const [employee, setEmployee] = useState<NewEmployee | null>(null);
 
@@ -193,7 +197,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         // the department is the first thing the step asks for rather than
         // something to go looking for behind a button; it costs nothing when
         // nobody fills it in.
-        placements: [{ ...blankPlacement }] as Placement[],
+        placements: [] as Placement[],
         continue: true,
     });
 
@@ -214,6 +218,12 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
 
     const forms = [main, contacts, languages, passport, family, educations, jobs, equipment];
     const busy = forms.some((form) => form.processing);
+    /**
+     * A step other than the first, with nobody on the books yet: it can be read
+     * and filled in, but there is nothing to file it against until the first
+     * step has been saved, so the buttons that would file it are held.
+     */
+    const unsaved = employee === null && step > 0;
 
     // Leaving with a half-filled step would throw the work away, so the browser
     // asks first. Once the last step is done there is nothing left to lose.
@@ -272,6 +282,10 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
      * and whatever was skipped is filled in later from their profile.
      */
     const next = (after: After = 'next') => {
+        // A later step filed before the first one has nobody to file it against;
+        // the buttons say so by being held, and Enter is held with them.
+        if (unsaved) return;
+
         if (step === 0) {
             if (employee) {
                 // Already on the books: this step now corrects what it filed.
@@ -397,6 +411,13 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         equipment.post(route('employees.equipment.store', employee.id), go(after === 'next' ? 'profile' : after, step));
     };
 
+    /**
+     * What the server said about the jobs. It names a row and a field of it —
+     * «placements.0.position_id» — and the form asks for them in one list, so
+     * whatever it says is said once, under that list.
+     */
+    const placementError = main.errors.placements ?? Object.entries(main.errors).find(([key]) => key.startsWith('placements.'))?.[1];
+
     const setRecord = <T,>(form: { data: { records: T[] }; setData: (key: 'records', value: T[]) => void }, index: number, patch: Partial<T>) =>
         form.setData(
             'records',
@@ -450,8 +471,8 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
 
                 <div className="grid grid-cols-1 gap-5 max-md:gap-3 lg:grid-cols-[15rem_1fr] lg:items-start lg:gap-6">
                     {/* On a phone the six step buttons give way to one line and a
-                    progress bar. Its segments still jump between steps once the
-                    colleague is on the books, as the buttons do. */}
+                    progress bar. Its segments step between the steps as the
+                    buttons do. */}
                     <div className="flex flex-col gap-2 px-1 md:hidden">
                         <p className="text-[15px]">
                             <span className="font-semibold">
@@ -464,10 +485,10 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                 <button
                                     key={item.title}
                                     type="button"
-                                    disabled={employee === null && index !== step}
+                                    disabled={busy}
                                     aria-current={index === step ? 'step' : undefined}
                                     aria-label={`Шаг ${index + 1}: ${item.title}`}
-                                    onClick={() => employee !== null && setStep(index)}
+                                    onClick={() => setStep(index)}
                                     className="-my-2 flex-1 py-2 disabled:cursor-default"
                                 >
                                     <span
@@ -491,24 +512,18 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                             {steps.map((item, index) => {
                                 const done = index < step;
                                 const current = index === step;
-                                // Once the colleague is on the books every step is
-                                // open, in both directions: each is a card of its own,
-                                // filed by its own button. Before that there is
-                                // nothing to file, so only the first step works.
-                                const reachable = employee !== null;
 
                                 return (
                                     <li key={item.title} className="shrink-0">
                                         <button
                                             type="button"
-                                            disabled={!reachable && !current}
+                                            disabled={busy}
                                             aria-current={current ? 'step' : undefined}
-                                            onClick={() => reachable && setStep(index)}
+                                            onClick={() => setStep(index)}
                                             className={cn(
                                                 'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap transition-colors',
                                                 current ? 'bg-muted text-foreground font-medium' : 'text-muted-foreground',
-                                                reachable && !current && 'hover:bg-accent hover:text-foreground',
-                                                !reachable && !current && 'cursor-default',
+                                                !current && 'hover:bg-accent hover:text-foreground',
                                             )}
                                             title={item.note}
                                         >
@@ -551,7 +566,13 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     </span>
                                     {steps[step].title}
                                 </h2>
-                                {step > 0 && <p className="text-muted-foreground text-[13px]">Шаг необязательный — его можно пропустить.</p>}
+                                {step > 0 && (
+                                    <p className="text-muted-foreground text-[13px]">
+                                        {unsaved
+                                            ? 'Сначала сохраните основные данные — пока сотрудника нет, этот шаг сохранить не на кого.'
+                                            : 'Шаг необязательный — его можно пропустить.'}
+                                    </p>
+                                )}
                             </div>
 
                             {step === 0 && (
@@ -620,7 +641,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                             <Input
                                                 value={main.data.birth_place}
                                                 onChange={(event) => main.setData('birth_place', event.target.value)}
-                                                placeholder="г. Худжанд"
+                                                placeholder="г. Душанбе"
                                                 aria-invalid={!!main.errors.birth_place}
                                             />
                                         </Field>
@@ -658,12 +679,14 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
 
                                     <div className="grid gap-4 md:@min-[22rem]:grid-cols-2 md:@min-[30rem]:grid-cols-3">
                                         <Field label="Начало работы" error={main.errors.hired_at}>
-                                            <Input
-                                                type="date"
-                                                max={today}
+                                            {/* Chosen from a month of its own, so the date reads
+                                                the way it is written everywhere else. Nobody
+                                                starts work in the future. */}
+                                            <DatePicker
                                                 value={main.data.hired_at}
-                                                onChange={(event) => main.setData('hired_at', event.target.value)}
-                                                aria-invalid={!!main.errors.hired_at}
+                                                onChange={(value) => main.setData('hired_at', value)}
+                                                toDate={new Date()}
+                                                invalid={!!main.errors.hired_at}
                                             />
                                         </Field>
                                         {/* An address is longer than a date, so it takes the other two. */}
@@ -687,27 +710,31 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 onChange={(value) => main.setData('roles', value)}
                                             />
                                         </Field>
-                                    </div>
 
-                                    {/* The three go together and are asked in that
-                                    order, so they get a block of their own rather
-                                    than a cell each in the grid above. */}
-                                    <div className="flex flex-col gap-3 border-t pt-6">
-                                        <Label>Отдел и должность</Label>
-                                        <p className="text-muted-foreground text-[13px]">
-                                            Сначала отдел, затем должность этого отдела и обязанности этой должности. Если сотрудник числится в
-                                            нескольких отделах, добавьте запись на каждый.
-                                        </p>
-                                        <Placements
-                                            value={main.data.placements}
-                                            onChange={(value) => main.setData('placements', value)}
-                                            options={options}
-                                            errors={main.errors}
-                                            // The keys come back from the server, which names a
-                                            // chain and a field of it; the form only knows the
-                                            // one key they hang under.
-                                            onAnswered={(keys) => main.clearErrors(...(keys as 'placements'[]))}
-                                        />
+                                        {/* The jobs stand beside the access that goes with
+                                            them, a cell like any other. What each job answers
+                                            for is picked out of its own list later, on the
+                                            card: it can be skipped here. */}
+                                        <Field label="Должность" error={placementError}>
+                                            <MultiSelect
+                                                options={posts.map((post) => ({ value: post.id, label: post.display_name }))}
+                                                value={main.data.placements
+                                                    .map((placement) => placement.position_id)
+                                                    .filter((id): id is number => id !== null)}
+                                                onChange={(chosen) =>
+                                                    main.setData(
+                                                        'placements',
+                                                        chosen.map((id) => {
+                                                            // A job already chosen keeps whatever
+                                                            // duties were picked out of it on the card.
+                                                            const held = main.data.placements.find((placement) => placement.position_id === id);
+
+                                                            return held ?? { position_id: id, duty_ids: [] };
+                                                        }),
+                                                    )
+                                                }
+                                            />
+                                        </Field>
                                     </div>
                                 </div>
                             )}
@@ -1216,14 +1243,14 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                         type="button"
                                         variant="outline"
                                         className="max-md:size-11 max-md:shrink-0 max-md:px-0"
-                                        disabled={busy}
+                                        disabled={busy || unsaved}
                                         onClick={() => next('again')}
                                     >
                                         <UserPlus />
                                         <span className="max-md:sr-only">{step === 0 ? 'Создать и добавить ещё' : 'Сохранить и добавить ещё'}</span>
                                     </Button>
 
-                                    <Button type="submit" className="max-md:h-11 max-md:min-w-0 max-md:flex-1" disabled={busy}>
+                                    <Button type="submit" className="max-md:h-11 max-md:min-w-0 max-md:flex-1" disabled={busy || unsaved}>
                                         {busy && <LoaderCircle className="animate-spin" />}
                                         {step === steps.length - 1 ? (
                                             'Готово'
