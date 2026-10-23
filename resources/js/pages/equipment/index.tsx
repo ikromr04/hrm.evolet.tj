@@ -21,6 +21,7 @@ import { MultiSelect } from '@/components/multi-select';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
+import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -54,7 +55,6 @@ import {
     ListFilter,
     LoaderCircle,
     Plus,
-    Search,
     Trash2,
     UserPlus,
     Users,
@@ -243,6 +243,9 @@ const QUERY_KEY = 'equipment.table.query';
 const HOLDERS_STORAGE_KEY = 'equipment.holders.view.v2';
 
 const collator = new Intl.Collator('ru');
+
+/** What the «Отдел» funnel calls «Без отдела»; the server knows the same word. */
+const NO_UNIT = 'none';
 
 /**
  * The order both tables open in, and the one a third press on a header comes
@@ -569,7 +572,11 @@ function structureColumns(options: Options): ColumnDef[] {
                 // the equipment of its units as well: a laptop in the отдел
                 // аналитики is a laptop of ДАС in every sense somebody means by
                 // the question.
-                options: options.departments.filter((department) => !department.depth).map(option),
+                // «Без департамента» asks for the rows this column is empty on.
+                options: [
+                    { value: NO_UNIT, label: 'Без департамента' },
+                    ...options.departments.filter((department) => !department.depth).map(option),
+                ],
             },
         },
         {
@@ -582,9 +589,13 @@ function structureColumns(options: Options): ColumnDef[] {
                 // The units, by the name they are shown under rather than in
                 // the tree's order: their departments are not in this list to
                 // be read down, so a reader looks a unit up by its own name.
-                options: [...options.departments.filter((department) => department.depth === 1)]
-                    .sort((a, b) => collator.compare(a.name, b.name))
-                    .map(option),
+                // «Без отдела» asks for the rows this column is empty on.
+                options: [
+                    { value: NO_UNIT, label: 'Без отдела' },
+                    ...[...options.departments.filter((department) => department.depth === 1)]
+                        .sort((a, b) => collator.compare(a.name, b.name))
+                        .map(option),
+                ],
             },
         },
     ];
@@ -1277,17 +1288,14 @@ export default function EquipmentIndex({
                     as a row of chips; the rest is reached from the tab bar or the round button. */}
                 <div className="flex flex-wrap items-center gap-2 md:-mb-2">
                     {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
-                    <label className="border-input bg-background text-muted-foreground focus-within:ring-ring max-md:bg-card flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:min-w-0 max-md:rounded-xl max-md:border-transparent max-md:shadow-none">
-                        <Search className="size-4 shrink-0" />
-                        <span className="sr-only">Поиск по всем полям</span>
-                        <input
-                            type="search"
-                            value={query}
-                            onChange={(event) => setQuery(event.target.value)}
-                            placeholder="Поиск по всем полям"
-                            className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
-                        />
-                    </label>
+                    <SearchInput
+                        id="equipment-search"
+                        value={query}
+                        onChange={setQuery}
+                        placeholder="Поиск по всем полям"
+                        className="min-w-48 flex-1 max-md:min-w-0"
+                        inputClassName="max-md:bg-card text-sm max-md:text-base max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
+                    />
 
                     <MobileListTools
                         columns={narrowing}

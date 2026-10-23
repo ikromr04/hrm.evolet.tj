@@ -21,6 +21,7 @@ import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonAvatar } from '@/components/person-avatar';
 import { Phones } from '@/components/phones';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
+import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,8 +32,6 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
@@ -40,7 +39,7 @@ import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type Pr
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { ChevronDown, Lock, Plus, Search } from 'lucide-react';
+import { ChevronDown, Lock, Plus } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Сотрудники', href: '/employees' }];
@@ -61,7 +60,7 @@ interface EmployeeRow {
     patronymic?: string | null;
     sex?: Sex;
     email?: string;
-    /** Access roles, shown as "Позиция". */
+    /** Access roles, shown as «Роль». */
     roles?: string[];
     /** Positions, shown as «Должность»; an employee can hold several. */
     positions?: PositionRef[];
@@ -101,8 +100,10 @@ interface Filters {
     position: number[];
     /** The same question by title, which is what the column's funnel asks. */
     position_name: string[];
-    department: number[];
-    unit: number[];
+    /** A department, or «none» for the people no department has on its books. */
+    department: (number | typeof NONE)[];
+    /** A unit, or «none» for the people filed straight into a department. */
+    unit: (number | typeof NONE)[];
     language: number[];
     sex: Sex | null;
     birth_from: string | null;
@@ -196,6 +197,12 @@ interface ColumnDef {
     filter?: FilterDef;
     cell: (row: EmployeeRow, details: PrivateDetails) => ReactNode;
 }
+
+/**
+ * What the two structure funnels call «Без департамента» and «Без отдела». The
+ * server knows the same word.
+ */
+const NONE = 'none';
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -448,7 +455,9 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 filter: {
                     type: 'multi',
                     param: 'department',
-                    options: departmentOptions(options.departments),
+                    // «Без департамента» asks for the people no department has
+                    // on its books, whose cell in this column is empty.
+                    options: [{ value: NONE, label: 'Без департамента' }, ...departmentOptions(options.departments)],
                 },
                 cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="department" /> : <Empty />),
             },
@@ -460,7 +469,9 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 filter: {
                     type: 'multi',
                     param: 'unit',
-                    options: departmentOptions(options.units),
+                    // «Без отдела» asks for the people filed straight into a
+                    // department, whose cell in this column is empty.
+                    options: [{ value: NONE, label: 'Без отдела' }, ...departmentOptions(options.units)],
                 },
                 cell: (row) => (row.departments?.length ? <Placements departments={row.departments} of="unit" /> : <Empty />),
             },
@@ -514,7 +525,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
             },
             {
                 key: 'role',
-                label: 'Позиция',
+                label: 'Роль',
                 width: 240,
                 private: false,
                 filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
@@ -804,22 +815,15 @@ export default function Employees({
                     )}
 
                     {/* The application's own field, with the magnifier laid over
-                        its left padding: one input everywhere, and the icon says
-                        what this one is for. */}
-                    <div className="relative w-80 min-w-48 max-md:w-auto max-md:min-w-0 max-md:flex-1 md:mr-auto">
-                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                        <Label htmlFor="employees-search" className="sr-only">
-                            Поиск по всем полям
-                        </Label>
-                        <Input
-                            id="employees-search"
-                            type="search"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            placeholder="Поиск по всем полям"
-                            className="max-md:bg-card h-9 pl-9 text-sm max-md:h-9 max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
-                        />
-                    </div>
+                        its left padding and our own cross at the other end. */}
+                    <SearchInput
+                        id="employees-search"
+                        value={search}
+                        onChange={setSearch}
+                        placeholder="Поиск по всем полям"
+                        className="w-80 min-w-48 max-md:w-auto max-md:min-w-0 max-md:flex-1 md:mr-auto"
+                        inputClassName="max-md:bg-card text-sm max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
+                    />
 
                     <MobileListTools
                         columns={columns as unknown as TableColumn[]}

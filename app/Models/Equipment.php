@@ -341,6 +341,27 @@ class Equipment extends Model
             ->orWhereHas('holder.departments', fn (Builder $q) => $q->whereIn('departments.id', $departments)));
     }
 
+    /** Filed nowhere at all: both structure columns are empty on these rows. */
+    public function scopeOutsideStructure(Builder $query): void
+    {
+        $query->whereNull('holder_department_id')->whereDoesntHave('holder.departments');
+    }
+
+    /**
+     * Filed in no unit: the column that names one is empty on these rows.
+     *
+     * Whoever holds it is in no unit of their own — every department they
+     * belong to stands on its own — and the department it is signed out to, if
+     * any, is one of those rather than a unit inside one.
+     */
+    public function scopeOutsideUnits(Builder $query): void
+    {
+        $query->whereDoesntHave('holder.departments', fn (Builder $q) => $q->whereNotNull('parent_id'))
+            ->where(fn (Builder $q) => $q
+                ->whereNull('holder_department_id')
+                ->orWhereHas('holderDepartment', fn (Builder $q) => $q->whereNull('parent_id')));
+    }
+
     /**
      * Being looked after right now: a piece of work with no end date on it.
      * This is not a status — a laptop can sit on its owner's desk while its

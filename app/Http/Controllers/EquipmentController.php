@@ -44,6 +44,12 @@ class EquipmentController extends Controller
     private const SORTS = ['created', 'department', 'unit', 'name', 'inventory_number', 'type', 'status', 'holder', 'issued_at'];
 
     /**
+     * What the two structure funnels call «Без департамента» and «Без отдела»:
+     * filed in nothing of that kind, which is what their column shows as a dash.
+     */
+    public const NO_UNIT = 'none';
+
+    /**
      * The order both tables open in, and the one a third press on a header
      * comes back to: the company read down — the department, the unit inside
      * it, the people in each and what each of them holds.
@@ -164,8 +170,8 @@ class EquipmentController extends Controller
             'inventory_number' => trim($input['inventory_number'] ?? ''),
             'type' => array_map('intval', $input['type'] ?? []),
             'status' => array_values($input['status'] ?? []),
-            'department' => array_map('intval', $input['department'] ?? []),
-            'unit' => array_map('intval', $input['unit'] ?? []),
+            'department' => array_map(fn ($value) => $value === self::NO_UNIT ? $value : (int) $value, $input['department'] ?? []),
+            'unit' => array_map(fn ($value) => $value === self::NO_UNIT ? $value : (int) $value, $input['unit'] ?? []),
             'holder' => trim($input['holder'] ?? ''),
             'issued_from' => $input['issued_from'] ?? null,
             'issued_to' => $input['issued_to'] ?? null,
@@ -1403,9 +1409,39 @@ class EquipmentController extends Controller
         // means the equipment of the people in it, which is what the right to
         // see a department's fleet already means, and the few colleagues who
         // stand in two departments hold their units in both.
-        $query->when($filters['department'], fn (Builder $q, array $ids) => $q->filedIn(self::withUnits($ids)));
+        // «Без департамента» asks for the rows that column is empty on, and is
+        // added to whatever else the funnel holds.
+        $query->when($filters['department'], function (Builder $q, array $picked) {
+            $none = in_array(self::NO_UNIT, $picked, true);
+            $ids = array_values(array_filter($picked, fn ($value) => $value !== self::NO_UNIT));
+
+            $q->where(function (Builder $q) use ($none, $ids) {
+                if ($ids !== []) {
+                    $q->filedIn(self::withUnits($ids));
+                }
+
+                if ($none) {
+                    $q->orWhere(fn (Builder $q) => $q->outsideStructure());
+                }
+            });
+        });
         // A unit has nothing under it to read down: the structure is two deep.
-        $query->when($filters['unit'], fn (Builder $q, array $ids) => $q->filedIn($ids));
+        // «Без отдела» asks for the rows whose unit column is empty; the two
+        // answers are added together, as two ticks in one funnel always are.
+        $query->when($filters['unit'], function (Builder $q, array $picked) {
+            $none = in_array(self::NO_UNIT, $picked, true);
+            $ids = array_values(array_filter($picked, fn ($value) => $value !== self::NO_UNIT));
+
+            $q->where(function (Builder $q) use ($none, $ids) {
+                if ($ids !== []) {
+                    $q->filedIn($ids);
+                }
+
+                if ($none) {
+                    $q->orWhere(fn (Builder $q) => $q->outsideUnits());
+                }
+            });
+        });
         // By the name the column prints: the colleague, or the department a unit
         // is signed out to. Each word has to land somewhere in the person's
         // name, so "Абдуллаев Фарход" finds them as surely as "фарход" does.

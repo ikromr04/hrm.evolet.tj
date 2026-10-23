@@ -24,6 +24,7 @@ use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
 use App\Support\EquipmentName;
 use App\Support\Placements;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -49,6 +50,12 @@ class EmployeeController extends Controller
     private const PUBLIC_COLUMNS = ['id', 'name', 'surname', 'patronymic', 'avatar', 'sex', 'email', 'status', 'status_changed_at', 'status_note'];
 
     public const STATUSES = ['active', 'transferred', 'fired'];
+
+    /**
+     * What the two structure funnels call «Без департамента» and «Без отдела»:
+     * filed in nothing of that kind, which is what their column shows as a dash.
+     */
+    public const NONE = 'none';
 
     private const PUBLIC_SORTS = ['created', 'name', 'role', 'department', 'unit', 'position', 'sex'];
 
@@ -111,9 +118,27 @@ class EmployeeController extends Controller
             'role' => $private('roles', ['nullable', 'array']),
             'role.*' => ['string', Rule::exists('roles', 'name')],
             'department' => $private('departments', ['nullable', 'array']),
-            'department.*' => ['integer', Rule::exists('departments', 'id')],
+            // A department, or the word for being in none.
+            'department.*' => ['required', function (string $attribute, mixed $value, Closure $fail) {
+                if ($value === self::NONE) {
+                    return;
+                }
+
+                if (! is_numeric($value) || ! Department::whereKey((int) $value)->exists()) {
+                    $fail('Выбран несуществующий департамент.');
+                }
+            }],
             'unit' => $private('departments', ['nullable', 'array']),
-            'unit.*' => ['integer', Rule::exists('departments', 'id')],
+            // A unit, or the word for having none: the funnel offers both.
+            'unit.*' => ['required', function (string $attribute, mixed $value, Closure $fail) {
+                if ($value === self::NONE) {
+                    return;
+                }
+
+                if (! is_numeric($value) || ! Department::whereKey((int) $value)->exists()) {
+                    $fail('Выбран несуществующий отдел.');
+                }
+            }],
             'language' => $private('languages', ['nullable', 'array']),
             'language.*' => ['integer', Rule::exists('languages', 'id')],
             'sex' => $private('sex', ['nullable', Rule::in(['male', 'female'])]),
@@ -139,8 +164,8 @@ class EmployeeController extends Controller
             'position' => array_map('intval', $input['position'] ?? []),
             'position_name' => array_values($input['position_name'] ?? []),
             'role' => array_values($input['role'] ?? []),
-            'department' => array_map('intval', $input['department'] ?? []),
-            'unit' => array_map('intval', $input['unit'] ?? []),
+            'department' => array_map(fn ($value) => $value === self::NONE ? $value : (int) $value, $input['department'] ?? []),
+            'unit' => array_map(fn ($value) => $value === self::NONE ? $value : (int) $value, $input['unit'] ?? []),
             'language' => array_map('intval', $input['language'] ?? []),
             'sex' => $input['sex'] ?? null,
             'birth_from' => $input['birth_from'] ?? null,
@@ -684,18 +709,41 @@ class EmployeeController extends Controller
                     $q->whereHas('languages', fn (Builder $q) => $q->where('languages.id', $id));
                 }
             })
-            // Picking a department also matches everyone in its sub-departments.
-            ->when($filters['department'], fn (Builder $q, array $ids) => $q->whereHas(
-                'departments',
-                fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)),
-            ))
+            // Picking a department also matches everyone in its sub-departments,
+            // and «Без департамента» the people no department has on its books.
+            ->when($filters['department'], function (Builder $q, array $picked) {
+                $none = in_array(self::NONE, $picked, true);
+                $ids = array_values(array_filter($picked, fn ($value) => $value !== self::NONE));
+
+                $q->where(function (Builder $q) use ($none, $ids) {
+                    if ($ids !== []) {
+                        $q->whereHas('departments', fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)));
+                    }
+
+                    if ($none) {
+                        $q->orWhereDoesntHave('departments');
+                    }
+                });
+            })
             // A unit is asked for on its own, the two narrowing together: the
             // department names the branch, the unit the place inside it. What
             // hangs under a unit comes with it, as it does under a department.
-            ->when($filters['unit'], fn (Builder $q, array $ids) => $q->whereHas(
-                'departments',
-                fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)),
-            ))
+            // «Без отдела» asks for the people filed straight into a department,
+            // whose cell in that column is empty.
+            ->when($filters['unit'], function (Builder $q, array $picked) {
+                $none = in_array(self::NONE, $picked, true);
+                $ids = array_values(array_filter($picked, fn ($value) => $value !== self::NONE));
+
+                $q->where(function (Builder $q) use ($none, $ids) {
+                    if ($ids !== []) {
+                        $q->whereHas('departments', fn (Builder $q) => $q->whereIn('departments.id', $this->withDescendants($ids)));
+                    }
+
+                    if ($none) {
+                        $q->orWhereDoesntHave('departments', fn (Builder $q) => $q->whereNotNull('parent_id'));
+                    }
+                });
+            })
             ->when($filters['sex'], fn (Builder $q, string $sex) => $q->where('sex', $sex))
             // Whoever holds every one of the chosen citizenships, picked by name, as with languages.
             ->when($filters['citizenship'], function (Builder $q, array $names) {
@@ -933,7 +981,7 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Access roles shown as "Позиция"; titles in alphabetical order.
+     * Access roles shown as «Роль»; titles in alphabetical order.
      *
      * @return list<string>
      */
