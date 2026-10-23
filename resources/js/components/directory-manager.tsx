@@ -4,6 +4,7 @@ import {
     DataTable,
     isSorted,
     MobileRow,
+    orderedColumns,
     TableMemoryButton,
     useTableMemory,
     useTableView,
@@ -17,10 +18,14 @@ import { IconChip } from '@/components/equipment-icon';
 import { type EquipmentScope } from '@/components/equipment-scopes';
 import { MobileFab } from '@/components/mobile-fab';
 import { PageActions } from '@/components/page-actions';
+import { Pickable } from '@/components/pickable';
+import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
@@ -28,7 +33,7 @@ import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { Link, router } from '@inertiajs/react';
 import { LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 interface DirectoryManagerProps {
     items: DirectoryItem[];
@@ -39,6 +44,18 @@ interface DirectoryManagerProps {
      * second right the same table simply has no controls.
      */
     canEdit: boolean;
+    /**
+     * Where the «add» button goes: «shell» hands it to the line of tabs the
+     * shell draws, «toolbar» keeps it in the list's own line, after the button
+     * that chooses the view — which is where a page with no tabs puts it.
+     */
+    addIn?: 'shell' | 'toolbar';
+    /**
+     * A list whose records are the structure itself reads down two columns —
+     * the department, and the unit inside it — as the staff list does, rather
+     * than down one name indented under another.
+     */
+    structure?: boolean;
     /** Server field that holds the label. */
     field: 'title' | 'name';
     /** Route name prefix, e.g. "directories.roles". */
@@ -143,6 +160,9 @@ export const searchBox =
 /** The order a list opens in — by name, which is how the server sends it. */
 const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
 
+/** A list nobody has narrowed yet. */
+const NOTHING_NARROWED = { department: [] as number[], unit: [] as number[], counted: [] as string[] };
+
 function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
     if (!tree) return items.map((item) => ({ ...item, depth: 0 }));
 
@@ -162,6 +182,8 @@ function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
 export function DirectoryManager({
     items,
     canEdit,
+    addIn = 'shell',
+    structure = false,
     field,
     abbreviation: abbreviated = false,
     route: routeName,
@@ -192,46 +214,271 @@ export function DirectoryManager({
     const [deleting, setDeleting] = useState<DirectoryItem | null>(null);
 
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+    /** Which branches and which of the records inside them the list is narrowed to. */
+    const [narrowing, setNarrowing] = useState<typeof NOTHING_NARROWED>(NOTHING_NARROWED);
+    /** What the box over the table is looking for, in everything a row says. */
+    const [search, setSearch] = useState('');
+
+    /** A record as a funnel lists it: the short name, with the full one beside it. */
+    const option = (item: DirectoryItem) => ({
+        value: item.id,
+        label: item.abbreviation ?? item.label,
+        hint: item.abbreviation ? item.label : undefined,
+    });
+
+    const branches = useMemo(() => items.filter((item) => item.parent_id === null).map(option), [items]);
+    const inside = useMemo(() => items.filter((item) => item.parent_id !== null).map(option), [items]);
+
+    /**
+     * Everything the counted lists hold, by name and each name once: the same
+     * job exists in several departments, and whoever is looking for the
+     * analysts is looking for all of them rather than for one department's own.
+     */
+    const counted = useMemo(() => {
+        const held = new Set<string>();
+
+        items.forEach((item) => item.count_items?.forEach((one) => held.add(one.name)));
+
+        return [...held].sort((a, b) => a.localeCompare(b, 'ru')).map((name) => ({ value: name, label: name }));
+    }, [items]);
 
     const columns = useMemo<ColumnDef[]>(
-        () => [
-            { key: 'name', label: 'Название', width: 320, fill: true, filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' } },
-            { key: 'count', label: countLabel, width: 200 },
-        ],
-        [countLabel],
+        () =>
+            structure
+                ? [
+                      {
+                          key: 'department',
+                          label: 'Департамент',
+                          width: 240,
+                          filter: { type: 'multi', param: 'department', options: branches },
+                      },
+                      { key: 'unit', label: 'Отдел', width: 200, filter: { type: 'multi', param: 'unit', options: inside } },
+                      {
+                          key: 'count',
+                          label: countLabel,
+                          width: 320,
+                          fill: true,
+                          ...(counted.length > 0 ? { filter: { type: 'multi' as const, param: 'counted', options: counted } } : {}),
+                      },
+                  ]
+                : [
+                      {
+                          key: 'name',
+                          label: 'Название',
+                          width: 320,
+                          fill: true,
+                          filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
+                      },
+                      { key: 'count', label: countLabel, width: 200 },
+                  ],
+        [countLabel, structure, branches, inside, counted],
     );
 
     const viewKey = `directory:${routeName}`;
     const defaults = useMemo<ViewState>(() => ({ hidden: [], pinned: { left: [], right: [] } }), []);
     const columnKeys = useMemo(() => columns.map((column) => column.key), [columns]);
-    const { view, setView, pin, toggleHidden, reorder } = useTableView(viewKey, columnKeys, defaults);
+    const { view, setView, pin, toggleHidden, reorder, order } = useTableView(viewKey, columnKeys, defaults);
+    // The one column a list cannot be read without: the record's own name.
+    const lockedKey = structure ? 'department' : 'name';
+    /**
+     * Everything this list is narrowed by, as one thing to write down: the
+     * sorting, the three funnels and the box over the table. The list lives in
+     * the page rather than in the address bar, so the view carries it.
+     */
+    const narrowed = useMemo(() => ({ sort, narrowing, query, search }), [sort, narrowing, query, search]);
+    const opened = useMemo(() => ({ sort: DEFAULT_SORT, narrowing: NOTHING_NARROWED, query: '', search: '' }), []);
+
     // Kept when the viewer says so, not because they once dragged a column.
-    const memory = useTableMemory({ viewKey, columnKeys, view, setView, fallback: defaults });
+    const memory = useTableMemory({
+        viewKey,
+        columnKeys,
+        view,
+        setView,
+        fallback: defaults,
+        state: narrowed,
+        defaultState: opened,
+        onState: (held) => {
+            const next = (held ?? opened) as typeof narrowed;
+
+            setSort(next.sort ?? DEFAULT_SORT);
+            setNarrowing(next.narrowing ?? NOTHING_NARROWED);
+            setQuery(next.query ?? '');
+            setSearch(next.search ?? '');
+        },
+    });
 
     const rows = useMemo(() => orderRows(items, tree), [items, tree]);
     const countOf = (row: Row) => row.total_count ?? row.users_count;
+
+    /** Every record by its number, for reading a row's way up the tree. */
+    const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
+    /**
+     * The record this row hangs under at the top of the tree — itself, where it
+     * hangs under nothing. A list read down two columns names that one in the
+     * first and the row itself in the second.
+     */
+    const topOf = useCallback(
+        (row: DirectoryItem): DirectoryItem => {
+            let held: DirectoryItem = row;
+
+            for (let parent = held.parent_id; parent != null && byId.has(parent); parent = held.parent_id) {
+                const above = byId.get(parent)!;
+                if (above.id === held.id) break;
+                held = above;
+            }
+
+            return held;
+        },
+        [byId],
+    );
 
     /*
      * A tree reads as a tree only while its rows keep the order that puts a
      * child under its parent. Narrowing the list or sorting it by anything else
      * breaks that order, so the names then stand flat, each on its own.
      */
-    const flat = query.trim() !== '' || isSorted(sort, DEFAULT_SORT);
+    const flat =
+        query.trim() !== '' ||
+        search.trim() !== '' ||
+        isSorted(sort, DEFAULT_SORT) ||
+        narrowing.department.length > 0 ||
+        narrowing.unit.length > 0 ||
+        narrowing.counted.length > 0;
+
+    /**
+     * Everything a row says, as one line to look through: its name, the short
+     * one it is known by, the branch it hangs under, and whatever its count is
+     * a count of.
+     */
+    const said = (row: Row) =>
+        [
+            rowLabel(row),
+            row.abbreviation,
+            structure ? rowLabel(topOf(row)) : null,
+            structure ? topOf(row).abbreviation : null,
+            ...(row.count_items?.map((item) => item.name) ?? []),
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
 
     const visible = useMemo(() => {
-        const narrowed = query.trim() ? rows.filter((row) => rowLabel(row).toLowerCase().includes(query.trim().toLowerCase())) : rows;
+        const asked = query.trim().toLowerCase();
+        const looking = search.trim().toLowerCase();
+        const narrowed = rows.filter((row) => {
+            if (asked && !rowLabel(row).toLowerCase().includes(asked)) return false;
+            if (looking && !said(row).includes(looking)) return false;
+            // The branch a row belongs to, and the row itself where it is one
+            // of the records inside a branch: a department standing on its own
+            // is no unit, so a funnel on «Отдел» leaves it out.
+            if (narrowing.department.length > 0 && !narrowing.department.includes(topOf(row).id)) return false;
+            if (narrowing.unit.length > 0 && !narrowing.unit.includes(row.id)) return false;
+            // Every name asked for, not any of them: two jobs chosen means the
+            // departments that have both.
+            if (narrowing.counted.length > 0) {
+                const held = row.count_items?.map((one) => one.name) ?? [];
+                if (!narrowing.counted.every((wanted) => held.includes(wanted))) return false;
+            }
+
+            return true;
+        });
         if (!isSorted(sort, DEFAULT_SORT)) return narrowed;
 
         const byName = (a: Row, b: Row) => rowLabel(a).localeCompare(rowLabel(b), 'ru');
-        const compare = sort.key === 'count' ? (a: Row, b: Row) => countOf(a) - countOf(b) || byName(a, b) : byName;
+        // «Департамент» sorts by the branch first and by the row inside it
+        // after, so the units of one department stay together under it.
+        const byBranch = (a: Row, b: Row) => rowLabel(topOf(a)).localeCompare(rowLabel(topOf(b)), 'ru') || byName(a, b);
+        const compare =
+            sort.key === 'count' ? (a: Row, b: Row) => countOf(a) - countOf(b) || byName(a, b) : sort.key === 'department' ? byBranch : byName;
 
         return [...narrowed].sort((a, b) => (sort.direction === 'asc' ? compare(a, b) : -compare(a, b)));
-    }, [rows, query, sort]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, query, search, sort, topOf, narrowing, structure]);
+
+    /**
+     * A record named the way the staff list names a department: the short name
+     * on the line, and the full one under it where the two differ. The record's
+     * own name leads to its page; the one above it leads to its own.
+     */
+    const plate = (item: DirectoryItem, own: boolean) => {
+        const short = item.abbreviation ?? item.label;
+        const full = item.abbreviation ? item.label : null;
+
+        return (
+            <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex items-center gap-2">
+                    {own && icons && <IconChip icon={(item.icon && equipmentIcons[item.icon]) || fallbackIcon} size={28} iconSize={15} />}
+                    {recordUrl ? (
+                        <Link
+                            href={recordUrl(item)}
+                            className={cn('text-brand-strong hover:underline dark:text-[#C5E27A]', own ? 'font-medium' : 'font-semibold')}
+                            title={`Открыть ${labels.accusative}: ${rowLabel(item)}`}
+                        >
+                            {short}
+                        </Link>
+                    ) : (
+                        <span className={cn(!own && 'font-semibold')}>{short}</span>
+                    )}
+                    {own && item.protected && <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />}
+                </span>
+                {full && <span className="text-muted-foreground text-[13px] leading-tight">{full}</span>}
+            </span>
+        );
+    };
 
     /* The table lays the columns out; what a row holds is this list's own. */
     const cell: CellRenderer<Row> = (column, row) => {
+        if (column.key === 'department' || column.key === 'unit') {
+            const top = topOf(row);
+            const itself = top.id === row.id;
+
+            if (column.key === 'department') return plate(top, itself);
+
+            // A department standing on its own is no unit of anything.
+            return itself ? <span className="text-muted-foreground">—</span> : plate(row, true);
+        }
+
         if (column.key === 'count') {
             const total = countOf(row);
+
+            // Named rather than counted: a list that says what it holds is read
+            // off the row itself, with no cursor to hold anywhere.
+            if (row.count_items) {
+                if (row.count_items.length === 0) return <span className="text-muted-foreground">—</span>;
+
+                return (
+                    <div className="flex flex-wrap gap-1 whitespace-normal">
+                        {row.count_items.map((item) => {
+                            // Asked by name: the same job in another department
+                            // is the same answer to «who has an analyst», and a
+                            // viewer who may not open the jobs can still ask.
+                            const picked = narrowing.counted.includes(item.name);
+
+                            return (
+                                <Pickable
+                                    key={item.id ?? item.name}
+                                    label={`${countLabel}: ${item.name}`}
+                                    picked={picked}
+                                    onPick={() =>
+                                        setNarrowing((held) => ({
+                                            ...held,
+                                            counted: picked ? held.counted.filter((one) => one !== item.name) : [...held.counted, item.name],
+                                        }))
+                                    }
+                                >
+                                    <StatusBadge
+                                        tone="success"
+                                        className={cn('h-auto flex-wrap py-[3px] whitespace-normal', picked && 'ring-brand ring-1')}
+                                    >
+                                        {item.name}
+                                    </StatusBadge>
+                                </Pickable>
+                            );
+                        })}
+                    </div>
+                );
+            }
 
             return (
                 <span className="tabular-nums">
@@ -287,6 +534,13 @@ export function DirectoryManager({
         );
     };
 
+    const addButton = (
+        <Button onClick={() => setEditing('new')}>
+            <Plus />
+            {labels.add}
+        </Button>
+    );
+
     return (
         <>
             {/*
@@ -295,14 +549,7 @@ export function DirectoryManager({
              * on a phone the round button over the tab bar takes its place, and
              * the search is the phone's alone.
              */}
-            {canEdit && (
-                <PageActions>
-                    <Button className="h-8" onClick={() => setEditing('new')}>
-                        <Plus />
-                        {labels.add}
-                    </Button>
-                </PageActions>
-            )}
+            {canEdit && addIn === 'shell' && <PageActions>{addButton}</PageActions>}
 
             <div className="flex flex-wrap items-center gap-2 md:hidden">
                 <label className={searchBox}>
@@ -433,11 +680,39 @@ export function DirectoryManager({
              * arranged.
              */}
             <div className="flex min-h-0 flex-1 flex-col max-md:hidden">
-                {memory.offered && (
-                    <div className="flex justify-end pb-2">
-                        <TableMemoryButton memory={memory} />
+                <div className="flex items-center gap-2 pb-4">
+                    {/* Everything the list holds, looked through from one box. */}
+                    <div className="relative mr-auto w-80">
+                        <Label htmlFor="directory-search" className="sr-only">
+                            Поиск по всем полям
+                        </Label>
+                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                        <Input
+                            id="directory-search"
+                            type="search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Поиск по всем полям"
+                            className="pl-9"
+                        />
                     </div>
-                )}
+
+                    {/* The columns ride in the same menu as the view they are part of. */}
+                    <TableMemoryButton memory={memory}>
+                        {orderedColumns(columns, order).map((column) => (
+                            <DropdownMenuCheckboxItem
+                                key={column.key}
+                                checked={!view.hidden.includes(column.key)}
+                                disabled={column.key === lockedKey}
+                                onCheckedChange={(checked) => toggleHidden(column.key, !checked)}
+                                onSelect={(event) => event.preventDefault()}
+                            >
+                                {column.label}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </TableMemoryButton>
+                    {canEdit && addIn === 'toolbar' && addButton}
+                </div>
 
                 <DataTable
                     columns={columns}
@@ -445,16 +720,32 @@ export function DirectoryManager({
                     rowKey={(row) => row.id}
                     renderCell={cell}
                     sort={sort}
-                    sortable={['name', 'count']}
+                    sortable={structure ? ['department', 'unit', 'count'] : ['name', 'count']}
                     onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
-                    filters={{ name: query }}
-                    onFilter={(changes) => setQuery(typeof changes.name === 'string' ? changes.name : '')}
+                    filters={{ name: query, department: narrowing.department, unit: narrowing.unit, counted: narrowing.counted }}
+                    onFilter={(changes) => {
+                        if (typeof changes.name === 'string') setQuery(changes.name);
+
+                        const picked = <T,>(key: 'department' | 'unit' | 'counted') =>
+                            Array.isArray(changes[key]) ? (changes[key] as T[]) : undefined;
+                        const department = picked<number>('department');
+                        const unit = picked<number>('unit');
+                        const chosen = picked<string>('counted');
+
+                        if (department || unit || chosen) {
+                            setNarrowing((held) => ({
+                                department: department ?? held.department,
+                                unit: unit ?? held.unit,
+                                counted: chosen ?? held.counted,
+                            }));
+                        }
+                    }}
                     view={view}
                     onPin={pin}
                     reorderable
                     onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
-                    lockedKey="name"
+                    lockedKey={lockedKey}
                     actionsWidth={112}
                     actions={
                         canEdit

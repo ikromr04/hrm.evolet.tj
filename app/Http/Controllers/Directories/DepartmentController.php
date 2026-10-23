@@ -12,6 +12,7 @@ use Closure;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -33,11 +34,14 @@ class DepartmentController extends Controller
             ->with([
                 'heads:id,name,surname',
                 'users' => fn ($q) => $q->active()->select('users.id'),
+                'positions:id,department_id,name',
             ])
+            ->withCount('positions')
             ->orderBy('name')
             ->get(['id', 'name', 'abbreviation', 'parent_id']);
 
         $totals = Department::staffTotals($departments);
+        $opensPositions = Gate::allows(Directories::viewPermission('positions'));
 
         return Inertia::render('directories/departments', [
             // Reading a list and keeping it are two rights, so the page says
@@ -52,6 +56,16 @@ class DepartmentController extends Controller
                     'name' => $d->name,
                     'abbreviation' => $d->abbreviation,
                     'parent_id' => $d->parent_id,
+                    // The jobs filed in this department, which is what the list
+                    // counts: a department is made of positions, and the people
+                    // follow from who holds them.
+                    'positions_count' => $d->positions_count,
+                    // Named rather than counted. The number travels with each
+                    // only for whoever may open a position, so a name stays a
+                    // word for everybody else rather than a link into a refusal.
+                    'positions' => $d->positions
+                        ->map(fn (Position $p) => ['id' => $opensPositions ? $p->id : null, 'name' => $p->name])
+                        ->values(),
                     // Working members of this department itself, heads included.
                     'users_count' => $d->users->count(),
                     'total_count' => $totals[$d->id],

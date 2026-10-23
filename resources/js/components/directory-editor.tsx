@@ -64,6 +64,11 @@ export interface EditableRecord {
 export interface DirectoryItem extends EditableRecord {
     /** Working employees who hold it; for departments, heads included. */
     users_count: number;
+    /**
+     * What the count counts, named: the list is drawn in place of the number,
+     * each with the way to its own page where the viewer may follow it.
+     */
+    count_items?: { id: number | null; name: string; url: string }[];
     /** Departments only: working employees here and in sub-departments, each counted once. */
     total_count?: number;
 }
