@@ -248,6 +248,17 @@
 
 @layer components {
     /*
+     * A search box wears our own cross, not the browser's: every engine draws
+     * its own differently, grey in both themes, and Safari draws none at all.
+     * The native one is taken off so the button beside it is the only one.
+     */
+    input[type='search']::-webkit-search-cancel-button,
+    input[type='search']::-webkit-search-decoration {
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    /*
      * A field that came back wrong says so in its own name too, not only under
      * itself: the eye lands on what has to be fixed rather than on the line
      * explaining it. Bound to the field's own `aria-invalid`, so it goes out

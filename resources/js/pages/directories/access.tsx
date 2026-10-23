@@ -8,8 +8,8 @@ import {
     type CardFieldsMode,
     type PlainRight,
 } from '@/components/card-fields';
-import { searchBox } from '@/components/directory-manager';
 import { EquipmentScopesButton, EquipmentScopesDialog, type EquipmentScope } from '@/components/equipment-scopes';
+import { SearchInput } from '@/components/search-input';
 import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,7 +17,7 @@ import DirectoriesLayout from '@/layouts/directories-layout';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
-import { Check, Lock, Search } from 'lucide-react';
+import { Check, Lock } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
 interface Right {
@@ -457,17 +457,13 @@ export default function AccessPage({
              * name in the first column.
              */}
             <div className="flex flex-wrap items-center gap-2 md:hidden">
-                <label className={searchBox}>
-                    <Search className="size-4 shrink-0" />
-                    <span className="sr-only">Поиск</span>
-                    <input
-                        type="search"
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Поиск по позиции"
-                        className="text-foreground min-w-0 flex-1 bg-transparent text-sm outline-hidden max-md:text-base"
-                    />
-                </label>
+                <SearchInput
+                    value={query}
+                    onChange={setQuery}
+                    placeholder="Поиск по роли"
+                    className="min-w-0 flex-1"
+                    inputClassName="bg-card h-10 rounded-xl border-transparent text-base shadow-none"
+                />
             </div>
 
             {/*
@@ -551,7 +547,7 @@ export default function AccessPage({
                                     // counters a strip too thin to scroll through.
                                     className="bg-sidebar sticky left-0 z-30 min-w-36 px-3 py-3 font-semibold shadow-[1px_0_0_var(--border)] md:min-w-56 md:px-6"
                                 >
-                                    Позиция
+                                    Роль
                                 </th>
                                 {sections.map((section) => (
                                     <th

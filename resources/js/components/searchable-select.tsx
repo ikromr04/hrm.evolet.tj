@@ -1,6 +1,6 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { Check, ChevronDown, Plus, Search } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface SearchableOption {
@@ -145,6 +145,17 @@ export function SearchableSelect({
                         placeholder={searchPlaceholder}
                         className="placeholder:text-placeholder min-w-0 flex-1 bg-transparent text-sm outline-hidden"
                     />
+                    {query !== '' && (
+                        <button
+                            type="button"
+                            aria-label="Очистить"
+                            title="Очистить"
+                            className="text-muted-foreground hover:text-foreground -mr-1 shrink-0 rounded p-1"
+                            onClick={() => setQuery('')}
+                        >
+                            <X className="size-4" />
+                        </button>
+                    )}
                 </div>
 
                 <div ref={listRef} className="scroll-soft max-h-64 overflow-y-auto p-1" role="listbox">
