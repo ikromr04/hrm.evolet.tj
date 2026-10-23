@@ -44,7 +44,7 @@ class CreateSysadmin extends Command
         // assign, and making it here would hide that the rest of the seeding —
         // the rights, the directories — has not been done either.
         if (Role::query()->where('name', Access::SOLE_ROLE)->doesntExist()) {
-            $this->components->error('Позиции «Системный администратор» ещё нет. Сначала выполните: php artisan db:seed --class=ProductionSeeder --force');
+            $this->components->error('Роли «Системный администратор» ещё нет. Сначала выполните: php artisan db:seed --class=ProductionSeeder --force');
 
             return self::FAILURE;
         }

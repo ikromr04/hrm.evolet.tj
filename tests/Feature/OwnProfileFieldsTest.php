@@ -35,7 +35,7 @@ class OwnProfileFieldsTest extends TestCase
     /** Somebody whose position holds exactly these rights, plus the staff list. */
     private function withRights(string ...$rights): User
     {
-        $role = Role::create(['name' => 'p-'.Role::count(), 'title' => 'Позиция '.Role::count(), 'guard_name' => 'web']);
+        $role = Role::create(['name' => 'p-'.Role::count(), 'title' => 'Роль '.Role::count(), 'guard_name' => 'web']);
         $role->syncPermissions(['employees.view', ...$rights]);
 
         return User::factory()

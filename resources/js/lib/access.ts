@@ -139,7 +139,7 @@ export interface DirectoryList {
  * from this array agrees with where "Справочники" takes them.
  */
 export const directoryLists: DirectoryList[] = [
-    { key: 'roles', title: 'Позиции', view: 'directories.view.roles' },
+    { key: 'roles', title: 'Роли доступа', view: 'directories.view.roles' },
     // "Отделы" left the same way the job titles did: the departments are read
     // beside the chart they are drawn into, under "Структура компании", and the
     // right that opens them is still directories.view.departments.

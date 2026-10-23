@@ -167,7 +167,7 @@ class AccessRolesTest extends TestCase
             ->givePermissionTo(['directories.view.access', 'directories.edit.access']);
     }
 
-    /** Somebody allowed to change the «Позиция» line of other people's cards. */
+    /** Somebody allowed to change the «Роль» line of other people's cards. */
     private function editorOfPositions(): User
     {
         return $this->mayLookAround(User::factory()->create())->givePermissionTo('employees.edit.roles');

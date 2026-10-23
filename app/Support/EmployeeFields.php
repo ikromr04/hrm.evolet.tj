@@ -75,7 +75,7 @@ final class EmployeeFields
         'citizenship' => ['main', 'Гражданство'],
         'nationality' => ['main', 'Национальность'],
         'home_address' => ['main', 'Домашний адрес'],
-        'roles' => ['main', 'Позиция'],
+        'roles' => ['main', 'Роль'],
         'positions' => ['main', 'Должность'],
         'departments' => ['main', 'Отдел'],
 

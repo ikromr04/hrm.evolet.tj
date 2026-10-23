@@ -15,7 +15,7 @@ interface RoleItem {
     permissions: string[];
 }
 
-/** Access roles, shown in the UI as "Позиция". */
+/** Access roles, shown in the UI as «Роль». */
 export default function Roles({
     items,
     sections,
@@ -55,7 +55,7 @@ export default function Roles({
     const byId = new Map(items.map((item) => [item.id, item]));
 
     return (
-        <DirectoriesLayout title="Позиции">
+        <DirectoriesLayout title="Роли доступа">
             <DirectoryManager
                 items={items.map((item) => ({
                     id: item.id,

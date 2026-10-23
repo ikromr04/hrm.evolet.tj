@@ -173,20 +173,20 @@ final class Access
         }
 
         if (Directories::canEdit($employee, 'access')) {
-            return 'Позиции сотрудника, который сам распоряжается доступами, меняет только он или системный администратор.';
+            return 'Роли сотрудника, который сам распоряжается доступами, меняет только он или системный администратор.';
         }
 
         // Two people who may both rearrange positions would otherwise settle
         // a quarrel by taking each other's away, so neither may touch the
         // other's: that is left to the person themselves and the one account.
         if (self::changesPositions($actor) && self::changesPositions($employee)) {
-            return 'Позиции сотрудника, который сам может менять позиции, меняет только он или системный администратор.';
+            return 'Роли сотрудника, который сам может менять роли, меняет только он или системный администратор.';
         }
 
         return null;
     }
 
-    /** Whether somebody may change the «Позиция» line of other people's cards. */
+    /** Whether somebody may change the «Роль» line of other people's cards. */
     private static function changesPositions(User $user): bool
     {
         return in_array('roles', EmployeeFields::editableBy($user), true);

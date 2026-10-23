@@ -17,7 +17,7 @@ use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * Access roles, shown in the UI as "Позиция".
+ * Access roles, shown in the UI as «Роль».
  */
 class RoleController extends Controller
 {

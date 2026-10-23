@@ -182,7 +182,7 @@ export function GlobalSearch() {
             })),
             ...results.roles.map((role) => ({
                 key: `role-${role.name}`,
-                group: 'Позиции',
+                group: 'Роли доступа',
                 label: role.title,
                 hint: 'Сотрудники с этой позицией',
                 href: route('employees.index', { role: [role.name] }),
