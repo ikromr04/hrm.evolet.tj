@@ -17,7 +17,6 @@ import {
 import { CategoryChip } from '@/components/equipment-icon';
 import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
 import { MobileFab } from '@/components/mobile-fab';
-import { MultiSelect } from '@/components/multi-select';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -34,9 +33,7 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import AppLayout from '@/layouts/app-layout';
 import { type EquipmentRights } from '@/lib/access';
@@ -52,7 +49,6 @@ import {
     Eraser,
     History,
     List,
-    ListFilter,
     LoaderCircle,
     Plus,
     Trash2,
@@ -61,7 +57,7 @@ import {
     Wrench,
     type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оборудование', href: '/equipment' }];
 
@@ -240,7 +236,16 @@ interface Props {
 const STORAGE_KEY = 'equipment.table.view.v4';
 const QUERY_KEY = 'equipment.table.query';
 /** The other table's columns are the categories, so its own vista is kept apart. */
-const HOLDERS_STORAGE_KEY = 'equipment.holders.view.v2';
+/** Which of the two tables a kept view was made in. */
+type Table = 'list' | 'holders';
+
+const tableOf = (one: { state?: unknown }) => ((one.state as { table?: Table } | undefined)?.table === 'holders' ? 'holders' : 'list');
+
+/** The two tables, as the menu offers them. */
+const TABLES = [
+    { value: 'list', label: 'Список' },
+    { value: 'holders', label: 'По сотрудникам' },
+];
 
 const collator = new Intl.Collator('ru');
 
@@ -272,13 +277,12 @@ const OPENING_LABEL = 'Структура';
 const HELD_SHOWN = 3;
 
 /**
- * One of the two choices of «Вид». The one in force takes the same pale green a
- * chosen tab takes beside it. On a phone the pair shares the width of the
- * screen between them, so the words are set a little smaller and wrap rather
- * than being cut short.
+ * One of the two tables, as a phone offers them. The one in force takes the
+ * same pale green a chosen tab takes beside it, and the pair shares the width
+ * of the screen, so the words are set a little smaller.
  */
 const viewChoice =
-    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:px-2 max-md:text-[13px] lg:flex-none dark:data-[state=on]:bg-white/10';
+    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:px-2 max-md:text-[13px] dark:data-[state=on]:bg-white/10';
 
 /** Red, for the one action that cannot be undone. */
 const dangerItem = 'text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] [&_svg]:text-current!';
@@ -913,94 +917,6 @@ function HolderCardName({ row }: { row: HolderRow }) {
 }
 
 /**
- * The filters «По сотрудникам» has no header to hang on.
- *
- * In that table the only column of its own is the person; what a cell may
- * contain is a question about equipment, so the three questions about it gather
- * in one place in the toolbar instead — the same three the phone's sheet asks,
- * and the count on the button says how many are in force, as the sheet's does.
- */
-function HolderFilters({
-    columns,
-    types,
-    filters,
-    onApply,
-}: {
-    /** The three themselves, so the button counts exactly what it offers. */
-    columns: ColumnDef[];
-    types: Options['types'];
-    filters: Filters;
-    onApply: (changes: Partial<Filters>) => void;
-}) {
-    const [open, setOpen] = useState(false);
-    const [name, setName] = useState(filters.name);
-    const [number, setNumber] = useState(filters.inventory_number);
-    const active = countActiveFilters(columns, filters as unknown as Record<string, unknown>, () => true);
-
-    return (
-        <Popover
-            open={open}
-            onOpenChange={(next) => {
-                // Reopened after a reset — or after the same filter was set from the
-                // phone's sheet — the boxes show what is actually in force.
-                if (next) {
-                    setName(filters.name);
-                    setNumber(filters.inventory_number);
-                }
-                setOpen(next);
-            }}
-        >
-            <PopoverTrigger asChild>
-                <Button variant="outline" className="h-9 font-normal max-md:hidden">
-                    <ListFilter />
-                    Фильтры
-                    {active > 0 && <span className="text-brand-strong font-semibold tabular-nums dark:text-[#C5E27A]">{active}</span>}
-                    <ChevronDown className="text-muted-foreground" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-3">
-                <form
-                    noValidate
-                    className="flex flex-col gap-3"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        onApply({ name: name.trim(), inventory_number: number.trim() });
-                        setOpen(false);
-                    }}
-                >
-                    <Label className="flex flex-col items-start gap-1.5 text-xs">
-                        Наименование
-                        <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Название модели" className="h-9" />
-                    </Label>
-
-                    <Label className="flex flex-col items-start gap-1.5 text-xs">
-                        Инвентарный номер
-                        <Input value={number} onChange={(event) => setNumber(event.target.value)} placeholder="EV-0421" className="h-9" />
-                    </Label>
-
-                    <div className="flex flex-col gap-1.5">
-                        {/* The categories picked are also the columns the table draws, so
-                            this choice is applied as it is made rather than on the button. */}
-                        <span className="text-xs font-medium">Категория</span>
-                        <MultiSelect
-                            options={types.map((type) => ({ value: type.id, label: type.name }))}
-                            value={filters.type}
-                            onChange={(type) => onApply({ type })}
-                            placeholder="Все категории"
-                            searchPlaceholder="Поиск категории"
-                        />
-                    </div>
-
-                    <Button type="submit" size="sm">
-                        Применить
-                    </Button>
-                </form>
-            </PopoverContent>
-        </Popover>
-    );
-}
-
-/**
  * A short line above the table for a viewer who is not shown the whole fleet,
  * so that a list of three units — or of none — reads as the part of it they
  * were given rather than as something gone wrong.
@@ -1052,7 +968,7 @@ export default function EquipmentIndex({
     const unitDefaults = useMemo(() => defaultView(HIDDEN_BY_DEFAULT), []);
     const holderDefaults = useMemo(() => defaultView(), []);
 
-    // Each table keeps its own vista, and each keeps it under its own key: a
+    // Both tables keep their views in one list, and each takes only its own: a
     // column hidden among the categories means nothing to the list of units.
     // Both are loaded either way, because a switch of view does not remount the
     // page and a hook asked for conditionally would be the wrong one afterwards.
@@ -1060,31 +976,48 @@ export default function EquipmentIndex({
         STORAGE_KEY,
         unitColumns.map((column) => column.key),
         unitDefaults,
+        (one) => tableOf(one) === 'list',
     );
     const holderView = useTableView(
-        HOLDERS_STORAGE_KEY,
+        STORAGE_KEY,
         // Every category, not only the columns drawn right now: a category left
         // out by a filter has not been hidden, and should come back as it was.
         ['department', 'unit', 'holder', ...options.types.map((type) => typeKey(type.id))],
         holderDefaults,
+        (one) => tableOf(one) === 'holders',
     );
     const defaults = byHolder ? holderDefaults : unitDefaults;
-    const { view: layout, setView: setLayout, pin, toggleHidden, reorder, order } = byHolder ? holderView : unitView;
+    const { view: layout, pin, toggleHidden, reorder, order } = byHolder ? holderView : unitView;
     const isHidden = (key: string) => layout.hidden.includes(key);
-    const storageKey = byHolder ? HOLDERS_STORAGE_KEY : STORAGE_KEY;
     /* Both tables can be dragged into another order, so the menu reads along whichever is on screen. */
     const listed = orderedColumns(columns, order);
 
     useRememberedQuery(QUERY_KEY);
-    // The table on screen is the one whose arrangement a press keeps; the
-    // questions are the page's own and are kept with whichever that is.
+    /**
+     * Which table a view coming out of the menu belongs to. The menu hands it
+     * over before the columns, so the arrangement goes to the table it was kept
+     * for rather than to the one still on screen — the switch itself rides in
+     * the query the view carries.
+     */
+    const bound = useRef<Table>(byHolder ? 'holders' : 'list');
+    bound.current = byHolder ? 'holders' : 'list';
+
+    // One list of views for the page, each saying which table it is for; the
+    // questions are the page's own and are kept with it.
     const memory = useTableMemory({
-        viewKey: storageKey,
+        viewKey: STORAGE_KEY,
         queryKey: QUERY_KEY,
-        columnKeys: columns.map((column) => column.key),
+        // Both tables' columns, so a view kept for one is not stripped of its
+        // columns when it is read while the other is on screen.
+        columnKeys: [...new Set([...unitColumns, ...holderColumns].map((column) => column.key))],
         view: layout,
-        setView: setLayout,
+        setView: (next) => (bound.current === 'holders' ? holderView.setView(next) : unitView.setView(next)),
         fallback: defaults,
+        state: { table: byHolder ? 'holders' : 'list', label: byHolder ? 'По сотрудникам' : 'Список' },
+        defaultState: { table: 'list', label: 'Список' },
+        onState: (held) => {
+            bound.current = (held as { table?: Table })?.table === 'holders' ? 'holders' : 'list';
+        },
     });
     const [asking, setAsking] = useState<{ unit: Unit; kind: AskedMove } | null>(null);
     const [deleting, setDeleting] = useState<Unit | null>(null);
@@ -1282,18 +1215,39 @@ export default function EquipmentIndex({
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Оборудование" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">
-                {/* Search, the status lists, the view and the one thing you can add: one line.
-                    On a phone: the search and the sorting-and-filters button, then the tabs
-                    as a row of chips; the rest is reached from the tab bar or the round button. */}
-                <div className="flex flex-wrap items-center gap-2 md:-mb-2">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Оборудование</h1>
+
+                {/* The lists, the box to look through them, and at the end of the line what
+                    acts on the page. On a phone: the search and the sorting-and-filters
+                    button, then the tabs as a row of chips; the rest is reached from the tab
+                    bar or the round button. */}
+                <div className="flex flex-wrap items-center gap-2">
+                    {/* The lists the page can show, as plain tabs. Choosing one is a visit,
+                        so the value is the address's and the strip only says which is open.
+                        «По сотрудникам» is offered none: a status there would narrow
+                        nothing, since that table says what somebody holds rather than what
+                        state it is in, and the server pays the tab no attention. */}
+                    {!byHolder && (
+                        <Tabs value={tab} onValueChange={(next) => visit({ tab: next as Tab })} className="shrink-0 max-md:hidden">
+                            <TabsList aria-label="Статус оборудования">
+                                {tabs.map((item) => (
+                                    <TabsTrigger key={item.key} value={item.key}>
+                                        {item.label}
+                                        <span className="text-muted-foreground text-xs tabular-nums">{item.count}</span>
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                        </Tabs>
+                    )}
+
                     {/* text-base on a phone: a smaller font makes iOS zoom in on focus. */}
                     <SearchInput
                         id="equipment-search"
                         value={query}
                         onChange={setQuery}
                         placeholder="Поиск по всем полям"
-                        className="min-w-48 flex-1 max-md:min-w-0"
+                        className="w-80 min-w-48 max-md:w-auto max-md:min-w-0 max-md:flex-1 md:mr-auto"
                         inputClassName="max-md:bg-card text-sm max-md:text-base max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
@@ -1313,8 +1267,10 @@ export default function EquipmentIndex({
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
-                    {/* Which of the two tables is being read. It stands in the query, so a
-                        link to the page carries the view somebody was looking at. */}
+                    {/* Which of the two tables is being read. A desktop chooses it
+                        in the «Вид» menu, which a phone does not draw, so there the
+                        pair of buttons stays. It stands in the query either way, so
+                        a link carries the table somebody was looking at. */}
                     <ToggleGroup
                         type="single"
                         variant="outline"
@@ -1322,8 +1278,8 @@ export default function EquipmentIndex({
                         // Radix sends an empty string when the pressed choice is let go of;
                         // one of the two is always on, so that is nothing to act on.
                         onValueChange={(next) => next && next !== view && visit({ view: next as View })}
-                        aria-label="Вид"
-                        className="w-full justify-start lg:w-auto"
+                        aria-label="Таблица"
+                        className="w-full justify-start md:hidden"
                     >
                         <ToggleGroupItem value="list" className={viewChoice}>
                             <List />
@@ -1335,16 +1291,13 @@ export default function EquipmentIndex({
                         </ToggleGroupItem>
                     </ToggleGroup>
 
-                    {/* A phone scrolls the tabs sideways rather than stacking them in rows,
-                        as chips that run to the screen's edges and show no scrollbar. The
-                        desktop look is kept under md: so neither size overrides the other.
-                        «По сотрудникам» is not offered them: a status there would narrow
-                        nothing, since that view says what somebody holds rather than what
-                        state it is in, and the server pays the tab no attention. */}
+                    {/* A phone scrolls the same lists sideways as chips that run to the
+                        screen's edges and show no scrollbar; a desktop reads them off the
+                        tabs at the head of this line. */}
                     {!byHolder && (
                         <nav
                             aria-label="Статус оборудования"
-                            className="flex w-full items-center gap-1 overflow-x-auto text-sm max-md:-mx-3 max-md:w-[calc(100%+1.5rem)] max-md:gap-1.5 max-md:px-3 max-md:[scrollbar-width:none] lg:w-auto lg:flex-wrap lg:overflow-visible max-md:[&::-webkit-scrollbar]:hidden"
+                            className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-1.5 overflow-x-auto px-3 text-sm [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden"
                         >
                             {tabs.map((item) => {
                                 const active = tab === item.key;
@@ -1378,7 +1331,16 @@ export default function EquipmentIndex({
                     )}
 
                     {/* The columns ride in the same menu as the view they are part of. */}
-                    <TableMemoryButton memory={memory} className="h-9 max-md:hidden">
+                    {/* Which of the two tables is being read, and the views kept
+                        for either: one menu over the table. The table stands in
+                        the query, so a link carries the one somebody was on. */}
+                    <TableMemoryButton
+                        memory={memory}
+                        className="h-9 max-md:hidden"
+                        modes={TABLES}
+                        mode={view}
+                        onMode={(next) => next !== view && visit({ view: next as View })}
+                    >
                         {listed.map((column) => (
                             <DropdownMenuCheckboxItem
                                 key={column.key}
@@ -1393,17 +1355,6 @@ export default function EquipmentIndex({
                             </DropdownMenuCheckboxItem>
                         ))}
                     </TableMemoryButton>
-
-                    {/* The questions about equipment that «По сотрудникам» has no column
-                        to ask them under; in the list every one of them is a header. */}
-                    {byHolder && (
-                        <HolderFilters
-                            columns={holderFilters}
-                            types={options.types}
-                            filters={filters}
-                            onApply={(changes) => visit({ filters: changes })}
-                        />
-                    )}
 
                     {(canJournal || can.create) && (
                         <>

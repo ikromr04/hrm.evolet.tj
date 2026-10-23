@@ -32,7 +32,26 @@ type Naming = { kind: 'new' } | { kind: 'rename'; id: string };
  * say: a table nobody has touched, with nothing kept for it, has no view to
  * choose between.
  */
-export function TableMemoryButton({ memory, className, children }: { memory: TableMemory; className?: string; children?: ReactNode }) {
+export function TableMemoryButton({
+    memory,
+    className,
+    children,
+    modes,
+    mode,
+    onMode,
+}: {
+    memory: TableMemory;
+    className?: string;
+    children?: ReactNode;
+    /**
+     * The ways this page can draw its list at all — not arrangements of one
+     * table but different rows in it, so they stand above the views rather
+     * than among them.
+     */
+    modes?: { value: string; label: string }[];
+    mode?: string;
+    onMode?: (value: string) => void;
+}) {
     const [naming, setNaming] = useState<Naming | null>(null);
     const [name, setName] = useState('');
 
@@ -75,17 +94,38 @@ export function TableMemoryButton({ memory, className, children }: { memory: Tab
                     // would take it out of the box the name is typed into.
                     onCloseAutoFocus={(event) => naming !== null && event.preventDefault()}
                 >
+                    {modes && modes.length > 1 && (
+                        <>
+                            <DropdownMenuLabel>Таблица</DropdownMenuLabel>
+                            <DropdownMenuRadioGroup value={mode} onValueChange={(next) => onMode?.(next)}>
+                                {modes.map((one) => (
+                                    <DropdownMenuRadioItem key={one.value} value={one.value}>
+                                        {one.label}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
+                            <DropdownMenuSeparator />
+                        </>
+                    )}
+
                     <DropdownMenuLabel>Вид таблицы</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
                         value={memory.current === 'custom' ? 'custom' : (memory.activeId ?? 'default')}
                         onValueChange={(next) => memory.choose(next === 'default' ? null : next)}
                     >
                         <DropdownMenuRadioItem value="default">По умолчанию</DropdownMenuRadioItem>
-                        {memory.views.map((one) => (
-                            <DropdownMenuRadioItem key={one.id} value={one.id}>
-                                {one.name}
-                            </DropdownMenuRadioItem>
-                        ))}
+                        {memory.views.map((one) => {
+                            // A page that draws its list two ways says which of
+                            // them a view was kept in, beside its name.
+                            const where = (one.state as { label?: string } | undefined)?.label;
+
+                            return (
+                                <DropdownMenuRadioItem key={one.id} value={one.id}>
+                                    <span className="truncate">{one.name}</span>
+                                    {where && <span className="text-muted-foreground ml-auto pl-2 text-xs whitespace-nowrap">{where}</span>}
+                                </DropdownMenuRadioItem>
+                            );
+                        })}
                         {/* What is on screen, which is none of them until it is kept. */}
                         {memory.current === 'custom' && (
                             <DropdownMenuRadioItem value="custom" disabled>

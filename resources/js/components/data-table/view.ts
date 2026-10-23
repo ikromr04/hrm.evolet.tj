@@ -119,11 +119,18 @@ function readCatalogue(key: string): Catalogue {
     }
 }
 
-/** The arrangement a table opens in: the view in force, where one is kept. */
-function load(key: string, fallback: ViewState, known: string[]): ViewState {
+/**
+ * The arrangement a table opens in: the view in force, where one is kept.
+ *
+ * A page that draws its list two ways — the equipment list and the same fleet
+ * read by the people who hold it — keeps both sets of views in one place, so a
+ * table takes only the ones kept for it and leaves the others alone.
+ */
+function load(key: string, fallback: ViewState, known: string[], mine?: (one: SavedView) => boolean): ViewState {
     const catalogue = readCatalogue(key);
+    const active = catalogue.views.find((one) => one.id === catalogue.active);
 
-    return sanitise(catalogue.views.find((one) => one.id === catalogue.active)?.view, fallback, known);
+    return sanitise(active && (mine?.(active) ?? true) ? active.view : undefined, fallback, known);
 }
 
 /**
@@ -210,8 +217,8 @@ export function orderedColumns<Column extends { key: string }>(columns: Column[]
  * key carries a version: bump it when the columns change so badly that an old
  * view would be nonsense.
  */
-export function useTableView(storageKey: string, columnKeys: string[], fallback: ViewState) {
-    const [view, setView] = useState<ViewState>(() => load(storageKey, fallback, columnKeys));
+export function useTableView(storageKey: string, columnKeys: string[], fallback: ViewState, mine?: (one: SavedView) => boolean) {
+    const [view, setView] = useState<ViewState>(() => load(storageKey, fallback, columnKeys, mine));
 
     const pin = (key: string, side: 'left' | 'right' | null) =>
         setView((current) => ({
@@ -475,10 +482,12 @@ export function useTableMemory({
     const go = (next: string) => router.get(`${window.location.pathname}${next ? `?${next}` : ''}`, {}, { preserveScroll: true, replace: true });
 
     const show = (one: SavedView | null) => {
+        // What the page holds comes first: a page that draws its list two ways
+        // learns from it which of them the columns below belong to.
+        onState?.(one ? (one.state ?? defaultState ?? null) : (defaultState ?? null));
         // Read rather than trusted: a kept view may name a column this page no
         // longer has, and the columns may have been renamed since.
         setView(one ? sanitise(one.view, fallback, columnKeys) : fallback);
-        onState?.(one ? (one.state ?? defaultState ?? null) : (defaultState ?? null));
 
         const wanted = one ? canonicalQuery(one.query) : '';
         if (tracksQuery && query !== wanted) go(one?.query ?? '');

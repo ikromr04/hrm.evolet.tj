@@ -797,7 +797,7 @@ export default function Employees({
 
                 {/* On a phone this is one line — the search and the button behind
                 which sorting and filters wait — with the lists as chips under it. */}
-                <div className="flex flex-wrap items-center gap-3 max-md:flex-nowrap max-md:gap-2">
+                <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap">
                     {/* The lists the page can show, as plain tabs. Choosing one
                         is a visit, so the value is the address's and the strip
                         only says which of them is open. */}
