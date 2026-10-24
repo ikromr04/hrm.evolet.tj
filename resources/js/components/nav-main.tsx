@@ -34,7 +34,11 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
                                 </Link>
                             </SidebarMenuButton>
                         ) : (
-                            <SidebarMenuButton aria-disabled>
+                            // A section that is not built yet: the entry keeps
+                            // its place in the order, greyed and unpressable, so
+                            // the menu says what is coming without promising it
+                            // opens today.
+                            <SidebarMenuButton aria-disabled tooltip={`${item.title} — скоро`} className="opacity-50 hover:bg-transparent">
                                 <item.icon />
                                 <span>{item.title}</span>
                             </SidebarMenuButton>

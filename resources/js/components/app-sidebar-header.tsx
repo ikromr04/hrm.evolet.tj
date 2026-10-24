@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { type BreadcrumbItem as BreadcrumbItemType } from '@/types';
-import { Link } from '@inertiajs/react';
 import { Bell } from 'lucide-react';
 import { type ReactNode } from 'react';
 
@@ -48,12 +47,11 @@ export function AppSidebarHeader({ breadcrumbs = [], title }: { breadcrumbs?: Br
             <GlobalSearch />
             <ThemeToggle />
 
-            {/* A door rather than a drawer: notifications are put aside, so the
-                bell leads to the page that says so. */}
-            <Button variant="outline" size="icon" className="size-9 shrink-0" aria-label="Уведомления" asChild>
-                <Link href="/notifications" prefetch>
-                    <Bell />
-                </Link>
+            {/* The bell keeps its place in the bar and nothing behind it: the
+                section is put aside, and a door that opens on «скоро» is worse
+                than one plainly shut. */}
+            <Button variant="outline" size="icon" disabled className="size-9 shrink-0" aria-label="Уведомления — скоро" title="Уведомления — скоро">
+                <Bell />
             </Button>
         </header>
     );

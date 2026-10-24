@@ -4,7 +4,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
 import { type SharedData, type SidebarNavGroup } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookMarked, Briefcase, Building2, CircleUser, Laptop, LayoutGrid, Network, Users } from 'lucide-react';
+import { Bell, BookMarked, Briefcase, Building2, CircleUser, Laptop, Layers, LayoutGrid, Network, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 /**
@@ -22,9 +22,11 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
         items: [
             // The company at a glance is the one account's page, and it is nobody
             // else's first stop: everybody else starts at their own card.
-            sysadmin ? { title: 'Главная', url: '/', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
-            // Put aside until it is designed; the page behind it says so.
-            { title: 'Уведомления', url: '/notifications', icon: Bell },
+            // No address for the first of them either: what a main page should
+            // hold has not been decided, so it names itself and waits. Everybody
+            // who is not a sysadmin still starts at their own card.
+            sysadmin ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
+            { title: 'Уведомления', icon: Bell },
         ],
     },
     {
@@ -34,10 +36,15 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
             ...(can('employees.view') ? [{ title: 'Сотрудники', url: '/employees', icon: Users }] : []),
             ...(can('directories.view.departments') ? [{ title: 'Подразделения', url: '/departments', icon: Building2 }] : []),
             ...(can('directories.view.positions') ? [{ title: 'Должности', url: '/positions', icon: Briefcase }] : []),
+            // No address: the ladder a grade is a step on is not written down
+            // yet, so the entry holds its place and cannot be opened.
+            { title: 'Грейды', icon: Layers },
         ],
     },
     {
-        title: 'Инвентаризация',
+        // What the company does rather than what it is made of: the fleet is the
+        // first of these and will not be the last.
+        title: 'Процессы',
         // Any part of the fleet — own, the department's or all of it — opens the section.
         items: seesEquipment(can) ? [{ title: 'Оборудование', url: '/equipment', icon: Laptop }] : [],
     },
