@@ -4,7 +4,26 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
 import { type SharedData, type SidebarNavGroup } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, BookMarked, Briefcase, Building2, CircleUser, Laptop, Layers, LayoutGrid, Network, Users } from 'lucide-react';
+import {
+    Bell,
+    BookMarked,
+    Boxes,
+    Briefcase,
+    Building2,
+    CircleUser,
+    FileText,
+    Flag,
+    Heart,
+    Layers,
+    LayoutGrid,
+    Network,
+    Package,
+    Target,
+    TreePalm,
+    TrendingUp,
+    UserSearch,
+    Users,
+} from 'lucide-react';
 import AppLogo from './app-logo';
 
 /**
@@ -16,6 +35,12 @@ import AppLogo from './app-logo';
  * departments and the jobs — and is three doors now, as the design has it: each
  * is a page in its own right and the menu says so.
  */
+/**
+ * A page inside a section, named and nothing else: the sub-menu draws no icons,
+ * and a page that is not built yet carries no address either.
+ */
+const named = ({ title }: { title: string }) => ({ title });
+
 const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean): SidebarNavGroup[] => [
     {
         title: 'Обзор',
@@ -42,11 +67,57 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
         ],
     },
     {
-        // What the company does rather than what it is made of: the fleet is the
-        // first of these and will not be the last.
+        // What the company does rather than what it is made of. The design names
+        // nine of these; one of them is built, and the rest stand in the order
+        // they will be opened in, greyed and unpressable, so the menu reads as
+        // the plan it is rather than growing a line at a time.
         title: 'Процессы',
-        // Any part of the fleet — own, the department's or all of it — opens the section.
-        items: seesEquipment(can) ? [{ title: 'Оборудование', url: '/equipment', icon: Laptop }] : [],
+        items: [
+            { title: 'Рекрутмент ATS', icon: UserSearch },
+            { title: 'Онбординг', icon: Flag },
+            { title: 'Отпуск', icon: TreePalm },
+            {
+                title: 'Эффективность / KPI',
+                icon: Target,
+                items: [{ title: 'Посещаемость' }, { title: 'KPI' }, { title: 'OKR' }].map(named),
+            },
+            {
+                title: 'Развитие сотрудников',
+                icon: TrendingUp,
+                items: [{ title: 'Навыки' }, { title: 'Компетенции' }, { title: 'Оценки' }, { title: 'Курсы' }, { title: 'Карьерные пути' }].map(
+                    named,
+                ),
+            },
+            {
+                title: 'Total Reward',
+                icon: Package,
+                items: [{ title: 'Зарплата' }, { title: 'Премии' }, { title: 'Штрафы' }, { title: 'Помощь сотрудникам' }].map(named),
+            },
+            { title: 'Заявки', icon: FileText },
+            {
+                title: 'Инвентаризация',
+                icon: Boxes,
+                items: [
+                    // The one page of the section that is built. Any part of the
+                    // fleet — own, the department's or all of it — opens it.
+                    // Only for whoever may read some part of the fleet: this is
+                    // the one page of the section that exists, and it is guarded.
+                    ...(seesEquipment(can) ? [{ title: 'Рабочее оборудование', url: '/equipment' }] : []),
+                    named({ title: 'Мебель' }),
+                    named({ title: 'Оргтехника офиса' }),
+                ],
+            },
+            {
+                title: 'Корпоративная культура',
+                icon: Heart,
+                items: [
+                    { title: 'Тимбилдинги' },
+                    { title: 'Спортивные мероприятия' },
+                    { title: 'Благотворительная помощь' },
+                    { title: 'Корпоративные бенефиты' },
+                ].map(named),
+            },
+        ],
     },
 ];
 

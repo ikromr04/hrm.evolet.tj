@@ -32,7 +32,8 @@ export interface NavItem {
 
 export interface SidebarNavItem {
     title: string;
-    icon: LucideIcon;
+    /** The drawing beside it. A page inside a section is named and nothing else. */
+    icon?: LucideIcon;
     /** Omit for modules that are not built yet; the item renders as disabled. */
     url?: string;
     /**
@@ -41,6 +42,12 @@ export interface SidebarNavItem {
      * one is.
      */
     match?: string[];
+    /**
+     * The entries under this one. A section holding several pages names them
+     * here and keeps them behind its own chevron rather than spelling them out
+     * in the menu's first level.
+     */
+    items?: SidebarNavItem[];
 }
 
 export interface SidebarNavGroup {
