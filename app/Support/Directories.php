@@ -57,6 +57,14 @@ final class Directories
             'Гражданства',
             'Страны, гражданство которых указывают в карточке.',
         ],
+        'employment_types' => [
+            'Типы занятости',
+            'Виды занятости, на которые принимают сотрудников.',
+        ],
+        'branches' => [
+            'Филиалы',
+            'Места, из которых работает компания.',
+        ],
         'equipment' => [
             'Категории техники',
             'Категории и поля, которыми описываются их единицы.',
@@ -80,7 +88,7 @@ final class Directories
      *
      * @var list<string>
      */
-    public const TABS = ['roles', 'languages', 'citizenships', 'equipment', 'access'];
+    public const TABS = ['roles', 'languages', 'citizenships', 'employment_types', 'branches', 'equipment', 'access'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string

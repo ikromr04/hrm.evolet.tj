@@ -10,6 +10,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -73,6 +74,11 @@ class User extends Authenticatable
         'name',
         'surname',
         'patronymic',
+        // The company's own number for a person, written with its leading
+        // noughts; see numberOf() below for the one a card starts with.
+        'employee_number',
+        'employment_type_id',
+        'branch_id',
         'avatar',
         'avatar_original',
         'sex',
@@ -143,6 +149,45 @@ class User extends Authenticatable
     public function scopeActive(Builder $query): void
     {
         $query->where('status', 'active');
+    }
+
+    protected static function booted(): void
+    {
+        // The number a card starts with is the one its id spells, and the id is
+        // only known once the row is there — so it is written right after, and
+        // quietly: this is the same account being finished, not a change to it.
+        static::created(function (User $user) {
+            if ($user->employee_number === null) {
+                $user->forceFill(['employee_number' => self::numberOf($user->id)])->saveQuietly();
+            }
+        });
+    }
+
+    /**
+     * The number a card carries when nobody typed one: its id, in the five
+     * digits these are written in — 00001, 00002. An id past five digits
+     * writes itself out in full rather than being cut to fit.
+     */
+    public static function numberOf(int $id): string
+    {
+        return str_pad((string) $id, 5, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * The kind of work they were taken on for: one entry of the directory, or
+     * none. Public, like the position and the department.
+     */
+    public function employmentType(): BelongsTo
+    {
+        return $this->belongsTo(EmploymentType::class);
+    }
+
+    /**
+     * The place they work from: one entry of the directory, or none.
+     */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
     }
 
     /**

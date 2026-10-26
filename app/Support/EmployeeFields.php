@@ -78,6 +78,12 @@ final class EmployeeFields
         'roles' => ['main', 'Роль'],
         'positions' => ['main', 'Должность'],
         'departments' => ['main', 'Отдел'],
+        // The company's own number for a person, the kind of work they were
+        // taken on for and the place they work from. All three sit on the
+        // account, so a card reads them without opening its private side.
+        'employee_number' => ['main', 'Номер сотрудника'],
+        'employment_type' => ['main', 'Тип занятости'],
+        'branch' => ['main', 'Филиал'],
 
         'passport_number' => ['passport', 'Серия и номер'],
         'passport_issued_at' => ['passport', 'Дата выдачи'],

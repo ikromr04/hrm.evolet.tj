@@ -46,12 +46,16 @@ export type Permission =
     | 'directories.view.departments'
     | 'directories.view.languages'
     | 'directories.view.citizenships'
+    | 'directories.view.employment_types'
+    | 'directories.view.branches'
     | 'directories.view.equipment'
     | 'directories.edit.roles'
     | 'directories.edit.positions'
     | 'directories.edit.departments'
     | 'directories.edit.languages'
     | 'directories.edit.citizenships'
+    | 'directories.edit.employment_types'
+    | 'directories.edit.branches'
     | 'directories.edit.equipment'
     | 'directories.view.access'
     | 'directories.edit.access';
@@ -145,6 +149,8 @@ export const directoryLists: DirectoryList[] = [
     // right that opens them is still directories.view.departments.
     { key: 'languages', title: 'Языки', view: 'directories.view.languages' },
     { key: 'citizenships', title: 'Гражданства', view: 'directories.view.citizenships' },
+    { key: 'employment_types', title: 'Типы занятости', view: 'directories.view.employment_types' },
+    { key: 'branches', title: 'Филиалы', view: 'directories.view.branches' },
     { key: 'equipment', title: 'Категории техники', view: 'directories.view.equipment' },
     // Who may do what: a list of the section like the others, last because it is
     // read after one knows what there is to hand out.

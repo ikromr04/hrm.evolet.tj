@@ -372,6 +372,8 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
         'roles' => Directories\RoleController::class,
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,
+        'employment_types' => Directories\EmploymentTypeController::class,
+        'branches' => Directories\BranchController::class,
         'equipment' => Directories\EquipmentTypeController::class,
     ];
 
