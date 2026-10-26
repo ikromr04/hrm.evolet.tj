@@ -13,7 +13,7 @@ import { Photos, type Photo } from '@/components/photo-viewer';
 import { type Placement, type PlacementOptions } from '@/components/placements';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { SearchableSelect } from '@/components/searchable-select';
-import { StatusBadge } from '@/components/status-badge';
+import { StatusBadge, statusTones, type StatusTone } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -672,6 +672,477 @@ function KpiSection() {
                         </TableBody>
                     </Table>
                 </div>
+            </div>
+        </Section>
+    );
+}
+
+/**
+ * The kinds of thing the plan works on, each with the colour it is known by —
+ * the badge in the plan, the marks in its own block of skills. Telling a hard
+ * skill from a soft one is the colour's whole job here, so it says the same
+ * thing in both places.
+ */
+const SKILL_KINDS = {
+    hard: {
+        title: 'Жёсткие навыки (Hard skills)',
+        label: 'Hard skill',
+        tone: 'teal' as StatusTone,
+        fill: 'bg-[#0D9488] dark:bg-[#2DD4BF]',
+        outline: 'border-[#0D9488] dark:border-[#2DD4BF]',
+    },
+    soft: {
+        title: 'Мягкие навыки (Soft skills)',
+        label: 'Soft skill',
+        tone: 'violet' as StatusTone,
+        fill: 'bg-[#7C3AED] dark:bg-[#A78BFA]',
+        outline: 'border-[#7C3AED] dark:border-[#A78BFA]',
+    },
+    // A language is neither, and has no block of its own to be read in.
+    language: {
+        title: 'Языки',
+        label: 'Язык',
+        tone: 'neutral' as StatusTone,
+        fill: 'bg-muted-foreground',
+        outline: 'border-muted-foreground',
+    },
+};
+
+type SkillKind = keyof typeof SKILL_KINDS;
+
+/**
+ * A bar in the colour of the state written beside it, so a row says one
+ * thing rather than two: green where it is done, blue while it is going on,
+ * and grey where it has not started.
+ */
+const BAR_TONES: Partial<Record<StatusTone, string>> = {
+    success: 'bg-brand/20 [&>*]:bg-brand',
+    info: 'bg-[#3B82F6]/20 [&>*]:bg-[#3B82F6] dark:bg-[#93B4FA]/20 dark:[&>*]:bg-[#93B4FA]',
+    neutral: 'bg-muted [&>*]:bg-muted-foreground/40',
+};
+
+/**
+ * The plan and what has come of it. The design's goals again: nothing keeps
+ * any of this yet, so the block can be read and agreed on before it does.
+ */
+const PLAN = {
+    year: 2026,
+    mentor: 'Каримов Фарход',
+    meeting: '2026-11-05',
+    done: 47,
+    goals: [
+        {
+            title: 'Освоить Power BI, сертификат PL-300',
+            kind: 'hard' as SkillKind,
+            due: '2026-11-30',
+            done: 70,
+            status: 'В процессе',
+            tone: 'info' as StatusTone,
+        },
+        {
+            title: 'SQL: оконные функции и оптимизация запросов',
+            kind: 'hard' as SkillKind,
+            due: '2026-10-15',
+            done: 100,
+            status: 'Выполнено',
+            tone: 'success' as StatusTone,
+        },
+        {
+            title: 'Презентация результатов для руководства',
+            kind: 'soft' as SkillKind,
+            due: '2026-12-20',
+            done: 40,
+            status: 'В процессе',
+            tone: 'info' as StatusTone,
+        },
+        {
+            title: 'Английский язык: B2 → C1',
+            kind: 'language' as SkillKind,
+            due: '2027-06-30',
+            done: 25,
+            status: 'В процессе',
+            tone: 'info' as StatusTone,
+        },
+        { title: 'Менторство стажёра', kind: 'soft' as SkillKind, due: '2027-01-31', done: 0, status: 'Не начато', tone: 'neutral' as StatusTone },
+    ],
+};
+
+/**
+ * «План индивидуального развития»: what the year is working towards, goal by
+ * goal, and how far each of them has got.
+ */
+function PlanSection() {
+    return (
+        <Section
+            title="План индивидуального развития (ПИР)"
+            action={
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span className="text-muted-foreground text-xs">
+                        Наставник: <span className="text-foreground font-medium">{PLAN.mentor}</span>
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                        Следующая встреча: <span className="text-foreground font-medium">{formatDate(PLAN.meeting)}</span>
+                    </span>
+                    {/* The same green word the other blocks put at the end of
+                        their header strip. */}
+                    <Button variant="link" className="text-brand-strong h-auto gap-1 p-0 text-xs font-normal dark:text-[#C5E27A]">
+                        <Plus className="size-3.5" />
+                        Цель
+                    </Button>
+                </div>
+            }
+        >
+            <div className="flex flex-col gap-4 max-md:py-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <span className="text-muted-foreground text-xs">Общий прогресс · {PLAN.year}</span>
+                    <Progress value={PLAN.done} aria-label={`Общий прогресс: ${PLAN.done}%`} className="min-w-32 flex-1" />
+                    <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums">{PLAN.done}%</span>
+                </div>
+
+                <Table>
+                    <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                            <TableHead className="text-muted-foreground px-0 text-xs font-normal">Цель</TableHead>
+                            <TableHead className="text-muted-foreground w-28 text-xs font-normal">Тип</TableHead>
+                            <TableHead className="text-muted-foreground w-32 text-xs font-normal">Срок</TableHead>
+                            <TableHead className="text-muted-foreground w-64 text-xs font-normal">Прогресс</TableHead>
+                            <TableHead className="text-muted-foreground w-32 text-xs font-normal">Статус</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {PLAN.goals.map((goal) => (
+                            <TableRow key={goal.title} className="hover:bg-transparent">
+                                <TableCell className="px-0 py-3 font-medium break-words whitespace-normal">{goal.title}</TableCell>
+                                <TableCell className="py-3">
+                                    <StatusBadge tone={SKILL_KINDS[goal.kind].tone}>{SKILL_KINDS[goal.kind].label}</StatusBadge>
+                                </TableCell>
+                                <TableCell className="text-muted-foreground py-3 whitespace-nowrap tabular-nums">{formatDate(goal.due)}</TableCell>
+                                <TableCell className="py-3">
+                                    <div className="flex items-center gap-3">
+                                        <Progress
+                                            value={goal.done}
+                                            aria-label={`Прогресс: ${goal.done}%`}
+                                            // The colour of the status at the end of the row.
+                                            className={cn('min-w-16 flex-1', BAR_TONES[goal.tone])}
+                                        />
+                                        <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums">{goal.done}%</span>
+                                    </div>
+                                </TableCell>
+                                <TableCell className="py-3">
+                                    <StatusBadge tone={goal.tone}>{goal.status}</StatusBadge>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
+        </Section>
+    );
+}
+
+/** What a skill is worth out of five, and what the plan asks it to become. */
+interface Skill {
+    name: string;
+    level: number;
+    goal?: number;
+}
+
+const SKILL_SCALE = 5;
+
+const HARD_SKILLS: Skill[] = [
+    { name: 'SQL', level: 4, goal: 5 },
+    { name: 'Python', level: 3, goal: 4 },
+    { name: 'Power BI', level: 3, goal: 4 },
+    { name: 'Excel / Google Sheets', level: 5 },
+    { name: 'Статистика', level: 4 },
+    { name: 'ClickHouse', level: 2, goal: 3 },
+];
+
+const SOFT_SKILLS: Skill[] = [
+    { name: 'Коммуникация', level: 4 },
+    { name: 'Командная работа', level: 5 },
+    { name: 'Тайм-менеджмент', level: 3, goal: 4 },
+    { name: 'Критическое мышление', level: 4 },
+    { name: 'Лидерство', level: 2, goal: 3 },
+    { name: 'Адаптивность', level: 4 },
+];
+
+/** When the lot was last looked at, by everybody who works with them. */
+const SKILLS_ASSESSED = '2026-10-10';
+
+/**
+ * A level out of five, as five marks: filled to where the skill stands, and
+ * outlined from there to where the plan asks it to be. The figures beside it
+ * say the same thing, so neither half is read by its colour alone.
+ */
+function SkillLevel({ level, goal, kind }: Skill & { kind: SkillKind }) {
+    return (
+        <span className="flex shrink-0 items-center gap-1" aria-hidden="true">
+            {Array.from({ length: SKILL_SCALE }, (_, i) => (
+                <span
+                    key={i}
+                    className={cn(
+                        'h-1.5 w-5 rounded-full',
+                        i < level ? SKILL_KINDS[kind].fill : i < (goal ?? 0) ? cn('border border-dashed', SKILL_KINDS[kind].outline) : 'bg-muted',
+                    )}
+                />
+            ))}
+        </span>
+    );
+}
+
+/** One of the two blocks of skills: the same list, read the same way. */
+function SkillsSection({ kind, skills }: { kind: SkillKind; skills: Skill[] }) {
+    return (
+        <Section
+            title={SKILL_KINDS[kind].title}
+            action={<span className="text-muted-foreground text-xs">Оценка 360° · {formatDate(SKILLS_ASSESSED)}</span>}
+        >
+            <div className="flex flex-col gap-4 max-md:py-4">
+                <ul className="flex flex-col">
+                    {skills.map((skill) => (
+                        <li key={skill.name} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b py-2.5 last:border-0">
+                            <span className="min-w-0 text-sm font-medium break-words">{skill.name}</span>
+                            <span className="flex items-center gap-3">
+                                <SkillLevel {...skill} kind={kind} />
+                                <span className="w-16 shrink-0 text-right text-sm tabular-nums">
+                                    <span className="font-medium">{skill.level}</span>
+                                    <span className="text-muted-foreground">/{SKILL_SCALE}</span>
+                                    {skill.goal !== undefined && <span className="text-muted-foreground"> → {skill.goal}</span>}
+                                </span>
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+
+                <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                    <span className="flex items-center gap-1.5">
+                        <span className={cn('h-1.5 w-5 shrink-0 rounded-full', SKILL_KINDS[kind].fill)} />
+                        Текущий уровень
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                        <span className={cn('h-1.5 w-5 shrink-0 rounded-full border border-dashed', SKILL_KINDS[kind].outline)} />
+                        Цель по ПИР
+                    </span>
+                </div>
+            </div>
+        </Section>
+    );
+}
+
+/**
+ * The four ways a day is counted, each with the colour the card gives it: the
+ * tint a day of the month is filled with, and the solid dot that names it in
+ * the lines above and below the month.
+ */
+const DAY_KINDS = {
+    present: { title: 'Присутствовал', tone: 'success' as StatusTone, dot: 'bg-brand' },
+    remote: { title: 'Удалённо', tone: 'info' as StatusTone, dot: 'bg-[#3B82F6]' },
+    late: { title: 'Опоздание', tone: 'warning' as StatusTone, dot: 'bg-[#F5A524]' },
+    sick: { title: 'Больничный', tone: 'danger' as StatusTone, dot: 'bg-[#EF4444]' },
+};
+
+type DayKind = keyof typeof DAY_KINDS;
+
+/**
+ * The month the block shows and what each of its days came to. Nothing records
+ * any of this yet: the days are the design's, so the block can be read and
+ * agreed on before there is anything behind it.
+ */
+const ATTENDANCE = {
+    year: 2026,
+    /** Nought is January, as a date reads it. */
+    month: 9,
+    today: 19,
+    days: {
+        1: 'present',
+        2: 'present',
+        5: 'present',
+        6: 'late',
+        7: 'present',
+        8: 'remote',
+        9: 'remote',
+        12: 'sick',
+        13: 'present',
+        14: 'late',
+        15: 'remote',
+        16: 'remote',
+        19: 'present',
+    } as Record<number, DayKind>,
+    totals: [
+        { title: 'Явка', value: '92%', dot: DAY_KINDS.present.dot },
+        { title: 'Опоздания', value: '2', dot: DAY_KINDS.late.dot },
+        { title: 'Удалённо', value: '3 дн.', dot: DAY_KINDS.remote.dot },
+        { title: 'Больничный', value: '1 дн.', dot: DAY_KINDS.sick.dot },
+    ],
+};
+
+const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+/**
+ * «Посещаемость»: what the month came to, and the month itself.
+ *
+ * A day is read by the figure on it and by the word the legend gives its
+ * colour, never by the colour alone — and the hover says the same word again.
+ */
+function AttendanceSection() {
+    const first = new Date(ATTENDANCE.year, ATTENDANCE.month, 1);
+    // The week starts on Monday here, and a date counts from Sunday.
+    const lead = (first.getDay() + 6) % 7;
+    const length = new Date(ATTENDANCE.year, ATTENDANCE.month + 1, 0).getDate();
+    const cells = [...Array(lead).fill(null), ...Array.from({ length }, (_, i) => i + 1)];
+
+    return (
+        <Section
+            // The month reads as part of a sentence here, not as a heading of
+            // its own, so it is written the way it is spoken: «октябрь 2026».
+            title={`Посещаемость · ${monthNames[ATTENDANCE.month].toLocaleLowerCase('ru')} ${ATTENDANCE.year}`}
+            action={
+                <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
+                    Табель
+                </Button>
+            }
+        >
+            <div className="flex flex-col gap-4 max-md:py-4">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                    {ATTENDANCE.totals.map((total) => (
+                        <div key={total.title} className="flex min-w-0 flex-col gap-1">
+                            <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                                <span className={cn('size-2 shrink-0 rounded-full', total.dot)} />
+                                {total.title}
+                            </span>
+                            <span className="text-xl leading-none font-semibold tabular-nums">{total.value}</span>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                    {WEEKDAYS.map((day) => (
+                        <span key={day} className="text-muted-foreground pb-1 text-center text-xs">
+                            {day}
+                        </span>
+                    ))}
+
+                    {cells.map((day, index) => {
+                        if (day === null) {
+                            return <span key={`lead-${index}`} />;
+                        }
+
+                        const kind = ATTENDANCE.days[day];
+                        const rest = index % 7 >= 5;
+
+                        return (
+                            <span
+                                key={day}
+                                title={kind ? DAY_KINDS[kind].title : undefined}
+                                className={cn(
+                                    'flex h-9 items-center justify-center rounded-md text-sm tabular-nums',
+                                    kind ? statusTones[DAY_KINDS[kind].tone] : rest ? 'text-muted-foreground/60' : 'text-muted-foreground',
+                                    // The day it is, outlined rather than filled: it is
+                                    // not another kind of day, it is this one.
+                                    day === ATTENDANCE.today && 'ring-brand ring-2',
+                                )}
+                            >
+                                {day}
+                            </span>
+                        );
+                    })}
+                </div>
+
+                <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                    {Object.entries(DAY_KINDS).map(([key, kind]) => (
+                        <span key={key} className="flex items-center gap-1.5">
+                            <span className={cn('size-2 shrink-0 rounded-full', kind.dot)} />
+                            {kind.title}
+                        </span>
+                    ))}
+                    <span className="flex items-center gap-1.5">
+                        <span className="ring-brand size-2 shrink-0 rounded-full ring-2" />
+                        Сегодня
+                    </span>
+                </div>
+            </div>
+        </Section>
+    );
+}
+
+/**
+ * The year's leave: what is left of it, what it was spent on and what is
+ * booked. The design's numbers again — nothing keeps any of this yet.
+ */
+const LEAVE = {
+    year: 2026,
+    total: 28,
+    parts: [
+        { key: 'used', title: 'Использовано', days: 14, bar: 'bg-muted-foreground/40', dot: 'bg-muted-foreground/40' },
+        { key: 'planned', title: 'Запланировано', days: 7, bar: 'bg-[#3B82F6]', dot: 'bg-[#3B82F6]' },
+        { key: 'available', title: 'Доступно', days: 7, bar: 'bg-brand', dot: 'bg-brand' },
+    ],
+    records: [
+        { span: '21–27 дек. 2026', kind: 'Ежегодный', days: '7 дн.', status: 'Согласован', tone: 'success' as StatusTone },
+        { span: '13–26 июл. 2026', kind: 'Ежегодный', days: '14 дн.', status: 'Использован', tone: 'neutral' as StatusTone },
+    ],
+};
+
+/** «Отпуск»: how much of the year is left, and what has been asked for. */
+function LeaveSection() {
+    const available = LEAVE.parts.find((part) => part.key === 'available')?.days ?? 0;
+
+    return (
+        <Section
+            title={`Отпуск · ${LEAVE.year}`}
+            action={
+                <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
+                    История
+                </Button>
+            }
+        >
+            <div className="flex flex-col gap-4 max-md:py-4">
+                <p className="flex flex-wrap items-baseline gap-2">
+                    <span className="text-brand-strong text-4xl leading-none font-semibold tabular-nums dark:text-[#C5E27A]">{available}</span>
+                    <span className="text-muted-foreground text-sm">дней доступно из {LEAVE.total}</span>
+                </p>
+
+                <div className="flex flex-col gap-2">
+                    {/* The year as one bar, its parts a hair apart so they are
+                        three lengths rather than one with stripes on it. */}
+                    <div className="flex h-2 gap-0.5">
+                        {LEAVE.parts.map((part) => (
+                            <span key={part.key} className={cn('rounded-full', part.bar)} style={{ width: `${(part.days / LEAVE.total) * 100}%` }} />
+                        ))}
+                    </div>
+
+                    <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
+                        {LEAVE.parts.map((part) => (
+                            <span key={part.key} className="flex items-center gap-1.5">
+                                <span className={cn('size-2 shrink-0 rounded-full', part.dot)} />
+                                {part.title} {part.days}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    {LEAVE.records.map((record) => (
+                        <div
+                            key={record.span}
+                            className="bg-muted/40 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg px-3 py-2.5"
+                        >
+                            <span className="flex min-w-0 flex-col gap-0.5">
+                                <span className="text-sm font-medium">{record.span}</span>
+                                <span className="text-muted-foreground text-xs">
+                                    {record.kind} · {record.days}
+                                </span>
+                            </span>
+                            <StatusBadge tone={record.tone}>{record.status}</StatusBadge>
+                        </div>
+                    ))}
+                </div>
+
+                <Button variant="outline" className="w-full">
+                    <Plus />
+                    Запросить отпуск
+                </Button>
             </div>
         </Section>
     );
@@ -1501,21 +1972,22 @@ function Section({
 }
 
 /**
- * The action of a block: a pencil in the desktop header strip, the word
- * «Изменить» in the brand colour above the card on a phone, where an icon on
- * its own would be a small target with no word to say what it does.
+ * The action of a block: the word «Изменить» in the brand colour at the end of
+ * the header strip, and the same word above the card on a phone.
+ *
+ * It used to be a pencil on a wide screen. An icon on its own is a small target
+ * with nothing to say what it opens, and the blocks that came later put the
+ * word there instead — so now they all do.
  */
 function EditButton({ label, onClick }: { label: string; onClick: () => void }) {
     return (
         <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground max-md:text-brand-strong max-md:hover:text-brand-strong -my-1 -mr-2.5 size-9 max-md:-my-2.5 max-md:mr-0 max-md:h-10 max-md:w-auto max-md:px-1 max-md:text-[15px] max-md:font-medium max-md:hover:bg-transparent max-md:active:opacity-60 lg:my-0 lg:-mr-2 lg:size-7 max-md:dark:text-[#C5E27A] max-md:dark:hover:text-[#C5E27A]"
+            variant="link"
             aria-label={label}
             onClick={onClick}
+            className="text-brand-strong h-auto p-0 text-xs font-normal max-md:h-10 max-md:text-[15px] max-md:font-medium max-md:active:opacity-60 dark:text-[#C5E27A]"
         >
-            <Pencil className="size-4 max-md:hidden" />
-            <span className="md:hidden">Изменить</span>
+            Изменить
         </Button>
     );
 }
@@ -2612,15 +3084,7 @@ export default function EmployeeProfile({
                                         title="Основное"
                                         action={
                                             canEditBlock('personal') && (
-                                                <Button
-                                                    variant="link"
-                                                    onClick={() => setEditing('personal')}
-                                                    // The green a mail address is written in, at the
-                                                    // size of the lines the strip carries.
-                                                    className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]"
-                                                >
-                                                    Изменить
-                                                </Button>
+                                                <EditButton label="Редактировать основное" onClick={() => setEditing('personal')} />
                                             )
                                         }
                                     >
@@ -2710,12 +3174,27 @@ export default function EmployeeProfile({
                                     </Section>
 
                                     <KpiSection />
+
+                                    {/* Two blocks of a size, side by side where there is
+                                        room for them and one under the other where there
+                                        is not. */}
+                                    <div className="grid gap-4 lg:grid-cols-2">
+                                        <AttendanceSection />
+                                        <LeaveSection />
+                                    </div>
+
+                                    <PlanSection />
+
+                                    <div className="grid gap-4 lg:grid-cols-2">
+                                        <SkillsSection kind="hard" skills={HARD_SKILLS} />
+                                        <SkillsSection kind="soft" skills={SOFT_SKILLS} />
+                                    </div>
                                 </div>
 
                                 <aside className={pane}>
                                     {/*
                                      * A block like the ones under it: a card with its name on
-                                     * the strip and the pencil at the end of that strip. It
+                                     * the strip and its action at the end of that strip. It
                                      * used to stand bare at the top of this column, the only
                                      * thing here without a frame, which read as a leftover of
                                      * the card above rather than a block of its own.
@@ -2734,7 +3213,9 @@ export default function EmployeeProfile({
                                                 {formatDate(details.hired_at)}
                                             </Field>
                                             <Field label="Стаж в компании" field="hired_at">
-                                                {details.hired_at && tenure(details.hired_at)}
+                                                {details.hired_at && (
+                                                    <span className="text-brand-strong dark:text-[#C5E27A]">{tenure(details.hired_at)}</span>
+                                                )}
                                             </Field>
                                         </Fields>
                                     </Section>
