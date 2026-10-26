@@ -49,6 +49,12 @@ trait GuardsPrivilegedRoles
      */
     protected function guardPrivilegedChanges(Validator $validator, User $employee): void
     {
+        // A form that does not carry the positions is not changing them: there
+        // is one window for them and others for the rest of the card.
+        if (! $this->has('roles')) {
+            return;
+        }
+
         $asked = array_values((array) $this->input('roles', []));
         $held = $employee->roles->pluck('name')->all();
 

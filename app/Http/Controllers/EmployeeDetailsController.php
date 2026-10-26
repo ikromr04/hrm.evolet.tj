@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateContactsRequest;
 use App\Http\Requests\UpdateFamilyRequest;
 use App\Http\Requests\UpdatePersonalDataRequest;
+use App\Models\Branch;
 use App\Models\Citizenship;
+use App\Models\EmploymentType;
 use App\Models\Language;
 use App\Models\User;
 use App\Support\EmployeeFields;
@@ -22,8 +24,23 @@ use Illuminate\Validation\Rule;
  */
 class EmployeeDetailsController extends Controller
 {
-    /** The name and sex live on the user, the rest of the plain fields on the details. */
-    private const ON_USER = ['surname', 'name', 'patronymic', 'sex'];
+    /**
+     * The name and sex live on the user, as do the number the company files
+     * somebody under and the two directories a card points at with one entry
+     * each; the rest of the plain fields live on the details.
+     */
+    private const ON_USER = ['surname', 'name', 'patronymic', 'sex', 'employee_number', 'employment_type_id', 'branch_id'];
+
+    /**
+     * The lines a card points at one entry of, as the form names them: the
+     * entry is written by name, and one missing from its list is added to it.
+     *
+     * @var array<string, class-string<EmploymentType|Branch>>
+     */
+    private const NAMED = [
+        'employment_type' => EmploymentType::class,
+        'branch' => Branch::class,
+    ];
 
     /** What the card saves beside the details row: the roles, and where they stand. */
     private const RELATIONS = ['roles', 'placements'];
@@ -48,6 +65,9 @@ class EmployeeDetailsController extends Controller
         'citizenship' => ['citizenship'],
         'nationality' => ['nationality'],
         'home_address' => ['home_address'],
+        'employee_number' => ['employee_number'],
+        'employment_type' => ['employment_type'],
+        'branch' => ['branch'],
         'roles' => ['roles'],
         // One answer behind two lines of the card: a department, a position of
         // that department and the duties picked out of it. Changing where
@@ -69,9 +89,18 @@ class EmployeeDetailsController extends Controller
         $data = $this->allowed($request, $employee, $request->validated());
 
         DB::transaction(function () use ($employee, $data) {
+            // Named in the form, numbered on the account: a kind of work or a
+            // branch the list has not heard of is added to it here, so it can
+            // be typed into the card rather than into «Справочники» first.
+            foreach (self::NAMED as $line => $model) {
+                if (array_key_exists($line, $data)) {
+                    $data["{$line}_id"] = $model::idFor($data[$line]);
+                }
+            }
+
             $employee->update(Arr::only($data, self::ON_USER));
 
-            $details = Arr::except($data, [...self::ON_USER, ...self::RELATIONS, 'citizenship']);
+            $details = Arr::except($data, [...self::ON_USER, ...self::RELATIONS, ...array_keys(self::NAMED), 'citizenship']);
 
             // Countries by name: one missing from the directory is added to it,
             // so it can be typed in right here rather than in «Справочники».

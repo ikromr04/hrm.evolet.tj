@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
+use App\Models\Branch;
 use App\Models\Citizenship;
 use App\Models\Department;
+use App\Models\EmploymentType;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
@@ -395,7 +397,7 @@ class EmployeeController extends Controller
     {
         // The department of each position travels with it: that is what tells
         // one «Аналитик» from another on the line that prints them.
-        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages:id,name']);
+        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'departments.heads:id,name,surname', 'languages:id,name', 'employmentType:id,name', 'branch:id,name']);
         // Which fields of this card the viewer reads. Their own card is whole;
         // anybody else's is what their position and their exceptions allow.
         $visible = EmployeeFields::visibleTo($request->user(), $employee);
@@ -442,6 +444,12 @@ class EmployeeController extends Controller
                     'positions' => fn () => $this->positionNames($employee),
                     'departments' => fn () => $this->departmentList($employee),
                     'languages' => fn () => $this->languageList($employee),
+                    // Read off the account rather than out of its private side:
+                    // the number the company files them under, the kind of work
+                    // they were taken on for and the place they work from.
+                    'employee_number' => fn () => $employee->employee_number,
+                    'employment_type' => fn () => $employee->employmentType?->name,
+                    'branch' => fn () => $employee->branch?->name,
                 ]),
                 'private' => $canSeePrivate ? [
                     ...$this->privateDetails($employee, $visible),
@@ -505,6 +513,15 @@ class EmployeeController extends Controller
                 // As the intake wizard is given them: the positions, and the
                 // duties of each.
                 ...Placements::options(),
+                // Every department with whoever leads it: the window fills in
+                // «Отдел» and «Руководитель» from the job that was picked, and
+                // neither of those two lines is typed by hand.
+                'units' => $this->unitsWithHeads(),
+                // The two lists a card points at one entry of. Named rather
+                // than numbered, because one missing from a list is typed into
+                // the window and added on the save.
+                'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
+                'branches' => Branch::query()->orderBy('name')->pluck('name'),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 // Countries already on file, as suggestions for a previous job.
                 'countries' => UserWorkExperience::query()->distinct()->orderBy('country')->pluck('country'),
@@ -881,11 +898,11 @@ class EmployeeController extends Controller
      * of the other — so the page needs the parent as a thing with an id to link
      * to, not as half of a string that happens to be written with a « › » today.
      *
-     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, is_head: bool, parent: null|array{id: int, name: string, full_name: string}}>
+     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, is_head: bool, heads: list<array{id: int, name: string}>, parent: null|array{id: int, name: string, full_name: string}}>
      */
     private function departmentList(User $user): array
     {
-        return $user->departments->map(function (Department $d) {
+        return $user->departments->map(function (Department $d) use ($user) {
             $parent = $d->parent_id ? $this->allDepartments()->get($d->parent_id) : null;
 
             return [
@@ -897,6 +914,16 @@ class EmployeeController extends Controller
                 'path' => $this->departmentPath($d->id),
                 'full_path' => $this->departmentPath($d->id, full: true),
                 'is_head' => (bool) $d->pivot->is_head,
+                // Who leads it, this person left out where they lead it
+                // themselves: a card does not answer to itself. The list is
+                // empty on the staff list, which does not load them.
+                'heads' => $d->relationLoaded('heads')
+                    ? $d->heads
+                        ->reject(fn (User $head) => $head->is($user))
+                        ->map(fn (User $head) => ['id' => $head->id, 'name' => "{$head->surname} {$head->name}"])
+                        ->values()
+                        ->all()
+                    : [],
                 'parent' => $parent === null ? null : [
                     'id' => $parent->id,
                     'name' => $parent->display_name,
@@ -912,6 +939,32 @@ class EmployeeController extends Controller
     private function allDepartments(): Collection
     {
         return $this->departments ??= Department::query()->orderBy('name')->get(['id', 'name', 'abbreviation', 'parent_id'])->keyBy('id');
+    }
+
+    /**
+     * Every department with the chain down to it and whoever leads it, for the
+     * window that fills those two lines in from the job somebody picked.
+     *
+     * @return list<array{id: int, name: string, full_name: string, path: string, full_path: string, heads: list<array{id: int, name: string}>}>
+     */
+    private function unitsWithHeads(): array
+    {
+        return Department::query()
+            ->with('heads:id,name,surname')
+            ->orderBy('name')
+            ->get(['id', 'name', 'abbreviation', 'parent_id'])
+            ->map(fn (Department $d) => [
+                'id' => $d->id,
+                'name' => $d->display_name,
+                'full_name' => $d->name,
+                'path' => $this->departmentPath($d->id),
+                'full_path' => $this->departmentPath($d->id, full: true),
+                'heads' => $d->heads
+                    ->map(fn (User $head) => ['id' => $head->id, 'name' => "{$head->surname} {$head->name}"])
+                    ->values()
+                    ->all(),
+            ])
+            ->all();
     }
 
     /**

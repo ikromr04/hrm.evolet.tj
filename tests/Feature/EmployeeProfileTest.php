@@ -84,6 +84,8 @@ class EmployeeProfileTest extends TestCase
                     'path' => 'ДМ › Научный отдел',
                     'full_path' => 'Департамент маркетинга › Научный отдел',
                     'is_head' => false,
+                    // Whoever leads it: nobody here, and never this person.
+                    'heads' => [],
                     // The one above it, named rather than left to be read out of
                     // the path: the directory draws the two in columns of their
                     // own and needs the department as something with an id.
@@ -96,8 +98,32 @@ class EmployeeProfileTest extends TestCase
                     'path' => 'ДМ › ОД',
                     'full_path' => 'Департамент маркетинга › Отдел Дизайна',
                     'is_head' => false,
+                    'heads' => [],
                     'parent' => ['id' => $marketing->id, 'name' => 'ДМ', 'full_name' => 'Департамент маркетинга'],
                 ])
+            );
+    }
+
+    public function test_a_card_names_whoever_leads_the_department_and_never_the_card_itself()
+    {
+        $department = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
+        $head = User::factory()->create(['surname' => 'Каримов', 'name' => 'Сухроб']);
+        $employee = User::factory()->create();
+        $department->users()->attach($head, ['is_head' => true]);
+        $department->users()->attach($employee, ['is_head' => false]);
+
+        $this->actingAs($this->colleague())
+            ->get("/employees/{$employee->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employee.departments.0.heads', [['id' => $head->id, 'name' => 'Каримов Сухроб']])
+            );
+
+        // Their own card does not answer to itself: whoever leads the department
+        // is left out of the line where they are the one leading it.
+        $this->actingAs($this->colleague())
+            ->get("/employees/{$head->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employee.departments.0.heads', [])
             );
     }
 
