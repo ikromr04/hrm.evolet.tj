@@ -20,7 +20,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -526,6 +528,152 @@ function ContactsDialog({ employee, details, onClose }: { employee: Employee; de
                 </form>
             </DialogContent>
         </Dialog>
+    );
+}
+
+/**
+ * The quarters behind the figure, newest last. Nothing counts any of this yet:
+ * these are the design's numbers, so the block can be read and agreed on
+ * before there is anything behind it.
+ */
+const KPI_QUARTERS = [
+    { id: '2025-4', title: "4 кв. '25", value: 89 },
+    { id: '2026-1', title: "1 кв. '26", value: 91 },
+    { id: '2026-2', title: "2 кв. '26", value: 93 },
+    { id: '2026-3', title: "3 кв. '26", value: 97 },
+];
+
+/** What the figure is made of: a line per indicator, with its weight. */
+const KPI_LINES = [
+    { name: 'Подготовка аналитических отчётов', weight: '30%', plan: '24 шт.', fact: '26 шт.', done: 108 },
+    { name: 'Соблюдение сроков задач', weight: '25%', plan: '95%', fact: '91%', done: 96 },
+    { name: 'Качество данных (ошибки в отчётах)', weight: '20%', plan: '≤ 2', fact: '1', done: 100 },
+    { name: 'Обучение и развитие', weight: '15%', plan: '40 ч', fact: '34 ч', done: 85 },
+    { name: 'Оценка руководителя', weight: '10%', plan: '4,0', fact: '4,3', done: 108 },
+];
+
+/** What the quarter was aiming at, drawn across the columns as a line. */
+const KPI_GOAL = 90;
+
+/**
+ * Short of the goal, a line is a warning rather than a weaker green: the two
+ * read apart at a glance, and the figure beside the bar says which it is
+ * without anybody having to tell the colours apart.
+ */
+const kpiShort = (done: number) => done < KPI_GOAL;
+
+/**
+ * «KPI сотрудника»: the quarter's figure with the quarters behind it, and the
+ * indicators that make it up.
+ *
+ * The columns are drawn from nought to a hundred, each in a track of its own,
+ * so a quarter is read against the whole scale and against the goal line
+ * across it rather than against a baseline chosen to flatter it.
+ */
+function KpiSection() {
+    const current = KPI_QUARTERS[KPI_QUARTERS.length - 1];
+
+    return (
+        <Section
+            title="KPI сотрудника"
+            action={
+                <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
+                    Все периоды
+                </Button>
+            }
+        >
+            <div className="grid gap-6 max-md:py-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:gap-8">
+                <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1">
+                        <p className="text-muted-foreground text-xs">Итоговый KPI</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-brand-strong text-4xl leading-none font-semibold tabular-nums dark:text-[#C5E27A]">
+                                {current.value}%
+                            </span>
+                            <StatusBadge tone="success">+4 п.п.</StatusBadge>
+                        </div>
+                        <p className="text-muted-foreground text-xs">к прошлому кварталу · цель {KPI_GOAL}%</p>
+                    </div>
+
+                    {/* A column per quarter, the figure over each: four of them, so
+                        every one is named rather than one in three. */}
+                    <div className="flex items-end gap-2">
+                        {KPI_QUARTERS.map((quarter) => {
+                            const now = quarter.id === current.id;
+
+                            return (
+                                <div key={quarter.id} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                                    <span
+                                        className={cn(
+                                            'text-xs tabular-nums',
+                                            now ? 'text-brand-strong font-semibold dark:text-[#C5E27A]' : 'text-muted-foreground',
+                                        )}
+                                    >
+                                        {quarter.value}
+                                    </span>
+                                    <div className="bg-muted relative flex h-[72px] w-full items-end overflow-hidden rounded-md">
+                                        {/* What the quarter was aiming at, at its own height in
+                                            every column: one level across all four. */}
+                                        <div
+                                            className="border-muted-foreground/40 absolute inset-x-0 z-10 border-t border-dashed"
+                                            style={{ bottom: `${KPI_GOAL}%` }}
+                                        />
+                                        <div
+                                            className={cn('w-full rounded-md', now ? 'bg-brand' : 'bg-muted-foreground/25')}
+                                            style={{ height: `${quarter.value}%` }}
+                                        />
+                                    </div>
+                                    <span className={cn('text-[11px] whitespace-nowrap', now ? 'font-medium' : 'text-muted-foreground')}>
+                                        {quarter.title}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* The lines of the quarter. On a phone the table scrolls
+                    sideways rather than squeezing five columns into a screen. */}
+                <div className="min-w-0 md:border-l md:pl-8">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="hover:bg-transparent">
+                                <TableHead className="text-muted-foreground px-0 text-xs font-normal">Показатель</TableHead>
+                                <TableHead className="text-muted-foreground w-16 text-xs font-normal">Вес</TableHead>
+                                <TableHead className="text-muted-foreground w-20 text-xs font-normal">План</TableHead>
+                                <TableHead className="text-muted-foreground w-20 text-xs font-normal">Факт</TableHead>
+                                <TableHead className="text-muted-foreground w-64 text-xs font-normal">Выполнение</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {KPI_LINES.map((line) => (
+                                <TableRow key={line.name} className="hover:bg-transparent">
+                                    <TableCell className="px-0 py-3 font-medium break-words whitespace-normal">{line.name}</TableCell>
+                                    <TableCell className="text-muted-foreground py-3 tabular-nums">{line.weight}</TableCell>
+                                    <TableCell className="text-muted-foreground py-3 tabular-nums">{line.plan}</TableCell>
+                                    <TableCell className="py-3 font-medium tabular-nums">{line.fact}</TableCell>
+                                    <TableCell className="py-3">
+                                        <div className="flex items-center gap-3">
+                                            <Progress
+                                                // Over the plan fills the bar; the figure
+                                                // beside it is where the surplus is read.
+                                                value={Math.min(line.done, 100)}
+                                                aria-label={`Выполнение: ${line.done}%`}
+                                                className={cn(
+                                                    'min-w-16 flex-1',
+                                                    kpiShort(line.done) && 'bg-[#F5A524]/20 [&>*]:bg-[#D97706] dark:[&>*]:bg-[#F5A524]',
+                                                )}
+                                            />
+                                            <span className="w-10 shrink-0 text-right text-sm font-medium tabular-nums">{line.done}%</span>
+                                        </div>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </div>
+            </div>
+        </Section>
     );
 }
 
@@ -2458,9 +2606,8 @@ export default function EmployeeProfile({
                             // Narrow: one column. Wide: the main column and a sidebar.
                             <div className={paneGrid}>
                                 <div className={pane}>
-                                    {/* The block the card is built around. What stands in it is
-                                        still being decided, so it holds its place and its name
-                                        and nothing else. */}
+                                    {/* The block the card is built around: where somebody stands
+                                        and on what terms. */}
                                     <Section
                                         title="Основное"
                                         action={
@@ -2561,6 +2708,8 @@ export default function EmployeeProfile({
                                             </Fact>
                                         </Facts>
                                     </Section>
+
+                                    <KpiSection />
                                 </div>
 
                                 <aside className={pane}>
