@@ -2671,7 +2671,7 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
     };
 
     return (
-        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto">
+        <div className="flex w-full gap-2 max-md:hidden sm:w-auto md:ml-auto">
             {arrow(prev, 'Предыдущий', ChevronLeft)}
             {arrow(next, 'Следующий', ChevronRight)}
         </div>
