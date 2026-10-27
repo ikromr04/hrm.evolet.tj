@@ -117,6 +117,9 @@ class EquipmentJournalController extends Controller
         ]);
 
         return Inertia::render('equipment/journal', [
+            // Which section this is being read in: the page is the same one,
+            // and the name over it and the trail back are not.
+            'section' => $request->routeIs('inventory.journal') ? 'inventory' : 'equipment',
             'events' => $events,
             'names' => $names,
             'filters' => $filters,

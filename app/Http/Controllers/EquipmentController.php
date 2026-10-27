@@ -38,6 +38,9 @@ class EquipmentController extends Controller
 {
     use KeepsEquipmentPhotos, SavesEquipmentFields;
 
+    /** The one answer of that column that is not a status of a unit. */
+    private const SERVICE = 'service';
+
     public const PER_PAGE_OPTIONS = [25, 50, 100];
 
     /** Columns the list can be ordered by, named as the table names them. */
@@ -145,7 +148,10 @@ class EquipmentController extends Controller
             'type' => ['nullable', 'array'],
             'type.*' => ['integer', Rule::exists('equipment_types', 'id')],
             'status' => ['nullable', 'array'],
-            'status.*' => [Rule::in(Equipment::STATUSES)],
+            // «На обслуживании» is not a status — a unit can be with its owner
+            // and on service at once — but it is one of the answers the column
+            // is asked for, as it is one of the tabs above the table.
+            'status.*' => [Rule::in([...Equipment::STATUSES, self::SERVICE])],
             // Where the holder stands, a column apiece: a department of the
             // company, and a unit inside one. Both are departments as far as the
             // directory is concerned, so both are checked against it.
@@ -177,10 +183,10 @@ class EquipmentController extends Controller
             'issued_to' => $input['issued_to'] ?? null,
         ];
 
-        // The list opens on what is out with people, which is what it is asked
-        // for most of the time. "Все" has to say so in the query: no tab at all
-        // means the default, not everything.
-        $tab = $input['tab'] ?? 'issued';
+        // The list opens on the whole fleet: what the company owns is the
+        // question the page is opened with, and a status is how that is
+        // narrowed afterwards. A tab asked for by name still settles it.
+        $tab = $input['tab'] ?? 'all';
         $sort = $input['sort'] ?? ($byHolder ? self::DEFAULT_HOLDER_SORT : self::DEFAULT_SORT);
         // From the top: a column asked for by name reads down from A, and so
         // does the structure the table opens in — the company is read from the
@@ -296,6 +302,13 @@ class EquipmentController extends Controller
 
         if ($named !== null) {
             return $named === 'holders';
+        }
+
+        // The front page of «Инвентаризация» is the fleet itself, unit by unit:
+        // that section is about what the company owns rather than about who is
+        // holding it today. Asking for the other view by name still works.
+        if ($request->routeIs('inventory.overview')) {
+            return false;
         }
 
         return ! $request->anyFilled(['tab', 'status', 'issued_from', 'issued_to']);
@@ -602,6 +615,9 @@ class EquipmentController extends Controller
     private function shared(Request $request, array $filters, string $sort, string $direction, int $perPage): array
     {
         return [
+            // Where this table is being read. The page is the same one either
+            // way; what changes is the name over it and the trail to it.
+            'section' => $request->routeIs('inventory.overview') ? 'inventory' : 'equipment',
             'filters' => $filters,
             'sort' => ['key' => $sort, 'direction' => $direction],
             'perPage' => $perPage,
@@ -617,7 +633,10 @@ class EquipmentController extends Controller
                 // tree goes: which department a colleague stands in is read
                 // wherever their name is, and asks no right of its own.
                 'departments' => $this->departmentOptions(),
-                'statuses' => collect(Equipment::STATUSES)->map(fn (string $s) => ['value' => $s, 'label' => self::STATUS_LABELS[$s]])->all(),
+                'statuses' => [
+                    ...collect(Equipment::STATUSES)->map(fn (string $s) => ['value' => $s, 'label' => self::STATUS_LABELS[$s]])->all(),
+                    ['value' => self::SERVICE, 'label' => 'На обслуживании'],
+                ],
                 // Whom a unit can be handed to: everyone still working here.
                 'holders' => User::query()
                     ->active()
@@ -1403,7 +1422,22 @@ class EquipmentController extends Controller
         $query->when($filters['name'], fn (Builder $q, string $term) => $q->where(Equipment::roleValueQuery('title'), 'like', "%{$term}%"));
         $query->when($filters['inventory_number'], fn (Builder $q, string $term) => $q->where(Equipment::roleValueQuery('inventory'), 'like', "%{$term}%"));
         $query->when($filters['type'], fn (Builder $q, array $ids) => $q->whereIn('equipment_type_id', $ids));
-        $query->when($filters['status'], fn (Builder $q, array $statuses) => $q->whereIn('status', $statuses));
+        $query->when($filters['status'], function (Builder $q, array $statuses) {
+            $plain = array_values(array_diff($statuses, [self::SERVICE]));
+            $service = in_array(self::SERVICE, $statuses, true);
+
+            // Asked together, the answers are read together: a unit of one of
+            // the statuses picked, or one that is away being looked after.
+            $q->where(function (Builder $q) use ($plain, $service) {
+                if ($plain !== []) {
+                    $q->orWhereIn('status', $plain);
+                }
+
+                if ($service) {
+                    $q->orWhere(fn (Builder $q) => $q->underService());
+                }
+            });
+        });
         // Where the holder stands. Asked of every department they stand in
         // rather than of the one their row happens to print: "техника отдела"
         // means the equipment of the people in it, which is what the right to

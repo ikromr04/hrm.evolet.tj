@@ -39,6 +39,7 @@ import AppLayout from '@/layouts/app-layout';
 import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
 import { statusLabel, statusTone, type EquipmentStatus as Status } from '@/lib/equipment';
+import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -47,7 +48,6 @@ import {
     ChevronDown,
     Ellipsis,
     Eraser,
-    History,
     List,
     LoaderCircle,
     Plus,
@@ -59,7 +59,35 @@ import {
 } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'Оборудование', href: '/equipment' }];
+/**
+ * Where this table is being read: the fleet's own page, or the front page of
+ * «Инвентаризация», which opens on the same list. Everything else about it is
+ * the same, so the two differ in a name, a trail and an address and in nothing
+ * else at all.
+ */
+const PLACES = {
+    equipment: {
+        title: 'Оборудование',
+        route: 'equipment.index',
+        crumbs: [{ title: 'Оборудование', href: '/equipment' }] as BreadcrumbItem[],
+        // Each address keeps its own arrangements: the two draw the same fleet
+        // and are read for different reasons, so what is sorted, narrowed and
+        // hidden in one is not the other's business.
+        viewKey: TABLE_KEYS.equipment,
+        queryKey: 'equipment.table.query',
+    },
+    inventory: {
+        title: 'Обзор',
+        route: 'inventory.overview',
+        crumbs: [
+            // The section has no page of its own; this is it.
+            { title: 'Инвентаризация', href: '/inventory' },
+            { title: 'Обзор', href: '/inventory' },
+        ] as BreadcrumbItem[],
+        viewKey: TABLE_KEYS.inventory,
+        queryKey: 'inventory.table.query',
+    },
+};
 
 interface Department {
     /** The abbreviation where the department has one, the full name otherwise. */
@@ -177,7 +205,8 @@ interface Filters {
     name: string;
     inventory_number: string;
     type: number[];
-    status: Status[];
+    /** «На обслуживании» is one of the answers and is no unit's status. */
+    status: (Status | 'service')[];
     /** The departments of the company asked about, and the units inside them. */
     department: number[];
     unit: number[];
@@ -203,6 +232,8 @@ interface Props {
      * by name, which is also how a link that carries a status or a date opens.
      */
     view: View;
+    /** Which of the two addresses this page is being drawn at. */
+    section: keyof typeof PLACES;
     /** The units themselves — sent for that view and for no other. */
     equipment?: Paginated<Unit>;
     /** The colleagues, a page of them, each with what they hold; likewise. */
@@ -223,7 +254,11 @@ interface Props {
     can: EquipmentRights;
     /** Which parts of the fleet the list was narrowed to; the server did the narrowing. */
     scopes: Scope[];
-    /** The parts of those whose journal may be read; empty means no journal at all. */
+    /**
+     * The parts of those whose journal may be read; empty means no journal at
+     * all. The page draws nothing from it — the journal is reached from the
+     * menu — and the server sends it because the right is read there.
+     */
     journalScopes: Scope[];
 }
 
@@ -233,19 +268,11 @@ interface Props {
 // with. The list's went one further when the date a unit was entered became a
 // column of its own: a view that had never heard of it would show it, and the
 // table is meant to open without it.
-const STORAGE_KEY = 'equipment.table.view.v4';
-const QUERY_KEY = 'equipment.table.query';
 /** The other table's columns are the categories, so its own vista is kept apart. */
 /** Which of the two tables a kept view was made in. */
 type Table = 'list' | 'holders';
 
 const tableOf = (one: { state?: unknown }) => ((one.state as { table?: Table } | undefined)?.table === 'holders' ? 'holders' : 'list');
-
-/** The two tables, as the menu offers them. */
-const TABLES = [
-    { value: 'list', label: 'Список' },
-    { value: 'holders', label: 'По сотрудникам' },
-];
 
 const collator = new Intl.Collator('ru');
 
@@ -692,18 +719,13 @@ function buildColumns(options: Options): ColumnDef[] {
         // in and no column at all — the one question the table answered with no
         // header to press — until the structure took that place; so it has a
         // column of its own now rather than becoming a thing only a hand-typed
-        // address could ask for. Hidden until somebody turns it on in the
-        // «Вид» menu, so the table is no wider than it was for everybody else.
+        // address could ask for.
         { key: 'created', label: 'Добавлено', width: 190 },
     ];
 }
 
-/** The column the list opens without; the «Вид» menu is where it is turned on. */
-const HIDDEN_BY_DEFAULT = ['created'];
-
 /**
- * Both tables open with nothing held to an edge and no column hidden but the
- * date a unit was entered, which the list alone has.
+ * Both tables open with nothing held to an edge and nothing hidden.
  *
  * «У кого» used to be pinned to the left, so that the unit's own facts scrolled
  * under the name of whoever has it. The structure now opens both tables, and
@@ -936,6 +958,7 @@ function narrowedTo(scopes: Scope[]): string | null {
 
 export default function EquipmentIndex({
     view,
+    section,
     equipment,
     holders,
     filters,
@@ -948,11 +971,10 @@ export default function EquipmentIndex({
     options,
     can,
     scopes,
-    journalScopes,
 }: Props) {
     const byHolder = view === 'holders';
+    const place = PLACES[section];
     // The journal is open where at least one part of the fleet carries it.
-    const canJournal = journalScopes.length > 0;
     // Whether there is anything at all to do with a row. Which item a row offers
     // depends on where its unit is, so the column stays wherever one of them
     // could come up, and goes for a viewer who only reads the list. Nothing is
@@ -963,9 +985,9 @@ export default function EquipmentIndex({
     const holderColumns = useMemo(() => buildHolderColumns(options, filters.type), [options, filters.type]);
     const holderFilters = useMemo(() => buildHolderFilters(options), [options]);
     const columns = byHolder ? holderColumns : unitColumns;
-    // One column opens hidden, and it is the list's: «По сотрудникам» has no
-    // date among its columns to begin with.
-    const unitDefaults = useMemo(() => defaultView(HIDDEN_BY_DEFAULT), []);
+    // Both tables open with every column of theirs showing; what is not wanted
+    // is turned off in the «Вид» menu and kept there.
+    const unitDefaults = useMemo(() => defaultView(), []);
     const holderDefaults = useMemo(() => defaultView(), []);
 
     // Both tables keep their views in one list, and each takes only its own: a
@@ -973,13 +995,13 @@ export default function EquipmentIndex({
     // Both are loaded either way, because a switch of view does not remount the
     // page and a hook asked for conditionally would be the wrong one afterwards.
     const unitView = useTableView(
-        STORAGE_KEY,
+        place.viewKey,
         unitColumns.map((column) => column.key),
         unitDefaults,
         (one) => tableOf(one) === 'list',
     );
     const holderView = useTableView(
-        STORAGE_KEY,
+        place.viewKey,
         // Every category, not only the columns drawn right now: a category left
         // out by a filter has not been hidden, and should come back as it was.
         ['department', 'unit', 'holder', ...options.types.map((type) => typeKey(type.id))],
@@ -992,7 +1014,7 @@ export default function EquipmentIndex({
     /* Both tables can be dragged into another order, so the menu reads along whichever is on screen. */
     const listed = orderedColumns(columns, order);
 
-    useRememberedQuery(QUERY_KEY);
+    useRememberedQuery(place.queryKey, place.viewKey);
     /**
      * Which table a view coming out of the menu belongs to. The menu hands it
      * over before the columns, so the arrangement goes to the table it was kept
@@ -1005,8 +1027,8 @@ export default function EquipmentIndex({
     // One list of views for the page, each saying which table it is for; the
     // questions are the page's own and are kept with it.
     const memory = useTableMemory({
-        viewKey: STORAGE_KEY,
-        queryKey: QUERY_KEY,
+        viewKey: place.viewKey,
+        queryKey: place.queryKey,
         // Both tables' columns, so a view kept for one is not stripped of its
         // columns when it is read while the other is on screen.
         columnKeys: [...new Set([...unitColumns, ...holderColumns].map((column) => column.key))],
@@ -1072,7 +1094,7 @@ export default function EquipmentIndex({
             Object.entries(params).filter(([, value]) => (Array.isArray(value) ? value.length > 0 : value !== null && value !== '')),
         ) as Record<string, Exclude<Value, null>>;
 
-        router.get(route('equipment.index'), query, { preserveState: true, preserveScroll: true, replace: true });
+        router.get(route(place.route), query, { preserveState: true, preserveScroll: true, replace: true });
     };
 
     /**
@@ -1212,11 +1234,11 @@ export default function EquipmentIndex({
     );
 
     return (
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
-            <Head title="Оборудование" />
+        <AppLayout breadcrumbs={place.crumbs} fitViewport>
+            <Head title={place.title} />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Оборудование</h1>
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">{place.title}</h1>
 
                 {/* The lists, the box to look through them, and at the end of the line what
                     acts on the page. On a phone: the search and the sorting-and-filters
@@ -1330,17 +1352,8 @@ export default function EquipmentIndex({
                         </nav>
                     )}
 
-                    {/* The columns ride in the same menu as the view they are part of. */}
-                    {/* Which of the two tables is being read, and the views kept
-                        for either: one menu over the table. The table stands in
-                        the query, so a link carries the one somebody was on. */}
-                    <TableMemoryButton
-                        memory={memory}
-                        className="h-9 max-md:hidden"
-                        modes={TABLES}
-                        mode={view}
-                        onMode={(next) => next !== view && visit({ view: next as View })}
-                    >
+                    {/* The kept views and the columns in one menu over the table. */}
+                    <TableMemoryButton memory={memory} className="h-9 max-md:hidden">
                         {listed.map((column) => (
                             <DropdownMenuCheckboxItem
                                 key={column.key}
@@ -1356,26 +1369,13 @@ export default function EquipmentIndex({
                         ))}
                     </TableMemoryButton>
 
-                    {(canJournal || can.create) && (
-                        <>
-                            {canJournal && (
-                                <Button variant="outline" className="h-9 max-md:hidden" asChild>
-                                    <Link href={route('equipment.journal')}>
-                                        <History />
-                                        Журнал
-                                    </Link>
-                                </Button>
-                            )}
-
-                            {can.create && (
-                                <Button className="h-9 max-md:hidden" asChild>
-                                    <Link href={route('equipment.create')}>
-                                        <Plus />
-                                        Добавить оборудование
-                                    </Link>
-                                </Button>
-                            )}
-                        </>
+                    {can.create && (
+                        <Button className="h-9 max-md:hidden" asChild>
+                            <Link href={route('equipment.create')}>
+                                <Plus />
+                                Добавить оборудование
+                            </Link>
+                        </Button>
                     )}
                 </div>
 

@@ -29,6 +29,7 @@ import {
 import { Input } from '@/components/ui/input';
 import AppLayout from '@/layouts/app-layout';
 import { eventLabel, eventTone, formatMoment, type EventChanges, type EventKind, type NameLookup } from '@/lib/equipment';
+import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -58,6 +59,8 @@ interface Filters {
 }
 
 interface Props {
+    /** Which section this journal is being read in. */
+    section: keyof typeof PLACES;
     events: Paginated<JournalEvent>;
     /** Names for the ids the entries kept: field => { id: name }. */
     names: NameLookup;
@@ -70,13 +73,32 @@ interface Props {
     };
 }
 
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Оборудование', href: '/equipment' },
-    { title: 'Журнал операций', href: '/equipment/journal' },
-];
-
-const STORAGE_KEY = 'equipment.journal.view.v1';
-const QUERY_KEY = 'equipment.journal.query';
+/**
+ * Where this journal is being read: under «Рабочее оборудование», or under the
+ * «Обзор» of «Инвентаризация». One journal of one fleet, and the way back has
+ * to lead where it was opened from — so each place has its own address, its
+ * own trail and its own arrangements of the table.
+ */
+const PLACES = {
+    equipment: {
+        route: 'equipment.journal',
+        crumbs: [
+            { title: 'Оборудование', href: '/equipment' },
+            { title: 'Журнал операций', href: '/equipment/journal' },
+        ] as BreadcrumbItem[],
+        viewKey: TABLE_KEYS.equipmentJournal,
+        queryKey: 'equipment.journal.query',
+    },
+    inventory: {
+        route: 'inventory.journal',
+        crumbs: [
+            { title: 'Инвентаризация', href: '/inventory' },
+            { title: 'Журнал операций', href: '/inventory/journal' },
+        ] as BreadcrumbItem[],
+        viewKey: TABLE_KEYS.inventoryJournal,
+        queryKey: 'inventory.journal.query',
+    },
+};
 const DEFAULT_SORT: Sort = { key: 'at', direction: 'desc' };
 
 /** The columns, each with the filter that narrows it. */
@@ -128,20 +150,21 @@ const presets = [
 // nobody asked for. Whoever wants the date pinned pins it.
 const defaultView = (): ViewState => ({ hidden: [], pinned: { left: [], right: [] } });
 
-export default function EquipmentJournal({ events, names, filters, perPage, perPageOptions, options }: Props) {
+export default function EquipmentJournal({ section, events, names, filters, perPage, perPageOptions, options }: Props) {
+    const place = PLACES[section];
     const columns = useMemo(() => buildColumns(options), [options]);
     const defaults = useMemo(defaultView, []);
     const { view, setView, pin, toggleHidden, reorder, order } = useTableView(
-        STORAGE_KEY,
+        place.viewKey,
         columns.map((column) => column.key),
         defaults,
     );
     const isHidden = (key: string) => view.hidden.includes(key);
 
-    useRememberedQuery(QUERY_KEY);
+    useRememberedQuery(place.queryKey, place.viewKey);
     const memory = useTableMemory({
-        viewKey: STORAGE_KEY,
-        queryKey: QUERY_KEY,
+        viewKey: place.viewKey,
+        queryKey: place.queryKey,
         columnKeys: columns.map((column) => column.key),
         view,
         setView,
@@ -164,7 +187,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
             Object.entries(params).filter(([, value]) => (Array.isArray(value) ? value.length > 0 : value !== null && value !== '')),
         ) as Record<string, Exclude<Value, null>>;
 
-        router.get(route('equipment.journal'), query, { preserveState: true, preserveScroll: true, replace: true });
+        router.get(route(place.route), query, { preserveState: true, preserveScroll: true, replace: true });
     };
 
     /** The periods asked for most often, a click away. */
@@ -242,7 +265,7 @@ export default function EquipmentJournal({ events, names, filters, perPage, perP
         // The bar says «Оборудование › Журнал операций» and the table starts
         // right under it; the phone reads the same crumbs the other way, this
         // page for its name and the equipment list for the arrow back to it.
-        <AppLayout breadcrumbs={breadcrumbs} fitViewport>
+        <AppLayout breadcrumbs={place.crumbs} fitViewport>
             <Head title="Журнал операций" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">

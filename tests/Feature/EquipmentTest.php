@@ -91,6 +91,33 @@ class EquipmentTest extends TestCase
             );
     }
 
+    public function test_the_status_column_asks_for_the_service_as_well_as_the_statuses()
+    {
+        $holder = User::factory()->create();
+        $away = Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => 'Ноутбук в ремонте']);
+        $away->repairs()->create(['kind' => 'Замена клавиатуры', 'started_at' => '2026-09-01']);
+        Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => 'Ноутбук на руках']);
+        Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук на складе']);
+
+        $this->actingAs($this->sysadmin());
+
+        // The column offers every answer the tabs above the table do.
+        $this->get('/equipment')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('options.statuses', fn ($statuses) => collect($statuses)->pluck('value')->contains('service'))
+        );
+
+        // On its own it is the units that are away being looked after.
+        $this->get('/equipment?status[]=service')->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('equipment.data', 1)
+            ->where('equipment.data.0.name', 'Ноутбук в ремонте')
+        );
+
+        // Asked with a status, the two answers are read together.
+        $this->get('/equipment?status[]=service&status[]=stock')->assertInertia(fn (AssertableInertia $page) => $page
+            ->has('equipment.data', 2)
+        );
+    }
+
     public function test_an_end_date_takes_a_unit_off_the_service_list()
     {
         $unit = Equipment::factory()->ofType($this->type())->create();
@@ -113,30 +140,32 @@ class EquipmentTest extends TestCase
         $this->assertSame('Замена клавиатуры', $unit->events()->where('kind', 'repair_ended')->sole()->note);
     }
 
-    public function test_the_list_opens_on_what_is_out_with_people()
+    public function test_the_list_opens_on_the_whole_fleet()
     {
         $holder = User::factory()->create(['surname' => 'Азимов']);
         Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => 'Выданный ноутбук']);
         Equipment::factory()->ofType($this->type())->create(['name' => 'Свободный ноутбук']);
 
-        // No tab in the query means the one the list opens on, not everything.
+        // No tab in the query means everything the company owns.
         $this->actingAs($this->sysadmin())
             ->get('/equipment?view=list')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('tab', 'issued')
+                ->where('tab', 'all')
                 // And it opens in the order the company is read down in,
                 // under a key of its own: no column carries it, so no header
                 // opens with an arrow on it.
                 ->where('sort.key', 'structure')
                 ->where('sort.direction', 'asc')
+                ->has('equipment.data', 2)
+            );
+
+        // And a tab is how one status is asked for.
+        $this->actingAs($this->sysadmin())
+            ->get('/equipment?tab=issued')
+            ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', 'Выданный ноутбук')
             );
-
-        // Все says so, and then nothing is left out.
-        $this->actingAs($this->sysadmin())
-            ->get('/equipment?tab=all')
-            ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 2));
     }
 
     public function test_the_tab_above_the_table_picks_one_status()
@@ -426,7 +455,7 @@ class EquipmentTest extends TestCase
             );
 
         $this->actingAs($admin)->get('/equipment?view=list')
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'list')->where('tab', 'issued'));
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'list')->where('tab', 'all'));
     }
 
     /**
