@@ -5,6 +5,8 @@ import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields
 interface EquipmentTypeItem {
     id: number;
     name: string;
+    /** Which page of «Инвентаризация» its units are read on. */
+    section: string;
     users_count: number;
     /** Which drawing stands for the category; null is the plain box. */
     icon: string | null;
@@ -18,12 +20,15 @@ interface EquipmentTypeItem {
 export default function Equipment({
     items,
     icons,
+    sections,
     fieldTypes,
     defaultFields,
     canEdit,
 }: {
     items: EquipmentTypeItem[];
     icons: string[];
+    /** The three parts «Инвентаризация» is read in. */
+    sections: { value: string; label: string }[];
     fieldTypes: FieldTypeOption[];
     /** What a new category starts off with, so nobody types these out again. */
     defaultFields: CategoryField[];
@@ -36,6 +41,7 @@ export default function Equipment({
                 items={items.map((item) => ({ ...item, label: item.name }))}
                 canEdit={canEdit}
                 icons={icons}
+                sections={sections}
                 // A monitor has a diagonal and no processor: what the units of a
                 // category are described by is decided here, category by category.
                 fieldTypes={fieldTypes}

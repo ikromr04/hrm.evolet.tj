@@ -81,6 +81,8 @@ export function blankValues(fields: CategoryField[]): FieldValues {
 export interface CategoryOption {
     id: number;
     name: string;
+    /** Which part of the stock the category is of, where the list is kept in parts. */
+    section?: string;
     /** Whether a unit of this category comes with anything at all. */
     has_accessories: boolean;
     fields: CategoryField[];

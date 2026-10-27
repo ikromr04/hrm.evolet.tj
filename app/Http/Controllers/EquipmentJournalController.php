@@ -120,6 +120,8 @@ class EquipmentJournalController extends Controller
             // Which section this is being read in: the page is the same one,
             // and the name over it and the trail back are not.
             'section' => $request->routeIs('inventory.journal') ? 'inventory' : 'equipment',
+            // The journal is an entry of the menu in its own right.
+            'menu' => '/inventory/journal',
             'events' => $events,
             'names' => $names,
             'filters' => $filters,

@@ -15,6 +15,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
@@ -31,6 +32,7 @@ import {
     type NameLookup,
 } from '@/lib/equipment';
 import { blankValues, ownFields, readFieldValue, roleName, type CategoryField, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
+import { INVENTORY_PLACES, type InventoryPlace } from '@/lib/inventory';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
@@ -62,6 +64,8 @@ interface Unit {
     name: string | null;
     equipment_type_id: number;
     type: string | null;
+    /** Which part of «Инвентаризация» it is read under. */
+    section: string | null;
     type_icon: string | null;
     inventory_number: string | null;
     /** What this category asks about, and what this unit answers. */
@@ -116,6 +120,8 @@ interface Props {
     /** The categories the «Характеристики» form offers; empty for a viewer. */
     /** Every category with its own fields, for the specs form. */
     types: CategoryOption[];
+    /** The parts «Инвентаризация» is read in, for the field above the category. */
+    sections: { value: string; label: string }[];
     neighbours: { prev: Neighbour; next: Neighbour };
     /** Which blocks of this card and which moves are open; the server decided each one. */
     can: EquipmentRights;
@@ -256,24 +262,21 @@ const dash = <span className="text-muted-foreground">—</span>;
 const at = (errors: Record<string, string | undefined>, key: string) =>
     errors[key] ?? Object.entries(errors).find(([name]) => name.startsWith(`${key}.`))?.[1];
 
-/** The pencil in a block's header strip, as on the employee's profile. */
+/**
+ * The word «Изменить» at the end of a block's header strip, written exactly
+ * as a colleague's card writes it: a pencil on its own is a small target with
+ * nothing to say what it opens, and the two cards are read the same way.
+ */
 function EditButton({ what, onClick }: { what: string; onClick: () => void }) {
     return (
-        <>
-            <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground -mr-2 size-9 max-md:hidden lg:size-7"
-                aria-label={`Редактировать ${what}`}
-                onClick={onClick}
-            >
-                <Pencil className="size-4" />
-            </Button>
-            {/* A phone says it in a word, as its own settings screens do. */}
-            <PhoneTextButton label={`Редактировать ${what}`} onClick={onClick}>
-                Изменить
-            </PhoneTextButton>
-        </>
+        <Button
+            variant="link"
+            aria-label={`Редактировать ${what}`}
+            onClick={onClick}
+            className="text-brand-strong h-auto p-0 text-xs font-normal max-md:h-10 max-md:text-[15px] max-md:font-medium max-md:active:opacity-60 dark:text-[#C5E27A]"
+        >
+            Изменить
+        </Button>
     );
 }
 
@@ -311,8 +314,9 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
         return (
             <Button
                 variant="outline"
-                // The same height as the tabs they share the line with.
-                className="h-8 flex-1 sm:flex-none"
+                // The height every button of a page header is: the pair stands
+                // in the header now rather than on the line of tabs.
+                className="h-9 flex-1 sm:flex-none"
                 disabled={!to}
                 aria-label={to ? `${label}: ${to.name}` : label}
                 title={to?.name}
@@ -336,7 +340,7 @@ function Neighbours({ prev, next, tab }: { prev: Neighbour; next: Neighbour; tab
     };
 
     return (
-        <div className="flex w-full gap-1 max-md:hidden sm:w-auto md:ml-auto">
+        <div className="flex w-full gap-2 max-md:hidden sm:w-auto md:ml-auto">
             {arrow(prev, 'Предыдущее', ChevronLeft)}
             {arrow(next, 'Следующее', ChevronRight)}
         </div>
@@ -450,12 +454,40 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
 /* --------------------------------------------------------------------- dialogs */
 
 /** The "Характеристики" block in a form: what the unit is and what it cost. */
-function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOption[]; onClose: () => void }) {
+function SpecsDialog({
+    unit,
+    types,
+    sections,
+    onClose,
+}: {
+    unit: Unit;
+    types: CategoryOption[];
+    /** The parts «Инвентаризация» is read in, for the field above the category. */
+    sections: { value: string; label: string }[];
+    onClose: () => void;
+}) {
     const form = useForm({
         equipment_type_id: String(unit.equipment_type_id),
         name: unit.name,
         inventory_number: unit.inventory_number,
     });
+
+    /**
+     * The part the window is looking at. Moving a unit to another part is
+     * moving it to a category of that part, so the part only narrows what the
+     * list below offers; until a category of it is chosen the unit stays where
+     * it was.
+     */
+    const [section, setSection] = useState(unit.section ?? sections[0]?.value ?? '');
+    const offered = types.filter((type) => type.section === section);
+
+    const pickSection = (value: string) => {
+        setSection(value);
+
+        if (!types.some((type) => String(type.id) === form.data.equipment_type_id && type.section === value)) {
+            pickType('');
+        }
+    };
 
     // Kept beside the form, because they are keyed by field id rather than by a
     // name the form knows about. The two the unit is named by are asked for in
@@ -543,12 +575,26 @@ function SpecsDialog({ unit, types, onClose }: { unit: Unit; types: CategoryOpti
                     {text('name', 'Ноутбук Dell Latitude 5440')}
 
                     <div className="grid content-start gap-2">
+                        <Label htmlFor="specs-section">Раздел</Label>
+                        <SearchableSelect
+                            id="specs-section"
+                            value={section}
+                            onChange={pickSection}
+                            options={sections.map((one) => ({ value: one.value, label: one.label }))}
+                            placeholder="Выберите раздел"
+                            searchPlaceholder="Поиск раздела"
+                            empty="Раздел не найден"
+                        />
+                        <p className="text-muted-foreground text-[13px]">Единица переезжает вместе с выбранной категорией.</p>
+                    </div>
+
+                    <div className="grid content-start gap-2">
                         <Label htmlFor="specs-type">Категория</Label>
                         <SearchableSelect
                             id="specs-type"
                             value={form.data.equipment_type_id}
                             onChange={pickType}
-                            options={types.map((type) => ({ value: String(type.id), label: type.name }))}
+                            options={offered.map((type) => ({ value: String(type.id), label: type.name }))}
                             placeholder="Выберите категорию"
                             searchPlaceholder="Поиск категории"
                             empty="Категория не найдена"
@@ -1057,6 +1103,7 @@ function narrowJournal(events: JournalEvent[], filters: JournalFilters): Journal
 /* ------------------------------------------------------------------------ page */
 
 export default function EquipmentShow({
+    sections,
     unit,
     repairs,
     events,
@@ -1139,10 +1186,15 @@ export default function EquipmentShow({
     // The newest entry that came with photographs is the last look anyone had.
     const lastPhotos = events.find((event) => event.photos.length > 0)?.photos ?? [];
 
-    const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Оборудование', href: '/equipment' },
-        { title: called, href: route('equipment.show', unit.id) },
-    ];
+    // The way back leads to the page this unit is read on: a desk belongs to
+    // «Мебель», a laptop to «Рабочее оборудование», and a unit of a category
+    // that says nothing is read under the whole stock.
+    const place =
+        INVENTORY_PLACES[
+            (Object.keys(INVENTORY_PLACES) as InventoryPlace[]).find((key) => INVENTORY_PLACES[key].section === unit.section) ?? 'inventory'
+        ];
+
+    const breadcrumbs: BreadcrumbItem[] = [...place.crumbs, { title: called, href: route('equipment.show', unit.id) }];
 
     /**
      * What a unit can be moved to next, given where it is now and which of the
@@ -1206,7 +1258,7 @@ export default function EquipmentShow({
                                     <span aria-hidden="true">·</span>
                                     {/* The category leads back to the list, narrowed to it. */}
                                     <Link
-                                        href={route('equipment.index', { view: 'list', type: [unit.equipment_type_id] })}
+                                        href={route('inventory.overview', { type: [unit.equipment_type_id] })}
                                         title={`Вся категория: ${unit.type}`}
                                         className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                     >
@@ -1218,36 +1270,33 @@ export default function EquipmentShow({
                     </div>
 
                     <NeighbourIcons prev={neighbours.prev} next={neighbours.next} tab={tab} />
+
+                    {/* The way through the list, at the end of the header line:
+                        the card is read one after another, and the pair belongs
+                        beside the name of the one being read rather than down
+                        among its sections. */}
+                    <div className="ml-auto flex shrink-0 items-end gap-2 max-md:hidden">
+                        <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
+                    </div>
                 </div>
 
-                {/* The sections on the left, the way through the list on the right.
-                    On a phone the sections stay in reach while the card scrolls: the bar
-                    sticks under the top bar, across the whole width, frosted like it. */}
-                <div className="md:flex md:items-center md:gap-3">
-                    <nav
+                {/* The sections of the card, read the way a colleague's card
+                    reads its own: one line of words with the open one underlined.
+                    On a phone the strip stays under the top bar while the card
+                    scrolls, on a frosted band from edge to edge. */}
+                <Tabs value={tab} onValueChange={(next) => setTab(next as TabKey)} className="min-w-0">
+                    <TabsList
+                        variant="line"
                         aria-label="Разделы"
-                        className="scroll-soft max-md:bg-background/90 flex overflow-x-auto max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-4 max-md:border-b max-md:px-4 max-md:pt-1 max-md:backdrop-blur-xl max-md:[scrollbar-width:none] md:min-w-0 md:gap-1 max-md:[&::-webkit-scrollbar]:hidden"
+                        className="max-md:bg-background/90 overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:px-4 max-md:backdrop-blur-xl [&::-webkit-scrollbar]:hidden"
                     >
                         {shownTabs.map((item) => (
-                            <button
-                                key={item.key}
-                                type="button"
-                                onClick={() => setTab(item.key)}
-                                aria-current={item.key === tab ? 'page' : undefined}
-                                className={cn(
-                                    'shrink-0 text-sm transition-colors max-md:border-b-2 max-md:px-1 max-md:pt-2 max-md:pb-2.5 max-md:text-[15px] md:flex md:h-8 md:items-center md:rounded-md md:px-2.5',
-                                    item.key === tab
-                                        ? 'max-md:border-brand max-md:text-foreground md:bg-brand-soft md:text-foreground max-md:font-semibold md:font-semibold md:dark:bg-white/10'
-                                        : 'max-md:text-muted-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground max-md:border-transparent max-md:font-medium',
-                                )}
-                            >
+                            <TabsTrigger key={item.key} value={item.key}>
                                 {item.title}
-                            </button>
+                            </TabsTrigger>
                         ))}
-                    </nav>
-
-                    <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
-                </div>
+                    </TabsList>
+                </Tabs>
 
                 {tab === 'overview' && (
                     // A phone spaces the blocks wider: their titles stand between them.
@@ -1258,10 +1307,22 @@ export default function EquipmentShow({
                                 action={can.specs && <EditButton what="характеристики" onClick={() => setEditing('specs')} />}
                             >
                                 <Fields>
+                                    {/* Which part of «Инвентаризация» the unit
+                                        is read under, which follows from its
+                                        category and leads to that page. */}
+                                    <Field label="Раздел">
+                                        <Link
+                                            href={place.add.route === 'inventory.create' ? '/inventory' : place.crumbs[place.crumbs.length - 1].href}
+                                            title={`Весь раздел: ${place.title}`}
+                                            className="text-brand-strong hover:underline dark:text-[#C5E27A]"
+                                        >
+                                            {place.title}
+                                        </Link>
+                                    </Field>
                                     <Field label="Категория">
                                         {unit.type && (
                                             <Link
-                                                href={route('equipment.index', { view: 'list', type: [unit.equipment_type_id] })}
+                                                href={route('inventory.overview', { type: [unit.equipment_type_id] })}
                                                 title={`Вся категория: ${unit.type}`}
                                                 className="text-brand-strong hover:underline dark:text-[#C5E27A]"
                                             >
@@ -1639,7 +1700,7 @@ export default function EquipmentShow({
             {closing && <RepairDialog unit={unit} repair={closing} finishing onClose={() => setClosing(null)} />}
             {removing && <RepairDeleteDialog unit={unit} repair={removing} onClose={() => setRemoving(null)} />}
             {deleting && <DeleteDialog unit={unit} onClose={() => setDeleting(false)} />}
-            {editing === 'specs' && <SpecsDialog unit={unit} types={types} onClose={() => setEditing(null)} />}
+            {editing === 'specs' && <SpecsDialog unit={unit} types={types} sections={sections} onClose={() => setEditing(null)} />}
             {editing === 'accessories' && <AccessoriesDialog unit={unit} onClose={() => setEditing(null)} />}
             {editing === 'state' && <StateDialog unit={unit} onClose={() => setEditing(null)} />}
         </AppLayout>

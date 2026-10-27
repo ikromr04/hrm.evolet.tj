@@ -50,6 +50,17 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('can:equipment.view.any')
         ->name('inventory.overview');
 
+    // Two more readings of the fleet, each a page of the section with a table
+    // of its own: what is on them is the whole fleet until the categories are
+    // divided between the three, which is a question for the directory.
+    Route::get('inventory/furniture', [EquipmentController::class, 'index'])
+        ->middleware('can:equipment.view.any')
+        ->name('inventory.furniture');
+
+    Route::get('inventory/office', [EquipmentController::class, 'index'])
+        ->middleware('can:equipment.view.any')
+        ->name('inventory.office');
+
     // The same journal as «Рабочее оборудование» keeps, read inside the section
     // it was opened from: the trail back leads to «Обзор» rather than throwing
     // somebody out into another part of the menu.
@@ -72,18 +83,43 @@ Route::middleware(['auth'])->group(function () {
         ->name('employees.show');
     // Open to everybody: it only ever searches the sections the viewer may see.
     Route::get('search', SearchController::class)->name('search');
-    Route::get('equipment', [EquipmentController::class, 'index'])
+    // The fleet by colleague: a page of «Инвентаризация» like the others, at an
+    // address that says so. What is done to a unit is still done at /equipment
+    // — those are actions on a thing, not pages of a section.
+    Route::get('inventory/equipment', [EquipmentController::class, 'index'])
         ->middleware('can:equipment.view.any')
         ->name('equipment.index');
+
+    // Where it used to be read. Links and bookmarks from before the move land
+    // on it rather than on nothing.
+    Route::redirect('equipment', 'inventory/equipment');
     // Before the card, or "journal" would be read as a unit's id. What went on
     // over a period is a right of its own.
     Route::get('equipment/journal', EquipmentJournalController::class)
         ->middleware('can:equipment.journal.any')
         ->name('equipment.journal');
     // Before the card too, for the same reason as the journal.
-    Route::get('equipment/create', [EquipmentController::class, 'create'])
+    // Putting a unit on the books, from whichever page of «Инвентаризация»
+    // somebody is reading: each has an address of its own, so the form knows
+    // which part of the stock the unit joins and says so without being asked.
+    Route::get('inventory/create', [EquipmentController::class, 'create'])
+        ->middleware('can:equipment.create')
+        ->name('inventory.create');
+
+    Route::get('inventory/equipment/create', [EquipmentController::class, 'create'])
         ->middleware('can:equipment.create')
         ->name('equipment.create');
+
+    Route::get('inventory/furniture/create', [EquipmentController::class, 'create'])
+        ->middleware('can:equipment.create')
+        ->name('inventory.furniture.create');
+
+    Route::get('inventory/office/create', [EquipmentController::class, 'create'])
+        ->middleware('can:equipment.create')
+        ->name('inventory.office.create');
+
+    // Where the form used to be opened from.
+    Route::redirect('equipment/create', 'inventory/equipment/create');
     // The card of a unit outside what this person may see is not theirs to
     // open; the gate takes the unit itself and says so.
     Route::get('equipment/{equipment}', [EquipmentController::class, 'show'])

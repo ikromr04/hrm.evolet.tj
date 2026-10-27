@@ -367,6 +367,16 @@ class Equipment extends Model
      * This is not a status — a laptop can sit on its owner's desk while its
      * keyboard is on order — so it is asked of the records, not of the row.
      */
+    /**
+     * The units of one part of the stock — the furniture, the office's own
+     * kit, what people work on — which is a fact about the category rather
+     * than about the unit: a desk is furniture because «Стол» is.
+     */
+    public function scopeOfPart(Builder $query, string $part): void
+    {
+        $query->whereHas('type', fn (Builder $type) => $type->where('section', $part));
+    }
+
     public function scopeUnderService(Builder $query): void
     {
         $query->whereHas('repairs', fn (Builder $repairs) => $repairs->whereNull('ended_at'));

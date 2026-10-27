@@ -116,12 +116,17 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, 
                     // either of them.
                     ...(seesEquipment(can)
                         ? [
-                              { title: 'Обзор', url: href('/inventory', TABLE_KEYS.inventory) },
-                              { title: 'Рабочее оборудование', url: href('/equipment', TABLE_KEYS.equipment) },
+                              { title: 'Обзор', url: href('/inventory', TABLE_KEYS.inventory), exact: true },
+                              { title: 'Рабочее оборудование', url: href('/inventory/equipment', TABLE_KEYS.equipment) },
+                              // The same fleet read for furniture and for what
+                              // the office itself runs on. Until the categories
+                              // are divided between the three, each page shows
+                              // the whole of it — the division is a question
+                              // for the directory of categories, not for a page.
+                              { title: 'Мебель', url: href('/inventory/furniture', TABLE_KEYS.furniture) },
+                              { title: 'Оргтехника офиса', url: href('/inventory/office', TABLE_KEYS.office) },
                           ]
                         : []),
-                    named({ title: 'Мебель' }),
-                    named({ title: 'Оргтехника офиса' }),
                     // What has happened to all of it, after the lists of what
                     // there is: read by whoever may read the journal of some
                     // part of the fleet.

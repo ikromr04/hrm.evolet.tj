@@ -57,7 +57,7 @@ class EquipmentByHolderTest extends TestCase
     {
         $rows = [];
 
-        $this->actingAs($viewer)->get('/equipment?view=holders'.($query === '' ? '' : "&{$query}"))
+        $this->actingAs($viewer)->get('/inventory/equipment?view=holders'.($query === '' ? '' : "&{$query}"))
             ->assertOk()
             ->assertInertia(function (AssertableInertia $page) use (&$rows) {
                 $rows = $page->toArray()['props']['holders']['data'];
@@ -79,7 +79,7 @@ class EquipmentByHolderTest extends TestCase
             ->create(['name' => 'Монитор Dell P2422H', 'inventory_number' => 'EV-0003']);
 
         $this->actingAs($this->sysadmin())
-            ->get('/equipment?view=holders')
+            ->get('/inventory/equipment?view=holders')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('equipment/index')
@@ -281,6 +281,57 @@ class EquipmentByHolderTest extends TestCase
         $this->assertNotNull($mine->fresh());
     }
 
+    public function test_every_page_of_the_section_reads_its_own_part_of_the_stock()
+    {
+        $holder = User::factory()->create(['surname' => 'Азимов', 'name' => 'Далер']);
+
+        // A category says which part of the stock it is of, and that is what
+        // puts its units on one page of «Инвентаризация» rather than another.
+        $parts = [
+            'equipment' => $this->type(),
+            'furniture' => EquipmentType::factory()->create(['name' => 'Столы офисные', 'section' => 'furniture']),
+            'office' => EquipmentType::factory()->create(['name' => 'Принтеры офисные', 'section' => 'office']),
+        ];
+
+        foreach ($parts as $type) {
+            Equipment::factory()->ofType($type)->issuedTo($holder->id)->create();
+        }
+
+        foreach (['/inventory/equipment' => 'equipment', '/inventory/furniture' => 'furniture', '/inventory/office' => 'office'] as $url => $section) {
+            $this->actingAs($this->sysadmin())->get($url)
+                ->assertInertia(fn (AssertableInertia $page) => $page
+                    ->where('section', $section)
+                    ->where('view', 'holders')
+                    ->has('holders.data', 1)
+                    // The funnel offers the categories of this part and no
+                    // others: a desk is not asked about under the laptops.
+                    ->where('options.types', function ($types) use ($parts, $section) {
+                        $offered = collect($types)->pluck('name');
+                        $elsewhere = collect($parts)->except($section)->map(fn ($type) => $type->name);
+
+                        return $offered->contains($parts[$section]->name) && $elsewhere->every(fn ($name) => ! $offered->contains($name));
+                    })
+                );
+        }
+
+        // «Обзор» reads the lot: three categories, and the one person holding
+        // something of each.
+        $this->actingAs($this->sysadmin())->get('/inventory')
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('view', 'list')
+                ->has('equipment.data', 3)
+                ->where('options.types', fn ($types) => collect($types)->pluck('name')->contains('Столы офисные'))
+            );
+
+        // And they are open to exactly whoever may read some part of the
+        // fleet: somebody who may read none of it is refused all three.
+        $nobody = User::factory()->create();
+
+        foreach (['/inventory/equipment', '/inventory/furniture', '/inventory/office'] as $url) {
+            $this->actingAs($nobody)->get($url)->assertForbidden();
+        }
+    }
+
     public function test_the_table_is_paged_by_colleague()
     {
         $busy = User::factory()->create(['surname' => 'Абдуллоев', 'name' => 'Фарход']);
@@ -292,7 +343,7 @@ class EquipmentByHolderTest extends TestCase
 
         $admin = $this->sysadmin();
 
-        $this->actingAs($admin)->get('/equipment?view=holders&per_page=25')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&per_page=25')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('holders.total', 26)
                 ->where('holders.per_page', 25)
@@ -300,7 +351,7 @@ class EquipmentByHolderTest extends TestCase
                 ->where('perPage', 25)
             );
 
-        $this->actingAs($admin)->get('/equipment?view=holders&per_page=25&page=2')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&per_page=25&page=2')
             ->assertInertia(fn (AssertableInertia $page) => $page->has('holders.data', 1));
 
         // Twenty-eight units in all, and the paging never counted them.
@@ -320,7 +371,7 @@ class EquipmentByHolderTest extends TestCase
         // Opened: the structure read down, under a key of its own, so the page
         // can tell the opening order from a sorted column. Neither of these two
         // stands in a department, so what is left of that order is the name.
-        $this->actingAs($admin)->get('/equipment?view=holders')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.key', 'structure')
                 ->where('sort.direction', 'asc')
@@ -329,26 +380,26 @@ class EquipmentByHolderTest extends TestCase
 
         // The order this table opened on until the structure took its place
         // still answers, so a link or a remembered query carrying it is served.
-        $this->actingAs($admin)->get('/equipment?view=holders&sort=issued&direction=desc')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&sort=issued&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('holders.data.0.id', $last->id));
 
         // The name, up and then down — one of the three headers that sort here.
-        $this->actingAs($admin)->get('/equipment?view=holders&sort=holder')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&sort=holder')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.key', 'holder')
                 ->where('sort.direction', 'asc')
                 ->where('holders.data.0.id', $first->id)
             );
 
-        $this->actingAs($admin)->get('/equipment?view=holders&sort=holder&direction=desc')
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&sort=holder&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('holders.data.0.id', $last->id));
 
         // A category is not a column one sorts by, and neither is anything the
         // other table offers: it is refused rather than quietly ignored.
-        $this->actingAs($admin)->get('/equipment?view=holders&sort=name')->assertSessionHasErrors('sort');
-        $this->actingAs($admin)->get('/equipment?view=holders&sort=status')->assertSessionHasErrors('sort');
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&sort=name')->assertSessionHasErrors('sort');
+        $this->actingAs($admin)->get('/inventory/equipment?view=holders&sort=status')->assertSessionHasErrors('sort');
         // And a view nobody offers is not a view.
-        $this->actingAs($admin)->get('/equipment?view=cards')->assertSessionHasErrors('view');
+        $this->actingAs($admin)->get('/inventory/equipment?view=cards')->assertSessionHasErrors('view');
     }
 
     public function test_a_page_of_colleagues_costs_the_same_few_queries_however_many_there_are()
@@ -361,7 +412,7 @@ class EquipmentByHolderTest extends TestCase
                 Equipment::factory()->ofType($this->type('Мониторы'))->issuedTo($holder->id)->create();
             });
 
-            return $this->reads(fn () => $this->actingAs($admin)->get('/equipment?view=holders')->assertOk());
+            return $this->reads(fn () => $this->actingAs($admin)->get('/inventory/equipment?view=holders')->assertOk());
         };
 
         // The units of the whole page are read in one go and grouped in PHP, so

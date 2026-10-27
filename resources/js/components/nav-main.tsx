@@ -14,9 +14,16 @@ import { Link, usePage } from '@inertiajs/react';
 import { ChevronRight } from 'lucide-react';
 
 /** Whether the page being read is one of the entry's own — its address, or one it also answers for. */
-export function navItemActive(item: SidebarNavItem, url: string): boolean {
+export function navItemActive(item: SidebarNavItem, url: string, says?: string): boolean {
+    const here = url.split('?')[0];
+
     return [item.url, ...(item.match ?? [])].some((address) => {
         if (address === undefined) return false;
+
+        // A page may name the entry it belongs to, for pages the address
+        // cannot tell apart: a unit's card is at /equipment/42 whichever part
+        // of the stock it is of, and a desk belongs under «Мебель».
+        if (says !== undefined) return address.split('?')[0] === says;
 
         // The address of an entry may carry the sorting and the filters the
         // company reads that list with; which list it is is the path alone, and
@@ -25,7 +32,12 @@ export function navItemActive(item: SidebarNavItem, url: string): boolean {
 
         // The main page is the root address, which opens every other one:
         // matched by the prefix it would light up on all of them.
-        return path === '/' ? url === '/' || url.startsWith('/?') : url.startsWith(path);
+        if (path === '/') return here === '/';
+
+        // A page that other pages live under — the front page of a section —
+        // is itself and nothing else: «Обзор» at /inventory would otherwise
+        // light up on every page of «Инвентаризация» beside the one being read.
+        return item.exact ? here === path : here.startsWith(path);
     });
 }
 
@@ -34,7 +46,10 @@ const activeClasses =
     'max-md:h-10 data-[active=true]:bg-brand-soft data-[active=true]:text-foreground data-[active=true]:[&>svg]:text-brand-strong dark:data-[active=true]:bg-sidebar-accent';
 
 export function NavMain({ group, className }: { group: SidebarNavGroup; className?: string }) {
-    const page = usePage();
+    const page = usePage<{ menu?: string }>();
+    // Which entry of the menu the page being read says it belongs to, where it
+    // says anything: pages of one section that no address tells apart.
+    const says = page.props.menu;
 
     return (
         <SidebarGroup className={className ?? 'px-2 py-0'}>
@@ -42,11 +57,16 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
             <SidebarMenu>
                 {group.items.map((item) =>
                     item.items ? (
-                        <NavBranch key={item.title} item={item} url={page.url} />
+                        <NavBranch key={item.title} item={item} url={page.url} says={says} />
                     ) : (
                         <SidebarMenuItem key={item.title}>
                             {item.url ? (
-                                <SidebarMenuButton asChild isActive={navItemActive(item, page.url)} tooltip={item.title} className={activeClasses}>
+                                <SidebarMenuButton
+                                    asChild
+                                    isActive={navItemActive(item, page.url, says)}
+                                    tooltip={item.title}
+                                    className={activeClasses}
+                                >
                                     <Link href={item.url} prefetch>
                                         {item.icon && <item.icon />}
                                         <span>{item.title}</span>
@@ -78,8 +98,8 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
  * follows a link into a section finds the menu already saying where they are.
  * Collapsed to icons the sidebar hides the lot, as it hides every sub-menu.
  */
-function NavBranch({ item, url }: { item: SidebarNavItem; url: string }) {
-    const inside = (item.items ?? []).some((one) => one.url && navItemActive(one, url));
+function NavBranch({ item, url, says }: { item: SidebarNavItem; url: string; says?: string }) {
+    const inside = (item.items ?? []).some((one) => one.url && navItemActive(one, url, says));
 
     return (
         <Collapsible asChild defaultOpen={inside} className="group/branch">
@@ -97,7 +117,7 @@ function NavBranch({ item, url }: { item: SidebarNavItem; url: string }) {
                         {(item.items ?? []).map((one) => (
                             <SidebarMenuSubItem key={one.title}>
                                 {one.url ? (
-                                    <SidebarMenuSubButton asChild isActive={navItemActive(one, url)}>
+                                    <SidebarMenuSubButton asChild isActive={navItemActive(one, url, says)}>
                                         <Link href={one.url} prefetch>
                                             <span>{one.title}</span>
                                         </Link>

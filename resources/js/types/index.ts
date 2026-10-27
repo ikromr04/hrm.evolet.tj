@@ -43,6 +43,12 @@ export interface SidebarNavItem {
      */
     match?: string[];
     /**
+     * Whether this entry is the page at its address and no page under it: for
+     * the front page of a section, which other pages of that section live
+     * beneath without being it.
+     */
+    exact?: boolean;
+    /**
      * The entries under this one. A section holding several pages names them
      * here and keeps them behind its own chevron rather than spelling them out
      * in the menu's first level.

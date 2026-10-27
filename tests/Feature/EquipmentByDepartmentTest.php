@@ -177,7 +177,7 @@ class EquipmentByDepartmentTest extends TestCase
         Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук на складе']);
 
         $rows = [];
-        $this->actingAs($this->sysadmin())->get('/equipment?view=list&tab=all&sort=department')
+        $this->actingAs($this->sysadmin())->get('/inventory?tab=all&sort=department')
             ->assertInertia(function (AssertableInertia $page) use (&$rows) {
                 $rows = collect($page->toArray()['props']['equipment']['data'])->keyBy('name');
             });
@@ -217,7 +217,7 @@ class EquipmentByDepartmentTest extends TestCase
         Equipment::factory()->ofType($this->type())->issuedTo($colleague->id)->create(['name' => 'Ноутбук Бобоева']);
 
         $rows = [];
-        $this->actingAs($this->sysadmin())->get('/equipment?view=holders')
+        $this->actingAs($this->sysadmin())->get('/inventory/equipment?view=holders')
             ->assertInertia(function (AssertableInertia $page) use (&$rows) {
                 $rows = $page->toArray()['props']['holders']['data'];
             });
@@ -254,7 +254,7 @@ class EquipmentByDepartmentTest extends TestCase
         $other = Department::create(['name' => 'Департамент маркетинга', 'abbreviation' => 'ДМ']);
         Equipment::factory()->ofType($this->shared())->heldBy($other->id)->create(['name' => 'Чужой принтер']);
 
-        $this->actingAs($head)->get('/equipment?view=list&tab=all')
+        $this->actingAs($head)->get('/inventory?tab=all')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', 'Принтер отдела')
@@ -272,7 +272,7 @@ class EquipmentByDepartmentTest extends TestCase
         $admin = $this->sysadmin();
         $found = function (string $query) use ($admin) {
             $names = [];
-            $this->actingAs($admin)->get("/equipment?view=list&tab=all&{$query}")
+            $this->actingAs($admin)->get("/inventory?tab=all&{$query}")
                 ->assertInertia(function (AssertableInertia $page) use (&$names) {
                     $names = array_column($page->toArray()['props']['equipment']['data'], 'name');
                 });

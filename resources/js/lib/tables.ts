@@ -17,6 +17,8 @@ export const TABLE_KEYS = {
     // what the company reads it in, is not the other's.
     equipment: 'equipment.table.view.v4',
     inventory: 'inventory.table.view.v1',
+    furniture: 'furniture.table.view.v1',
+    office: 'office.table.view.v1',
     equipmentJournal: 'equipment.journal.view.v1',
     inventoryJournal: 'inventory.journal.view.v1',
     positions: 'positions.table.view.v2',

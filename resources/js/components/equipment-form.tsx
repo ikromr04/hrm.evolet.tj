@@ -23,6 +23,12 @@ export interface EquipmentFormProps {
         /** Each category with what its units are described by, and whether they come with anything. */
         types: CategoryOption[];
         /**
+         * The parts «Инвентаризация» is read in. A unit joins one of them
+         * through its category, so the part is asked first and narrows what
+         * the category list offers.
+         */
+        sections?: { value: string; label: string }[];
+        /**
          * Everybody a unit may be handed to, asked for only while no colleague
          * is fixed. From a card the holder is already decided, so a card need
          * not carry every employee in the company to draw this form.
@@ -39,6 +45,12 @@ export interface EquipmentFormProps {
      * from their card, and null on the ordinary add page. Who gets it is then
      * already decided, so the form does not ask again.
      */
+    /**
+     * Which part of the stock this form is for, where the page it was opened
+     * from is about one: the unit joins that part, the field says so rather
+     * than asking, and only the categories of that part are offered.
+     */
+    section?: string | null;
     forEmployee: { id: number; name: string } | null;
     /**
      * A page is as wide as the monitor and a dialog is as wide as itself, so
@@ -58,7 +70,7 @@ export interface EquipmentFormProps {
  * the unit is being bought for somebody, the list of units otherwise.
  */
 export const equipmentFormBack = (forEmployee: { id: number } | null) =>
-    forEmployee ? route('employees.show', forEmployee.id) : route('equipment.index', { view: 'list' });
+    forEmployee ? route('employees.show', forEmployee.id) : route('inventory.overview');
 
 /**
  * Four fields across on a desktop, two on a tablet, one on a phone. The form
@@ -137,7 +149,7 @@ const at = (errors: Record<string, string | undefined>, key: string) =>
  * there it saves the one unit, tells the card and closes; the page may go round
  * again as often as there are units in the delivery.
  */
-export function EquipmentForm({ options, forEmployee, layout = 'page', header, onSaved, onCancel }: EquipmentFormProps) {
+export function EquipmentForm({ options, section, forEmployee, layout = 'page', header, onSaved, onCancel }: EquipmentFormProps) {
     const today = new Date().toISOString().slice(0, 10);
     const inAYear = new Date();
     inAYear.setFullYear(inAYear.getFullYear() + 1);
@@ -212,6 +224,24 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
     // gap between the category and the tick boxes would otherwise read as
     // something that failed to load rather than as the whole of it.
     const asksNothing = asked.length === 0 && !category?.has_accessories;
+
+    /**
+     * Which part of the stock the unit joins, where the page did not settle it:
+     * the categories to choose from are that part's, so a part chosen anew
+     * lets go of a category that belonged to the last one.
+     */
+    const fixedSection = options.sections ? (section ?? null) : null;
+    const [chosenSection, setChosenSection] = useState(fixedSection ?? options.sections?.[0]?.value ?? '');
+    const readingPart = fixedSection ?? chosenSection;
+    const offered = options.sections ? options.types.filter((type) => type.section === readingPart) : options.types;
+
+    const pickSection = (value: string) => {
+        setChosenSection(value);
+
+        if (!options.types.some((type) => String(type.id) === form.data.equipment_type_id && type.section === value)) {
+            pickType('');
+        }
+    };
 
     // Another category asks other things, so what was typed for the last one is
     // not carried over — it would only be saved into fields nobody chose.
@@ -320,14 +350,42 @@ export function EquipmentForm({ options, forEmployee, layout = 'page', header, o
             {header}
 
             <div className={row[layout]}>
-                {/* The category comes first: everything below is what it
-                    asks about, down to the two a unit is named by. */}
+                {/* Which part of the stock the unit joins. On a page that is
+                    about one of them it is settled and shown rather than
+                    asked; on «Обзор» it is the first question, because the
+                    categories to choose from follow from it. */}
+                {options.sections && (
+                    <Field label="Раздел" htmlFor="equipment_section">
+                        {fixedSection ? (
+                            <Input
+                                id="equipment_section"
+                                readOnly
+                                tabIndex={-1}
+                                value={options.sections.find((one) => one.value === fixedSection)?.label ?? ''}
+                                className="bg-muted/40"
+                            />
+                        ) : (
+                            <SearchableSelect
+                                id="equipment_section"
+                                value={chosenSection}
+                                onChange={pickSection}
+                                options={options.sections.map((one) => ({ value: one.value, label: one.label }))}
+                                placeholder="Выберите раздел"
+                                searchPlaceholder="Поиск раздела"
+                                empty="Раздел не найден"
+                            />
+                        )}
+                    </Field>
+                )}
+
+                {/* The category then: everything below is what it asks about,
+                    down to the two a unit is named by. */}
                 <Field label="Категория" htmlFor="equipment_type_id" error={form.errors.equipment_type_id}>
                     <SearchableSelect
                         id="equipment_type_id"
                         value={form.data.equipment_type_id}
                         onChange={pickType}
-                        options={options.types.map((type) => ({ value: String(type.id), label: type.name }))}
+                        options={offered.map((type) => ({ value: String(type.id), label: type.name }))}
                         placeholder="Выберите категорию"
                         searchPlaceholder="Поиск категории"
                         empty="Категория не найдена"

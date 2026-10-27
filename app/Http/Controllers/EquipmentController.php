@@ -135,8 +135,11 @@ class EquipmentController extends Controller
         $byHolder = self::opensByHolder($request);
 
         $input = $request->validate([
+            // Carried by older links and by arrangements kept before the two
+            // tables became two pages; read past, since the address decides.
             'view' => ['nullable', Rule::in(['list', 'holders'])],
             'per_page' => ['nullable', 'integer', Rule::in(self::PER_PAGE_OPTIONS)],
+
             'sort' => ['nullable', Rule::in($byHolder ? self::HOLDER_ORDERS : self::LIST_ORDERS)],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
 
@@ -222,6 +225,9 @@ class EquipmentController extends Controller
         // Whatever the tabs and filters then do, the list starts from the part of
         // the fleet this person may see at all.
         EquipmentAccess::narrow($query, $request->user());
+        // And from the part of it this page is about: a desk is not read under
+        // «Рабочее оборудование», and a laptop is not read under «Мебель».
+        $query->when(self::part($request), fn (Builder $q, string $part) => $q->ofPart($part));
         $query->withExists(['repairs as repairs_exists' => fn (Builder $q) => $q->whereNull('ended_at')]);
         $query->when($tab === 'service', fn (Builder $q) => $q->underService())
             ->when(! in_array($tab, ['all', 'service'], true), fn (Builder $q) => $q->where('status', $tab));
@@ -285,33 +291,49 @@ class EquipmentController extends Controller
     }
 
     /**
-     * Which of the two tables answers this request.
+     * The entry of the menu a page of this section belongs to, as the menu
+     * knows it: by the address it leads to.
+     */
+    private static function menuOf(?string $part): string
+    {
+        return match ($part) {
+            'furniture' => '/inventory/furniture',
+            'office' => '/inventory/office',
+            'equipment' => '/inventory/equipment',
+            default => '/inventory',
+        };
+    }
+
+    /**
+     * Which part of the stock this page is: the furniture, what the office
+     * runs on, what people work on — or nothing at all, for «Обзор», which is
+     * the whole of it.
+     */
+    private static function part(Request $request): ?string
+    {
+        return match (true) {
+            $request->routeIs('inventory.furniture', 'inventory.furniture.create') => 'furniture',
+            $request->routeIs('inventory.office', 'inventory.office.create') => 'office',
+            // «Обзор» and the form opened from it are about the whole stock.
+            $request->routeIs('inventory.overview', 'inventory.create') => null,
+            default => 'equipment',
+        };
+    }
+
+    /**
+     * Which of the two tables answers this request: the address says, and it
+     * is the only thing that does.
      *
-     * The page opens on "По сотрудникам": who has what is the question it is
-     * opened with, and the fleet unit by unit is the other way of reading it.
-     * But the page was linked to long before that view existed, and those links
-     * ask things only the unit list can answer — the dashboard opens it on
-     * "tab=stock", the search on a category of the whole fleet. A tab, a status
-     * or either date of issue means nothing by colleague, so a query carrying
-     * one of them lands on the list rather than quietly losing what it asked
-     * for. Naming the view outright settles it either way.
+     * The fleet is read two ways and the two are pages rather than views of
+     * one page now. «Обзор» of «Инвентаризация» is what the company owns, unit
+     * by unit, with the tabs and the statuses that belong to units; «Рабочее
+     * оборудование» is who holds what, one row per colleague. A query asking
+     * for the other one is read past: the question is settled before anything
+     * is asked of it.
      */
     private static function opensByHolder(Request $request): bool
     {
-        $named = $request->input('view');
-
-        if ($named !== null) {
-            return $named === 'holders';
-        }
-
-        // The front page of «Инвентаризация» is the fleet itself, unit by unit:
-        // that section is about what the company owns rather than about who is
-        // holding it today. Asking for the other view by name still works.
-        if ($request->routeIs('inventory.overview')) {
-            return false;
-        }
-
-        return ! $request->anyFilled(['tab', 'status', 'issued_from', 'issued_to']);
+        return ! $request->routeIs('inventory.overview');
     }
 
     /**
@@ -332,8 +354,11 @@ class EquipmentController extends Controller
         // from it, and the units of the page are read with it again.
         $held = fn () => Equipment::query()
             ->tap(fn (Builder $q) => EquipmentAccess::narrow($q, $request->user()))
+            // The part of the stock this page is about, as the list reads it.
+            ->when(self::part($request), fn (Builder $q, string $part) => $q->ofPart($part))
             // In somebody's hands: a colleague's, or a department's own.
             ->where(fn (Builder $q) => $q->whereNotNull('holder_user_id')->orWhereNotNull('holder_department_id'))
+
             ->tap(fn (Builder $q) => $this->applyFilters($q, [
                 ...$filters,
                 // This table says nothing about the state of a unit or the day
@@ -617,7 +642,14 @@ class EquipmentController extends Controller
         return [
             // Where this table is being read. The page is the same one either
             // way; what changes is the name over it and the trail to it.
-            'section' => $request->routeIs('inventory.overview') ? 'inventory' : 'equipment',
+            'section' => match (true) {
+                $request->routeIs('inventory.overview') => 'inventory',
+                $request->routeIs('inventory.furniture') => 'furniture',
+                $request->routeIs('inventory.office') => 'office',
+                default => 'equipment',
+            },
+            // Which entry of the menu this page is read under.
+            'menu' => self::menuOf(self::part($request)),
             'filters' => $filters,
             'sort' => ['key' => $sort, 'direction' => $direction],
             'perPage' => $perPage,
@@ -627,7 +659,10 @@ class EquipmentController extends Controller
                 // The icon travels with the category rather than on every unit
                 // under it: by colleague the category is the column, and the
                 // list reads the same value off the unit's own row.
-                'types' => EquipmentType::query()->orderBy('name')->get(['id', 'name', 'icon']),
+                'types' => EquipmentType::query()
+                    ->when(self::part($request), fn (Builder $q, string $part) => $q->where('section', $part))
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'icon']),
                 // The structure flattened for the two funnels that narrow both
                 // tables to a department or to one unit inside it. The whole
                 // tree goes: which department a colleague stands in is read
@@ -667,6 +702,12 @@ class EquipmentController extends Controller
         }
 
         return Inertia::render('equipment/create', [
+            // Which part of the stock this form is for: the page it was opened
+            // from says so, and on three of the four it is settled — the unit
+            // joins that part and the categories offered are its own.
+            'section' => self::part($request),
+            'menu' => self::menuOf(self::part($request)),
+            'sections' => EquipmentType::sections(),
             'forEmployee' => $employee === null ? null : [
                 'id' => $employee->id,
                 // Named as the holder list names everybody else.
@@ -916,6 +957,12 @@ class EquipmentController extends Controller
         $heldBy = $equipment->holderDepartment;
 
         return Inertia::render('equipment/show', [
+            // The parts the stock is read in, for the window that moves a
+            // unit from one of them to another by its category.
+            'sections' => EquipmentType::sections(),
+            // A card belongs to the page its unit is read on, which its
+            // category decides rather than its address.
+            'menu' => self::menuOf($equipment->type?->section),
             'unit' => [
                 'id' => $equipment->id,
                 // The one place these two travel as they are rather than as
@@ -926,6 +973,10 @@ class EquipmentController extends Controller
                 'name' => $equipment->name,
                 'equipment_type_id' => $equipment->equipment_type_id,
                 'type' => $equipment->type?->name,
+                // Which part of the stock it is of, which is what the trail
+                // back from this card leads to: a desk is read under «Мебель»,
+                // not under the working equipment.
+                'section' => $equipment->type?->section,
                 'type_icon' => $equipment->type?->icon,
                 'inventory_number' => $equipment->inventory_number,
                 // What this category asks about, and what this unit answers.
@@ -1041,8 +1092,9 @@ class EquipmentController extends Controller
         $equipment->delete();
 
         // Back to the units, not to the table of who holds what: somebody who
-        // has just struck a unit off is looking at the fleet, not at people.
-        return to_route('equipment.index', ['view' => 'list']);
+        // has just struck a unit off is looking at the fleet, not at people —
+        // and the fleet unit by unit is «Обзор» of «Инвентаризация».
+        return to_route('inventory.overview');
     }
 
     /**

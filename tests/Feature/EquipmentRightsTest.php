@@ -144,11 +144,11 @@ class EquipmentRightsTest extends TestCase
 
         // Somebody who may hand units out but not bring new ones in.
         $issuer = $this->person('equipment.issue');
-        $this->actingAs($issuer)->get('/equipment/create')->assertForbidden();
+        $this->actingAs($issuer)->get('/inventory/equipment/create')->assertForbidden();
         $this->actingAs($issuer)->post('/equipment', $payload)->assertForbidden();
 
         $keeper = $this->person('equipment.create');
-        $this->actingAs($keeper)->get('/equipment/create')->assertOk();
+        $this->actingAs($keeper)->get('/inventory/equipment/create')->assertOk();
         $this->actingAs($keeper)->post('/equipment', $payload)->assertRedirect();
         $this->assertNotNull(Equipment::whereInventory('EV-0421')->first());
     }
@@ -189,7 +189,7 @@ class EquipmentRightsTest extends TestCase
 
         $this->actingAs($this->person('equipment.write_off'))->delete("/equipment/{$unit->id}")->assertForbidden();
         // Back to the units: the page itself opens on who holds what.
-        $this->actingAs($this->person('equipment.delete'))->delete("/equipment/{$unit->id}")->assertRedirect('/equipment?view=list');
+        $this->actingAs($this->person('equipment.delete'))->delete("/equipment/{$unit->id}")->assertRedirect('/inventory');
         $this->assertNull(Equipment::find($unit->id));
     }
 
@@ -210,7 +210,7 @@ class EquipmentRightsTest extends TestCase
         $keeper = $this->person('equipment.create', 'equipment.issue', 'equipment.edit.state');
         $unit = $this->unit();
 
-        foreach (['/equipment', "/equipment/{$unit->id}"] as $url) {
+        foreach (['/inventory', "/equipment/{$unit->id}"] as $url) {
             $can = $this->actingAs($keeper)->get($url)->assertOk()->viewData('page')['props']['can'];
 
             $this->assertTrue($can['create']);
@@ -274,14 +274,14 @@ class EquipmentRightsTest extends TestCase
         foreach (array_keys($rights) as $missing) {
             $short = $this->person(...array_merge(...array_values(Arr::except($rights, $missing))));
 
-            $this->actingAs($short)->get("/equipment/create?for={$employee->id}")->assertForbidden();
+            $this->actingAs($short)->get("/inventory/equipment/create?for={$employee->id}")->assertForbidden();
             $this->actingAs($short)->post('/equipment', $payload('EV-0421'))->assertForbidden();
         }
 
         $this->assertSame(0, Equipment::count());
 
         $clerk = $this->person(...array_merge(...array_values($rights)));
-        $this->actingAs($clerk)->get("/equipment/create?for={$employee->id}")->assertOk();
+        $this->actingAs($clerk)->get("/inventory/equipment/create?for={$employee->id}")->assertOk();
         $this->actingAs($clerk)
             ->post('/equipment', $payload('EV-0421'))
             ->assertRedirect("/employees/{$employee->id}");
@@ -291,7 +291,7 @@ class EquipmentRightsTest extends TestCase
         // Without a colleague named, the rights are what they always were: the
         // one right to put a unit on the books.
         $keeper = $this->person('equipment.create');
-        $this->actingAs($keeper)->get('/equipment/create')->assertOk();
+        $this->actingAs($keeper)->get('/inventory/equipment/create')->assertOk();
         $this->actingAs($keeper)->post('/equipment', [...$payload('EV-0422'), 'for' => null])->assertRedirect();
         $this->assertNull(Equipment::whereInventory('EV-0422')->first()->holder_user_id);
     }
@@ -306,6 +306,6 @@ class EquipmentRightsTest extends TestCase
         }
 
         $written = Equipment::factory()->ofType($this->type())->writtenOff()->create();
-        $this->actingAs($admin)->delete("/equipment/{$written->id}")->assertRedirect('/equipment?view=list');
+        $this->actingAs($admin)->delete("/equipment/{$written->id}")->assertRedirect('/inventory');
     }
 }

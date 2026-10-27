@@ -22,9 +22,30 @@ class EquipmentType extends Model
      */
     protected $fillable = [
         'name',
+        'section',
         'icon',
         'has_accessories',
     ];
+
+    /**
+     * Which part of the stock a category belongs to, and what that part is
+     * called. «Инвентаризация» is read in three — what people work on, the
+     * furniture, and what the office itself runs on — and a category says
+     * which of the three it is; the section reads the lot together.
+     *
+     * @var array<string, string>
+     */
+    public const SECTIONS = [
+        'equipment' => 'Рабочее оборудование',
+        'furniture' => 'Мебель',
+        'office' => 'Оргтехника офиса',
+    ];
+
+    /** The sections as a list to choose from. */
+    public static function sections(): array
+    {
+        return collect(self::SECTIONS)->map(fn (string $title, string $key) => ['value' => $key, 'label' => $title])->values()->all();
+    }
 
     protected function casts(): array
     {
@@ -59,6 +80,9 @@ class EquipmentType extends Model
         return [
             'id' => $this->id,
             'name' => $this->name,
+            // Which part of the stock it is of, so a form opened for one part
+            // offers the categories of that part and no others.
+            'section' => $this->section,
             'has_accessories' => $this->has_accessories,
             'fields' => $this->formFields(),
         ];
@@ -101,7 +125,7 @@ class EquipmentType extends Model
         return self::query()
             ->with('fields')
             ->orderBy('name')
-            ->get(['id', 'name', 'has_accessories'])
+            ->get(['id', 'name', 'section', 'has_accessories'])
             ->map(fn (self $type) => $type->formOption())
             ->all();
     }

@@ -56,6 +56,8 @@ export interface EditableRecord {
     permissions?: string[];
     /** Equipment categories only: what units of this category are described by. */
     fields?: CategoryField[];
+    /** Equipment categories only: which part of the stock the category is of. */
+    section?: string;
     /** Equipment categories only: whether its units come with anything at all. */
     has_accessories?: boolean;
 }
@@ -192,6 +194,7 @@ export function DirectoryEditor({
     labels,
     tree,
     icons,
+    sections,
     rights,
     fieldTypes,
     defaultFields,
@@ -214,6 +217,12 @@ export function DirectoryEditor({
     labels: Labels;
     tree: boolean;
     icons?: string[];
+    /**
+     * The parts of the stock a category can belong to, where a list is kept in
+     * parts: each has a page of its own, and this is what puts a record on one
+     * of them.
+     */
+    sections?: { value: string; label: string }[];
     rights?: AccessSection[];
     fieldTypes?: FieldTypeOption[];
     defaultFields?: CategoryField[];
@@ -245,12 +254,15 @@ export function DirectoryEditor({
         abbreviation: string;
         parent_id: number | null;
         icon: string | null;
+        section: string;
         permissions: string[];
     }>({
         label: item?.label ?? '',
         abbreviation: item?.abbreviation ?? '',
         parent_id: item?.parent_id ?? null,
         icon: item?.icon ?? null,
+        // A new category joins what people work on until somebody moves it.
+        section: item?.section ?? sections?.[0]?.value ?? '',
         permissions: item?.permissions ?? [...(defaultRights ?? [])],
     });
 
@@ -324,6 +336,7 @@ export function DirectoryEditor({
             ...(abbreviated ? { abbreviation: data.abbreviation.trim() || null } : {}),
             ...(tree ? { parent_id: data.parent_id } : {}),
             ...(icons ? { icon: data.icon } : {}),
+            ...(sections ? { section: data.section } : {}),
             ...(rights && !item?.everything ? { permissions: withViewRight(data.permissions) } : {}),
             ...(fieldTypes
                 ? {
@@ -555,6 +568,26 @@ export function DirectoryEditor({
                                     <InputError message={listError('permissions')} />
                                 </>
                             )}
+                        </div>
+                    )}
+
+                    {sections && (
+                        <div className="grid content-start gap-2">
+                            <Label htmlFor="directory-section">Раздел</Label>
+                            <Select value={form.data.section} onValueChange={(value) => form.setData('section', value)}>
+                                <SelectTrigger id="directory-section" aria-invalid={!!errors.section}>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {sections.map((one) => (
+                                        <SelectItem key={one.value} value={one.value}>
+                                            {one.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <InputError message={errors.section} />
+                            <p className="text-muted-foreground text-[13px]">На какой странице «Инвентаризации» читаются её единицы.</p>
                         </div>
                     )}
 

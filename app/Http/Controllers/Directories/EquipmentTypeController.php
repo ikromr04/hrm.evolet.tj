@@ -30,6 +30,11 @@ class EquipmentTypeController extends Controller
         return Inertia::render('directories/equipment', [
             // What a category may be drawn by; the form offers exactly these.
             'icons' => EquipmentIcons::KEYS,
+            // Which part of the stock a category belongs to: what people work
+            // on, the furniture, or what the office itself runs on. Each has a
+            // page of its own under «Инвентаризация», and this is what puts a
+            // category on one of them.
+            'sections' => EquipmentType::sections(),
             // What a field can hold, for the form's own list of types.
             'fieldTypes' => collect(EquipmentField::TYPES)->map(fn (string $title, string $key) => ['key' => $key, 'title' => $title])->values(),
             // What a new category starts from: the two most units are named by
@@ -50,6 +55,7 @@ class EquipmentTypeController extends Controller
                 ->map(fn (EquipmentType $type) => [
                     'id' => $type->id,
                     'name' => $type->name,
+                    'section' => $type->section,
                     'icon' => $type->icon,
                     'has_accessories' => $type->has_accessories,
                     'users_count' => $type->users_count,
@@ -75,6 +81,9 @@ class EquipmentTypeController extends Controller
 
         $type = EquipmentType::create([
             'name' => $data['name'],
+            // Where the units of a new category are read, until somebody says
+            // otherwise: with the rest of what people work on.
+            'section' => $data['section'] ?? 'equipment',
             'icon' => $data['icon'] ?? null,
             'has_accessories' => $data['has_accessories'] ?? true,
         ]);
@@ -94,6 +103,7 @@ class EquipmentTypeController extends Controller
 
         $equipment->update([
             'name' => $data['name'],
+            'section' => $data['section'] ?? $equipment->section,
             'icon' => $data['icon'] ?? null,
             'has_accessories' => $data['has_accessories'] ?? $equipment->has_accessories,
         ]);
@@ -169,6 +179,9 @@ class EquipmentTypeController extends Controller
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:100', Rule::unique('equipment_types', 'name')->ignore($type)],
+            // One of the three parts of the stock; left unsaid, a category
+            // stays where it is and a new one joins the working equipment.
+            'section' => ['sometimes', Rule::in(array_keys(EquipmentType::SECTIONS))],
             // One of the drawings the interface has, or none for the plain box.
             'icon' => ['nullable', Rule::in(EquipmentIcons::KEYS)],
             // Whether a unit of this kind comes with anything at all.

@@ -96,6 +96,8 @@ interface DirectoryManagerProps {
     tree?: boolean;
     /** When given, each record is drawn by one of these (equipment categories). */
     icons?: string[];
+    /** The parts of the stock a record can belong to, for a list kept in parts. */
+    sections?: { value: string; label: string }[];
     /**
      * When given, the dialog also ticks off what the record opens (positions).
      * Absent for anybody who may not decide on access, and the rights are then
@@ -169,7 +171,12 @@ const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
 /** What the «Отдел» funnel calls «Без отдела»: a department that is one itself. */
 const NO_UNIT = 'none';
 
-const NOTHING_NARROWED = { department: [] as number[], unit: [] as (number | typeof NO_UNIT)[], counted: [] as string[] };
+const NOTHING_NARROWED = {
+    department: [] as number[],
+    unit: [] as (number | typeof NO_UNIT)[],
+    counted: [] as string[],
+    section: [] as string[],
+};
 
 function orderRows(items: DirectoryItem[], tree: boolean): Row[] {
     if (!tree) return items.map((item) => ({ ...item, depth: 0 }));
@@ -204,6 +211,7 @@ export function DirectoryManager({
     countWords = ['сотрудник', 'сотрудника', 'сотрудников'],
     tree = false,
     icons,
+    sections,
     rights,
     fieldTypes,
     defaultFields,
@@ -278,6 +286,21 @@ export function DirectoryManager({
                       },
                   ]
                 : [
+                      // Which part of the list a record belongs to, where the
+                      // list is kept in parts: the page it is read on follows
+                      // from it, so the list is read down the parts first and
+                      // the names inside them after — as «Подразделения» are
+                      // read down the departments and the units in each.
+                      ...(sections
+                          ? [
+                                {
+                                    key: 'section',
+                                    label: 'Раздел',
+                                    width: 220,
+                                    filter: { type: 'multi' as const, param: 'section', options: sections },
+                                },
+                            ]
+                          : []),
                       {
                           key: 'name',
                           label: 'Название',
@@ -287,7 +310,7 @@ export function DirectoryManager({
                       },
                       { key: 'count', label: countLabel, width: 200 },
                   ],
-        [countLabel, structure, branches, inside, counted],
+        [countLabel, structure, branches, inside, counted, sections],
     );
 
     const viewKey = `directory:${routeName}`;
@@ -360,7 +383,8 @@ export function DirectoryManager({
         isSorted(sort, DEFAULT_SORT) ||
         narrowing.department.length > 0 ||
         narrowing.unit.length > 0 ||
-        narrowing.counted.length > 0;
+        narrowing.counted.length > 0 ||
+        narrowing.section.length > 0;
 
     /**
      * Everything a row says, as one line to look through: its name, the short
@@ -374,6 +398,7 @@ export function DirectoryManager({
             structure ? rowLabel(topOf(row)) : null,
             structure ? topOf(row).abbreviation : null,
             ...(row.count_items?.map((item) => item.name) ?? []),
+            sections?.find((one) => one.value === row.section)?.label ?? null,
         ]
             .filter(Boolean)
             .join(' ')
@@ -396,6 +421,8 @@ export function DirectoryManager({
                 const held = row.count_items?.map((one) => one.name) ?? [];
                 if (!narrowing.counted.every((wanted) => held.includes(wanted))) return false;
             }
+            // Any of the parts asked for, as a funnel of several always means.
+            if (narrowing.section.length > 0 && !narrowing.section.includes(row.section ?? '')) return false;
 
             return true;
         });
@@ -453,6 +480,12 @@ export function DirectoryManager({
 
             // A department standing on its own is no unit of anything.
             return itself ? <span className="text-muted-foreground">—</span> : plate(row, true);
+        }
+
+        if (column.key === 'section') {
+            const part = sections?.find((one) => one.value === row.section);
+
+            return part ? <span>{part.label}</span> : <span className="text-muted-foreground">—</span>;
         }
 
         if (column.key === 'count') {
@@ -726,23 +759,31 @@ export function DirectoryManager({
                     rowKey={(row) => row.id}
                     renderCell={cell}
                     sort={sort}
-                    sortable={structure ? ['department', 'unit', 'count'] : ['name', 'count']}
+                    sortable={structure ? ['department', 'unit', 'count'] : sections ? ['section', 'name', 'count'] : ['name', 'count']}
                     onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
-                    filters={{ name: query, department: narrowing.department, unit: narrowing.unit, counted: narrowing.counted }}
+                    filters={{
+                        name: query,
+                        department: narrowing.department,
+                        unit: narrowing.unit,
+                        counted: narrowing.counted,
+                        section: narrowing.section,
+                    }}
                     onFilter={(changes) => {
                         if (typeof changes.name === 'string') setQuery(changes.name);
 
-                        const picked = <T,>(key: 'department' | 'unit' | 'counted') =>
+                        const picked = <T,>(key: 'department' | 'unit' | 'counted' | 'section') =>
                             Array.isArray(changes[key]) ? (changes[key] as T[]) : undefined;
                         const department = picked<number>('department');
                         const unit = picked<number | typeof NO_UNIT>('unit');
                         const chosen = picked<string>('counted');
+                        const part = picked<string>('section');
 
-                        if (department || unit || chosen) {
+                        if (department || unit || chosen || part) {
                             setNarrowing((held) => ({
                                 department: department ?? held.department,
                                 unit: unit ?? held.unit,
                                 counted: chosen ?? held.counted,
+                                section: part ?? held.section,
                             }));
                         }
                     }}
@@ -799,6 +840,7 @@ export function DirectoryManager({
                     labels={labels}
                     tree={tree}
                     icons={icons}
+                    sections={sections}
                     rights={rights}
                     fieldTypes={fieldTypes}
                     defaultFields={defaultFields}

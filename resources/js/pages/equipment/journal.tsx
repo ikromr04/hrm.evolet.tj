@@ -83,7 +83,7 @@ const PLACES = {
     equipment: {
         route: 'equipment.journal',
         crumbs: [
-            { title: 'Оборудование', href: '/equipment' },
+            { title: 'Рабочее оборудование', href: '/inventory/equipment' },
             { title: 'Журнал операций', href: '/equipment/journal' },
         ] as BreadcrumbItem[],
         viewKey: TABLE_KEYS.equipmentJournal,
@@ -269,6 +269,8 @@ export default function EquipmentJournal({ section, events, names, filters, perP
             <Head title="Журнал операций" />
 
             <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">
+                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Журнал операций</h1>
+
                 {/* On a phone one line: the quick periods as chips and the button to
                     the sheet, where an exact period is picked along with the rest. */}
                 <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap md:-mb-2">
@@ -362,7 +364,7 @@ export default function EquipmentJournal({ section, events, names, filters, perP
 
                     <Button variant="outline" className="h-9 max-md:hidden" asChild>
                         {/* The list of units, which is what the button says — the page opens on who holds what. */}
-                        <Link href={route('equipment.index', { view: 'list' })}>К списку оборудования</Link>
+                        <Link href={route('inventory.overview')}>К списку оборудования</Link>
                     </Button>
                 </div>
 

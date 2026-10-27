@@ -49,8 +49,8 @@ class EquipmentTest extends TestCase
 
     public function test_the_list_is_open_to_every_signed_in_colleague()
     {
-        $this->get('/equipment')->assertRedirect('/login');
-        $this->actingAs($this->colleague())->get('/equipment')->assertOk();
+        $this->get('/inventory')->assertRedirect('/login');
+        $this->actingAs($this->colleague())->get('/inventory')->assertOk();
     }
 
     public function test_the_tabs_count_every_status()
@@ -60,7 +60,7 @@ class EquipmentTest extends TestCase
         Equipment::factory(1)->ofType($this->type())->writtenOff()->create();
 
         $this->actingAs($this->sysadmin())
-            ->get('/equipment?view=list')
+            ->get('/inventory')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('counts.all', 3)
                 ->where('counts.issued', 2)
@@ -80,7 +80,7 @@ class EquipmentTest extends TestCase
         $done->repairs()->create(['kind' => 'Плановое ТО', 'started_at' => '2026-08-01', 'ended_at' => '2026-08-03']);
 
         $this->actingAs($this->sysadmin())
-            ->get('/equipment?tab=service')
+            ->get('/inventory?tab=service')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('counts.service', 1)
                 ->has('equipment.data', 1)
@@ -102,18 +102,18 @@ class EquipmentTest extends TestCase
         $this->actingAs($this->sysadmin());
 
         // The column offers every answer the tabs above the table do.
-        $this->get('/equipment')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->get('/inventory')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('options.statuses', fn ($statuses) => collect($statuses)->pluck('value')->contains('service'))
         );
 
         // On its own it is the units that are away being looked after.
-        $this->get('/equipment?status[]=service')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->get('/inventory?status[]=service')->assertInertia(fn (AssertableInertia $page) => $page
             ->has('equipment.data', 1)
             ->where('equipment.data.0.name', 'Ноутбук в ремонте')
         );
 
         // Asked with a status, the two answers are read together.
-        $this->get('/equipment?status[]=service&status[]=stock')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->get('/inventory?status[]=service&status[]=stock')->assertInertia(fn (AssertableInertia $page) => $page
             ->has('equipment.data', 2)
         );
     }
@@ -148,7 +148,7 @@ class EquipmentTest extends TestCase
 
         // No tab in the query means everything the company owns.
         $this->actingAs($this->sysadmin())
-            ->get('/equipment?view=list')
+            ->get('/inventory')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('tab', 'all')
                 // And it opens in the order the company is read down in,
@@ -161,7 +161,7 @@ class EquipmentTest extends TestCase
 
         // And a tab is how one status is asked for.
         $this->actingAs($this->sysadmin())
-            ->get('/equipment?tab=issued')
+            ->get('/inventory?tab=issued')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', 'Выданный ноутбук')
@@ -174,7 +174,7 @@ class EquipmentTest extends TestCase
         Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => 'Ноутбук A']);
         Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук C']);
 
-        $this->actingAs($this->sysadmin())->get('/equipment?tab=stock')
+        $this->actingAs($this->sysadmin())->get('/inventory?tab=stock')
             ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 1)->where('equipment.data.0.name', 'Ноутбук C'));
     }
 
@@ -190,7 +190,7 @@ class EquipmentTest extends TestCase
 
         $admin = $this->sysadmin();
 
-        $only = fn (string $query, string $name) => $this->actingAs($admin)->get("/equipment?tab=all&{$query}")
+        $only = fn (string $query, string $name) => $this->actingAs($admin)->get("/inventory?tab=all&{$query}")
             ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 1)->where('equipment.data.0.name', $name));
 
         $only('name=Монитор', 'Монитор B');
@@ -213,14 +213,14 @@ class EquipmentTest extends TestCase
         $admin = $this->sysadmin();
 
         // A column of the table, and the same one turned around.
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=name')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=name')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.name', 'А'));
 
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=name&direction=desc')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=name&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.name', 'Б'));
 
         // A column the table does not offer is refused rather than ignored.
-        $this->actingAs($admin)->get('/equipment?view=list&sort=serial_number')->assertSessionHasErrors('sort');
+        $this->actingAs($admin)->get('/inventory?sort=serial_number')->assertSessionHasErrors('sort');
     }
 
     /**
@@ -258,7 +258,7 @@ class EquipmentTest extends TestCase
     {
         $rows = [];
 
-        $this->actingAs($viewer)->get("/equipment?view=list&{$query}")
+        $this->actingAs($viewer)->get("/inventory?{$query}")
             ->assertOk()
             ->assertInertia(function (AssertableInertia $page) use (&$rows) {
                 $rows = $page->toArray()['props']['equipment']['data'];
@@ -419,7 +419,7 @@ class EquipmentTest extends TestCase
      * lands there, because dropping what such a link asked for would answer a
      * different question than it put.
      */
-    public function test_the_page_opens_by_colleague_and_a_link_meant_for_the_list_still_lands_on_it()
+    public function test_the_address_says_which_table_and_nothing_else_does()
     {
         $holder = User::factory()->create(['surname' => 'Азимов', 'name' => 'Нигина']);
         Equipment::factory()->ofType($this->type())->issuedTo($holder->id)->create(['name' => 'Выданный ноутбук']);
@@ -427,35 +427,32 @@ class EquipmentTest extends TestCase
 
         $admin = $this->sysadmin();
 
-        // A bare address: one row per colleague.
-        $this->actingAs($admin)->get('/equipment')
+        // «Обзор» is the fleet, unit by unit, on the whole of it.
+        $this->actingAs($admin)->get('/inventory')
             ->assertInertia(fn (AssertableInertia $page) => $page
-                ->where('view', 'holders')
-                ->has('holders.data', 1)
-                ->missing('equipment')
+                ->where('view', 'list')
+                ->where('tab', 'all')
+                ->has('equipment.data', 2)
+                ->missing('holders')
             );
 
-        // What the dashboard and the search have always linked to.
-        foreach (['tab=stock', 'status[]=stock', 'issued_from=2026-01-01', 'issued_to=2026-01-01'] as $query) {
-            $this->actingAs($admin)->get("/equipment?{$query}")
-                ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'list')->has('equipment.data'));
-        }
-
-        // A filter both tables honour asks neither of them in particular.
-        $this->actingAs($admin)->get('/equipment?type[]='.$this->type()->id)
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'holders'));
-
-        // And the view named outright outranks the rule, both ways round: the
-        // tab is then read past rather than deciding which table is shown.
-        $this->actingAs($admin)->get('/equipment?view=holders&tab=stock')
+        // «Рабочее оборудование» is who holds what, one row per colleague.
+        $this->actingAs($admin)->get('/inventory/equipment')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('view', 'holders')
                 ->has('holders.data', 1)
                 ->where('holders.data.0.name', 'Азимов Нигина')
+                ->missing('equipment')
             );
 
-        $this->actingAs($admin)->get('/equipment?view=list')
-            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'list')->where('tab', 'all'));
+        // Neither is talked out of it by a query: an older link naming the
+        // other table is read past, and so are the questions only the list
+        // asks when they turn up at the other address.
+        $this->actingAs($admin)->get('/inventory/equipment?view=list&tab=stock')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'holders'));
+
+        $this->actingAs($admin)->get('/inventory?view=holders')
+            ->assertInertia(fn (AssertableInertia $page) => $page->where('view', 'list'));
     }
 
     /**
@@ -484,7 +481,7 @@ class EquipmentTest extends TestCase
 
         // Opened: the structure read down — one department, so its people by
         // name — under a key of its own, which no header carries.
-        $this->actingAs($admin)->get('/equipment?tab=all')
+        $this->actingAs($admin)->get('/inventory?tab=all')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.key', 'structure')
                 ->where('sort.direction', 'asc')
@@ -492,31 +489,31 @@ class EquipmentTest extends TestCase
             );
 
         // First press on a column, then the same column turned around.
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=name')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=name')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $new->id));
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=name&direction=desc')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=name&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $old->id));
 
         // And the third press, which drops the sort from the query.
-        $this->actingAs($admin)->get('/equipment?tab=all')
+        $this->actingAs($admin)->get('/inventory?tab=all')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $old->id));
 
         // The opening order can also be asked for by name and turned round, as
         // the phone's sheet turns it round — the structure read up from the last
         // department instead of down from the first.
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=structure&direction=desc')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=structure&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('sort.key', 'structure'));
 
         // And the date the unit was entered, which is a column: oldest first on
         // the first press, newest first on the second.
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=created')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=created')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('sort.direction', 'asc')
                 ->where('equipment.data.0.id', $old->id)
                 ->where('equipment.data.0.created_at', $old->created_at->toDateString())
             );
 
-        $this->actingAs($admin)->get('/equipment?tab=all&sort=created&direction=desc')
+        $this->actingAs($admin)->get('/inventory?tab=all&sort=created&direction=desc')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('equipment.data.0.id', $new->id));
     }
 
@@ -537,7 +534,7 @@ class EquipmentTest extends TestCase
         $admin = $this->sysadmin();
 
         foreach (['Latitude', 'EV-0421', '7K2L9P3'] as $term) {
-            $this->actingAs($admin)->get('/equipment?tab=all&q='.urlencode($term))
+            $this->actingAs($admin)->get('/inventory?tab=all&q='.urlencode($term))
                 ->assertInertia(fn (AssertableInertia $page) => $page
                     ->has('equipment.data', 1)
                     ->where('equipment.data.0.inventory_number', 'EV-0421')
@@ -565,7 +562,7 @@ class EquipmentTest extends TestCase
         // Whether the capital matters is the collation's business, as it is for
         // the "У кого" filter beside the box.
         foreach (['Абдуллоев', 'Фарход', 'Саидович', 'Абдуллоев Фарход Саидович', 'Фарход Абдуллоев'] as $term) {
-            $this->actingAs($admin)->get('/equipment?tab=all&q='.urlencode($term))
+            $this->actingAs($admin)->get('/inventory?tab=all&q='.urlencode($term))
                 ->assertInertia(fn (AssertableInertia $page) => $page
                     ->has('equipment.data', 1)
                     ->where('equipment.data.0.name', 'Ноутбук A')
@@ -574,7 +571,7 @@ class EquipmentTest extends TestCase
 
         // Words from two different people are one question, not two: nobody is
         // named by both, so nothing is found.
-        $this->actingAs($admin)->get('/equipment?tab=all&q='.urlencode('Абдуллоев Зокиров'))
+        $this->actingAs($admin)->get('/inventory?tab=all&q='.urlencode('Абдуллоев Зокиров'))
             ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 0));
     }
 
@@ -583,7 +580,7 @@ class EquipmentTest extends TestCase
         Equipment::factory()->ofType($this->type('Мониторы'))->create(['name' => 'Экран на ресепшн', 'inventory_number' => 'EV-0003']);
         Equipment::factory()->ofType($this->type())->create(['name' => 'Рабочая машина', 'inventory_number' => 'EV-0004']);
 
-        $this->actingAs($this->sysadmin())->get('/equipment?tab=all&q='.urlencode('Монитор'))
+        $this->actingAs($this->sysadmin())->get('/inventory?tab=all&q='.urlencode('Монитор'))
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', 'Экран на ресепшн')
@@ -652,7 +649,7 @@ class EquipmentTest extends TestCase
     public function test_the_form_for_a_new_unit_is_a_page_of_its_own()
     {
         $this->actingAs($this->sysadmin())
-            ->get('/equipment/create')
+            ->get('/inventory/equipment/create')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('equipment/create')
                 ->has('options.types')
@@ -660,7 +657,7 @@ class EquipmentTest extends TestCase
             );
 
         // A colleague who does not manage the fleet has no business there.
-        $this->actingAs($this->colleague())->get('/equipment/create')->assertForbidden();
+        $this->actingAs($this->colleague())->get('/inventory/equipment/create')->assertForbidden();
     }
 
     public function test_the_form_knows_which_colleague_a_unit_is_being_entered_for()
@@ -668,7 +665,7 @@ class EquipmentTest extends TestCase
         $employee = $this->colleague(['surname' => 'Азимов', 'name' => 'Фарход']);
 
         $this->actingAs($this->sysadmin())
-            ->get("/equipment/create?for={$employee->id}")
+            ->get("/inventory/equipment/create?for={$employee->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->component('equipment/create')
                 ->where('forEmployee.id', $employee->id)
@@ -678,7 +675,7 @@ class EquipmentTest extends TestCase
 
         // Opened from the fleet, it is being entered for nobody in particular.
         $this->actingAs($this->sysadmin())
-            ->get('/equipment/create')
+            ->get('/inventory/equipment/create')
             ->assertInertia(fn (AssertableInertia $page) => $page->where('forEmployee', null));
     }
 
@@ -691,7 +688,7 @@ class EquipmentTest extends TestCase
         // id at all: the form opens as itself rather than refusing.
         foreach ([$fired->id, 404404, 'сотрудник', ''] as $for) {
             $this->actingAs($admin)
-                ->get('/equipment/create?for='.$for)
+                ->get('/inventory/equipment/create?for='.$for)
                 ->assertOk()
                 ->assertInertia(fn (AssertableInertia $page) => $page->where('forEmployee', null));
         }
@@ -758,7 +755,7 @@ class EquipmentTest extends TestCase
             ]);
 
         // The form stays open, and stays open for them.
-        $response->assertSessionHasNoErrors()->assertRedirect("/equipment/create?for={$employee->id}");
+        $response->assertSessionHasNoErrors()->assertRedirect("/inventory/equipment/create?for={$employee->id}");
         $response->assertSessionHas('equipment.inventory_number', 'EV-0426');
         $this->assertSame($employee->id, Equipment::whereInventory('EV-0426')->first()->holder_user_id);
     }
@@ -850,7 +847,7 @@ class EquipmentTest extends TestCase
         $unit = Equipment::factory()->ofType($this->type())->writtenOff()->create();
         $unit->repairs()->create(['kind' => 'Диагностика', 'started_at' => '2026-09-01']);
 
-        $this->actingAs($this->sysadmin())->delete("/equipment/{$unit->id}")->assertRedirect('/equipment?view=list');
+        $this->actingAs($this->sysadmin())->delete("/equipment/{$unit->id}")->assertRedirect('/inventory');
 
         $this->assertNull(Equipment::find($unit->id));
         // Nothing is left pointing at a unit that no longer exists.
@@ -868,9 +865,9 @@ class EquipmentTest extends TestCase
         // off first, and only then removed. What asks is a dialog, so it is sent
         // back with a sentence rather than a refusal it cannot show.
         $this->actingAs($this->sysadmin())
-            ->from('/equipment')
+            ->from('/inventory')
             ->delete("/equipment/{$inService->id}")
-            ->assertRedirect('/equipment')
+            ->assertRedirect('/inventory')
             ->assertSessionHas('notice', 'Удалить можно только списанное оборудование.');
         $this->assertNotNull(Equipment::find($inService->id));
 

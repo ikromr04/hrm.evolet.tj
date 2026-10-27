@@ -97,11 +97,11 @@ class PermissionsTest extends TestCase
     {
         $this->actingAs($this->withRights('equipment.view.all', 'equipment.journal.all'));
 
-        $this->get('/equipment')->assertOk();
+        $this->get('/inventory')->assertOk();
         $this->get('/equipment/journal')->assertOk();
 
         // The fleet is theirs to read, not to change; the staff is neither.
-        $this->get('/equipment/create')->assertForbidden();
+        $this->get('/inventory/equipment/create')->assertForbidden();
         $this->get('/employees')->assertForbidden();
         $this->get('/directories/roles')->assertForbidden();
     }

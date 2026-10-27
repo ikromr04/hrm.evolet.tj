@@ -127,10 +127,10 @@ export function GlobalSearch() {
                 ...(can('directories.view.departments') ? [{ label: 'Подразделения', href: '/departments', icon: Building2 }] : []),
                 ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
                 // Any part of the fleet — own, the department's or all of it — opens the section.
-                ...(seesEquipment(can) ? [{ label: 'Оборудование', href: '/equipment', icon: Laptop }] : []),
+                ...(seesEquipment(can) ? [{ label: 'Рабочее оборудование', href: '/inventory/equipment', icon: Laptop }] : []),
                 // The journal opens for whoever may read it on any part of the fleet;
                 // the page itself shows only the entries of that part.
-                ...(readsEquipmentJournal(can) ? [{ label: 'Журнал операций', href: '/equipment/journal', icon: History }] : []),
+                ...(readsEquipmentJournal(can) ? [{ label: 'Журнал операций', href: '/inventory/journal', icon: History }] : []),
                 // One list is enough: the section opens on the first one its
                 // viewer may read.
                 ...(seesDirectories(can) ? [{ label: 'Справочники', href: '/directories', icon: BookMarked }] : []),
@@ -193,7 +193,7 @@ export function GlobalSearch() {
                 group: 'Категории техники',
                 label: type.name,
                 hint: 'Техника этой категории',
-                href: route('equipment.index', { tab: 'all', type: [type.id] }),
+                href: route('inventory.overview', { tab: 'all', type: [type.id] }),
                 icon: <CategoryChip icon={type.icon} size={32} iconSize={16} />,
             })),
             ...results.languages.map((language) => ({

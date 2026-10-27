@@ -34,60 +34,15 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import AppLayout from '@/layouts/app-layout';
 import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
 import { statusLabel, statusTone, type EquipmentStatus as Status } from '@/lib/equipment';
-import { TABLE_KEYS } from '@/lib/tables';
+import { INVENTORY_PLACES, type InventoryPlace } from '@/lib/inventory';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import {
-    ArrowDownToLine,
-    ChevronDown,
-    Ellipsis,
-    Eraser,
-    List,
-    LoaderCircle,
-    Plus,
-    Trash2,
-    UserPlus,
-    Users,
-    Wrench,
-    type LucideIcon,
-} from 'lucide-react';
+import { ArrowDownToLine, ChevronDown, Ellipsis, Eraser, LoaderCircle, Plus, Trash2, UserPlus, Wrench, type LucideIcon } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-
-/**
- * Where this table is being read: the fleet's own page, or the front page of
- * «Инвентаризация», which opens on the same list. Everything else about it is
- * the same, so the two differ in a name, a trail and an address and in nothing
- * else at all.
- */
-const PLACES = {
-    equipment: {
-        title: 'Оборудование',
-        route: 'equipment.index',
-        crumbs: [{ title: 'Оборудование', href: '/equipment' }] as BreadcrumbItem[],
-        // Each address keeps its own arrangements: the two draw the same fleet
-        // and are read for different reasons, so what is sorted, narrowed and
-        // hidden in one is not the other's business.
-        viewKey: TABLE_KEYS.equipment,
-        queryKey: 'equipment.table.query',
-    },
-    inventory: {
-        title: 'Обзор',
-        route: 'inventory.overview',
-        crumbs: [
-            // The section has no page of its own; this is it.
-            { title: 'Инвентаризация', href: '/inventory' },
-            { title: 'Обзор', href: '/inventory' },
-        ] as BreadcrumbItem[],
-        viewKey: TABLE_KEYS.inventory,
-        queryKey: 'inventory.table.query',
-    },
-};
 
 interface Department {
     /** The abbreviation where the department has one, the full name otherwise. */
@@ -233,7 +188,7 @@ interface Props {
      */
     view: View;
     /** Which of the two addresses this page is being drawn at. */
-    section: keyof typeof PLACES;
+    section: InventoryPlace;
     /** The units themselves — sent for that view and for no other. */
     equipment?: Paginated<Unit>;
     /** The colleagues, a page of them, each with what they hold; likewise. */
@@ -302,14 +257,6 @@ const OPENING_LABEL = 'Структура';
 
 /** How many units of one category a row names before counting off the rest. */
 const HELD_SHOWN = 3;
-
-/**
- * One of the two tables, as a phone offers them. The one in force takes the
- * same pale green a chosen tab takes beside it, and the pair shares the width
- * of the screen, so the words are set a little smaller.
- */
-const viewChoice =
-    'data-[state=on]:bg-brand-soft flex-1 gap-1.5 px-3 data-[state=on]:font-semibold max-md:px-2 max-md:text-[13px] dark:data-[state=on]:bg-white/10';
 
 /** Red, for the one action that cannot be undone. */
 const dangerItem = 'text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] [&_svg]:text-current!';
@@ -892,18 +839,12 @@ function HeldUnits({ units, icon }: { units: Held[]; icon: string | null }) {
  * A department is not a who. It is named in the two columns before this one,
  * where it stands over its own row and over its people's, so naming it again
  * here would be the same word twice side by side; what this column has to say
- * about such a row is that there is no colleague to ask for the thing back.
- * The line under the dash says why, since a dash on its own in a column of
- * faces and names would read as something that failed to load.
+ * about such a row is that there is no colleague to ask for the thing back —
+ * which a dash says, as it says it in every other column of the app.
  */
 function HolderName({ row }: { row: HolderRow }) {
     if (row.kind === 'department') {
-        return (
-            <span className="flex flex-col gap-0.5">
-                <Empty />
-                <span className="text-muted-foreground text-[12px] leading-tight">оборудование отдела</span>
-            </span>
-        );
+        return <Empty />;
     }
 
     return (
@@ -973,7 +914,7 @@ export default function EquipmentIndex({
     scopes,
 }: Props) {
     const byHolder = view === 'holders';
-    const place = PLACES[section];
+    const place = INVENTORY_PLACES[section];
     // The journal is open where at least one part of the fleet carries it.
     // Whether there is anything at all to do with a row. Which item a row offers
     // depends on where its unit is, so the column stays wherever one of them
@@ -1011,6 +952,7 @@ export default function EquipmentIndex({
     const defaults = byHolder ? holderDefaults : unitDefaults;
     const { view: layout, pin, toggleHidden, reorder, order } = byHolder ? holderView : unitView;
     const isHidden = (key: string) => layout.hidden.includes(key);
+
     /* Both tables can be dragged into another order, so the menu reads along whichever is on screen. */
     const listed = orderedColumns(columns, order);
 
@@ -1036,7 +978,10 @@ export default function EquipmentIndex({
         setView: (next) => (bound.current === 'holders' ? holderView.setView(next) : unitView.setView(next)),
         fallback: defaults,
         state: { table: byHolder ? 'holders' : 'list', label: byHolder ? 'По сотрудникам' : 'Список' },
-        defaultState: { table: 'list', label: 'Список' },
+        // Each address draws the one table, so the one it opens with is that
+        // one: «По умолчанию» puts the columns back where they are read, not
+        // into a table this page no longer shows.
+        defaultState: { table: byHolder ? 'holders' : 'list', label: byHolder ? 'По сотрудникам' : 'Список' },
         onState: (held) => {
             bound.current = (held as { table?: Table })?.table === 'holders' ? 'holders' : 'list';
         },
@@ -1061,29 +1006,22 @@ export default function EquipmentIndex({
     const openingSort = sortedByColumn ? OPENING_SORT : sort;
 
     /** Everything the table is looking at, as one query string. */
-    const visit = (next: { filters?: Partial<Filters>; sort?: Sort | null; perPage?: number; tab?: Tab; view?: View }) => {
+    const visit = (next: { filters?: Partial<Filters>; sort?: Sort | null; perPage?: number; tab?: Tab }) => {
         const merged = { ...filters, ...next.filters };
-        const nextView = next.view ?? view;
-        // A view sorts by columns of its own, so the order is not carried across:
-        // a view asked for opens the way it opens. Null is that order in either
-        // view — the server answers a query with no sorting in it with it.
-        const nextSort = next.sort !== undefined ? next.sort : nextView !== view ? null : sortedByColumn ? sort : null;
+        // Null is the order the table opens in: the server answers a query with
+        // no sorting in it with that one.
+        const nextSort = next.sort !== undefined ? next.sort : sortedByColumn ? sort : null;
         const nextPer = next.perPage ?? perPage;
         const nextTab = next.tab === undefined ? tab : next.tab;
-        const toHolders = nextView === 'holders';
 
         type Value = string | number | (string | number)[] | null;
         const params: Record<string, Value> = {
             ...merged,
-            // The state of a unit and the day it changed hands are the list's own
-            // questions, and a query that carries either of them opens the list —
-            // which is how /equipment?tab=stock from the dashboard still works. So
-            // the view that does not ask them does not keep them in its query.
-            ...(toHolders ? { status: [], issued_from: null, issued_to: null } : {}),
-            tab: toHolders ? null : (nextTab ?? null),
-            // The page opens on «По сотрудникам», so that one is asked for by
-            // asking for nothing; the list is named.
-            view: toHolders ? null : 'list',
+            // The state of a unit and the day it changed hands are questions
+            // about units, which the table of colleagues does not ask and does
+            // not carry.
+            ...(byHolder ? { status: [], issued_from: null, issued_to: null } : {}),
+            tab: byHolder ? null : (nextTab ?? null),
             sort: nextSort?.key ?? null,
             direction: nextSort?.direction ?? null,
             per_page: nextPer === perPageOptions[0] ? null : nextPer,
@@ -1289,30 +1227,6 @@ export default function EquipmentIndex({
                         className="max-md:bg-card max-md:rounded-xl max-md:border-transparent max-md:shadow-none"
                     />
 
-                    {/* Which of the two tables is being read. A desktop chooses it
-                        in the «Вид» menu, which a phone does not draw, so there the
-                        pair of buttons stays. It stands in the query either way, so
-                        a link carries the table somebody was looking at. */}
-                    <ToggleGroup
-                        type="single"
-                        variant="outline"
-                        value={view}
-                        // Radix sends an empty string when the pressed choice is let go of;
-                        // one of the two is always on, so that is nothing to act on.
-                        onValueChange={(next) => next && next !== view && visit({ view: next as View })}
-                        aria-label="Таблица"
-                        className="w-full justify-start md:hidden"
-                    >
-                        <ToggleGroupItem value="list" className={viewChoice}>
-                            <List />
-                            Список
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="holders" className={viewChoice}>
-                            <Users />
-                            По сотрудникам
-                        </ToggleGroupItem>
-                    </ToggleGroup>
-
                     {/* A phone scrolls the same lists sideways as chips that run to the
                         screen's edges and show no scrollbar; a desktop reads them off the
                         tabs at the head of this line. */}
@@ -1371,9 +1285,11 @@ export default function EquipmentIndex({
 
                     {can.create && (
                         <Button className="h-9 max-md:hidden" asChild>
-                            <Link href={route('equipment.create')}>
+                            {/* Each page adds to its own part of the stock, and
+                                the button says which. */}
+                            <Link href={route(place.add.route)}>
                                 <Plus />
-                                Добавить оборудование
+                                {place.add.label}
                             </Link>
                         </Button>
                     )}

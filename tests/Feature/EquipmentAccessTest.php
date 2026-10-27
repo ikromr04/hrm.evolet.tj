@@ -72,7 +72,7 @@ class EquipmentAccessTest extends TestCase
     {
         $names = [];
 
-        $this->actingAs($viewer)->get('/equipment?tab=all')->assertInertia(function (AssertableInertia $page) use (&$names) {
+        $this->actingAs($viewer)->get('/inventory?tab=all')->assertInertia(function (AssertableInertia $page) use (&$names) {
             $names = collect($page->toArray()['props']['equipment']['data'])->pluck('name')->all();
         });
 
@@ -101,7 +101,7 @@ class EquipmentAccessTest extends TestCase
     {
         $nobody = $this->person();
 
-        $this->actingAs($nobody)->get('/equipment')->assertForbidden();
+        $this->actingAs($nobody)->get('/inventory')->assertForbidden();
         $this->actingAs($nobody)->get('/equipment/journal')->assertForbidden();
         $this->actingAs($nobody)->get('/equipment/'.$this->unitOf()->id)->assertForbidden();
     }
@@ -114,7 +114,7 @@ class EquipmentAccessTest extends TestCase
         $stock = $this->unitOf();
 
         $this->actingAs($viewer)
-            ->get('/equipment?view=list')
+            ->get('/inventory')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('equipment.total', 1)
                 ->where('scopes', ['own'])
@@ -137,7 +137,7 @@ class EquipmentAccessTest extends TestCase
         Equipment::factory(1)->ofType($this->type())->writtenOff()->create();
 
         $this->actingAs($viewer)
-            ->get('/equipment?view=list')
+            ->get('/inventory')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('counts.all', 2)
                 ->where('counts.issued', 2)
@@ -309,7 +309,7 @@ class EquipmentAccessTest extends TestCase
         $theirs = $this->unitOf($keeper);
 
         $found = fn (string $term) => $this->actingAs($viewer)
-            ->get('/equipment?tab=all&q='.urlencode($term))
+            ->get('/inventory?tab=all&q='.urlencode($term))
             ->assertInertia(fn (AssertableInertia $page) => $page->has('equipment.data', 0));
 
         // By the name of whoever holds it, and by the sticker on it.
@@ -318,7 +318,7 @@ class EquipmentAccessTest extends TestCase
 
         // What is theirs is still found, so the box narrows rather than shuts.
         $this->actingAs($viewer)
-            ->get('/equipment?tab=all&q='.urlencode($mine->inventory_number))
+            ->get('/inventory?tab=all&q='.urlencode($mine->inventory_number))
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.id', $mine->id)
@@ -342,7 +342,7 @@ class EquipmentAccessTest extends TestCase
         $unit = $this->unitOf(User::factory()->create());
         $this->entry($unit, $admin);
 
-        $this->actingAs($admin)->get('/equipment')->assertOk();
+        $this->actingAs($admin)->get('/inventory')->assertOk();
         $this->actingAs($admin)->get('/equipment/journal')->assertOk();
         $this->actingAs($admin)
             ->get("/equipment/{$unit->id}")

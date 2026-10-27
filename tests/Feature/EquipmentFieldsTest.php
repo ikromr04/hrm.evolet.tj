@@ -293,7 +293,7 @@ class EquipmentFieldsTest extends TestCase
         // And it is in the list, and in the search, under its category — in
         // both of them a row that says it has no name rather than a blank line.
         $this->actingAs($admin)
-            ->get('/equipment?view=list&tab=stock')
+            ->get('/inventory?tab=stock')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->has('equipment.data', 1)
                 ->where('equipment.data.0.name', EquipmentName::NAMELESS)
@@ -356,7 +356,7 @@ class EquipmentFieldsTest extends TestCase
 
         foreach (['asc', 'desc'] as $direction) {
             $this->actingAs($admin)
-                ->get("/equipment?view=list&tab=stock&sort=name&direction={$direction}")
+                ->get("/inventory?tab=stock&sort=name&direction={$direction}")
                 ->assertInertia(fn (AssertableInertia $page) => $page
                     ->where('equipment.data.0.id', $named->id)
                     ->where('equipment.data.1.id', $nameless->id)
@@ -577,7 +577,7 @@ class EquipmentFieldsTest extends TestCase
         $field = $type->fields()->create(['name' => 'Процессор', 'type' => 'text', 'position' => 0]);
 
         $this->actingAs($this->sysadmin())
-            ->get('/equipment/create')
+            ->get('/inventory/equipment/create')
             ->assertOk()
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('options.types.0.name', 'Ноутбуки')
@@ -662,7 +662,7 @@ class EquipmentFieldsTest extends TestCase
         $this->category('Периферия', ['has_accessories' => false]);
 
         $this->actingAs($this->sysadmin())
-            ->get('/equipment/create')
+            ->get('/inventory/equipment/create')
             ->assertInertia(fn (AssertableInertia $page) => $page
                 ->where('options.types', fn ($types) => collect($types)->firstWhere('name', 'Периферия')['has_accessories'] === false)
             );

@@ -58,7 +58,7 @@ class TableViewTest extends TestCase
         $this->assertSame($sysadmin->id, $kept->updated_by);
 
         // And every page carries it, so a table opens in it without asking.
-        $this->actingAs($sysadmin)->get('/equipment')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->actingAs($sysadmin)->get('/inventory/equipment')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('tableViews.equipment.view.hidden', ['created'])
             ->where('tableViews.equipment.view.widths.name', 240)
             ->where('tableViews.equipment.query', 'sort=name&tab=stock')
@@ -88,7 +88,7 @@ class TableViewTest extends TestCase
         $this->assertSame(1, TableView::query()->count());
 
         // They are told how the table opens, all the same: it is how they read it.
-        $this->actingAs($manager)->get('/equipment')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->actingAs($manager)->get('/inventory/equipment')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('tableViews.equipment.view.hidden', [])
             ->where('auth.sysadmin', false)
         );
@@ -113,7 +113,7 @@ class TableViewTest extends TestCase
         // keeps a JSON object with its keys sorted, and the store this test runs
         // on does not, so the page is written to read the answer rather than the
         // order it is written in — see `stable` in view.ts.
-        $this->actingAs($sysadmin)->get('/equipment')->assertInertia(fn (AssertableInertia $page) => $page
+        $this->actingAs($sysadmin)->get('/inventory/equipment')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('tableViews.equipment.view', $sent['view'])
             ->where('tableViews.equipment.query', $sent['query'])
             ->where('tableViews.equipment.state', $sent['state'])
