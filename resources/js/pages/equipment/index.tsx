@@ -388,14 +388,18 @@ function DeleteDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
 function Holder({ unit }: { unit: Unit }) {
     if (unit.holder) {
         return (
-            <PersonLink
-                id={unit.holder.id}
-                title={`Открыть профиль: ${unit.holder.name}`}
-                className="text-brand-strong flex items-center gap-2 hover:underline dark:text-[#C5E27A]"
-            >
+            // The picture and the name answer differently: the first opens the
+            // photograph, the second the card.
+            <span className="flex min-w-0 items-center gap-2">
                 <PersonFace id={unit.holder.id} name={unit.holder.name} avatar={unit.holder.avatar} className="size-7 text-[11px]" />
-                <span className="truncate">{unit.holder.name}</span>
-            </PersonLink>
+                <PersonLink
+                    id={unit.holder.id}
+                    title={`Открыть профиль: ${unit.holder.name}`}
+                    className="text-brand-strong truncate hover:underline dark:text-[#C5E27A]"
+                >
+                    {unit.holder.name}
+                </PersonLink>
+            </span>
         );
     }
 
@@ -848,14 +852,12 @@ function HolderName({ row }: { row: HolderRow }) {
     }
 
     return (
-        <PersonLink
-            id={row.id}
-            title={`Открыть профиль: ${row.name}`}
-            className="text-brand-strong flex items-center gap-2 hover:underline dark:text-[#C5E27A]"
-        >
+        <span className="flex min-w-0 items-center gap-2">
             <PersonFace id={row.id} name={row.name} avatar={row.avatar} className="size-7 text-[11px]" />
-            <span className="truncate">{row.name}</span>
-        </PersonLink>
+            <PersonLink id={row.id} title={`Открыть профиль: ${row.name}`} className="text-brand-strong truncate hover:underline dark:text-[#C5E27A]">
+                {row.name}
+            </PersonLink>
+        </span>
     );
 }
 

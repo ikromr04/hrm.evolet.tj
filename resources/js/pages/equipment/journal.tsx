@@ -10,6 +10,7 @@ import {
     type Sort,
     type ViewState,
 } from '@/components/data-table';
+import { DateRangePicker } from '@/components/date-range-picker';
 import { ChangeLines, EventRow } from '@/components/equipment-changes';
 import { CategoryChip } from '@/components/equipment-icon';
 import { Pagination, type Paginated } from '@/components/pagination';
@@ -26,7 +27,7 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { eventLabel, eventTone, formatMoment, type EventChanges, type EventKind, type NameLookup } from '@/lib/equipment';
 import { TABLE_KEYS } from '@/lib/tables';
@@ -34,7 +35,7 @@ import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { ChevronDown } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
 interface JournalEvent {
     id: number;
@@ -170,8 +171,6 @@ export default function EquipmentJournal({ section, events, names, filters, perP
         setView,
         fallback: defaults,
     });
-    const [from, setFrom] = useState(filters.from ?? '');
-    const [to, setTo] = useState(filters.to ?? '');
 
     /** Everything the journal is looking at, as one query string. */
     const visit = (next: { filters?: Partial<Filters>; perPage?: number }) => {
@@ -190,18 +189,6 @@ export default function EquipmentJournal({ section, events, names, filters, perP
         router.get(route(place.route), query, { preserveState: true, preserveScroll: true, replace: true });
     };
 
-    /** The periods asked for most often, a click away. */
-    const period = (days: number) => {
-        const end = new Date();
-        const start = new Date();
-        start.setDate(end.getDate() - (days - 1));
-
-        const iso = (date: Date) => date.toISOString().slice(0, 10);
-        setFrom(iso(start));
-        setTo(iso(end));
-        visit({ filters: { from: iso(start), to: iso(end) } });
-    };
-
     const today = new Date().toISOString().slice(0, 10);
     // A stretch of exactly a month that ended last year is not "Месяц", so a
     // preset counts as in force only when the period runs up to today. With no
@@ -211,6 +198,29 @@ export default function EquipmentJournal({ section, events, names, filters, perP
 
         return Math.round((new Date(filters.to).getTime() - new Date(filters.from).getTime()) / 86400000) + 1 === days;
     };
+
+    /** Everything there is, which is what the journal opens on. */
+    const allTime = () => visit({ filters: { from: null, to: null } });
+
+    /** The periods asked for most often, a press away. */
+    const period = (days: number) => {
+        const end = new Date();
+        const start = new Date();
+        start.setDate(end.getDate() - (days - 1));
+
+        const iso = (date: Date) => date.toISOString().slice(0, 10);
+        visit({ filters: { from: iso(start), to: iso(end) } });
+    };
+
+    /**
+     * The strip's answer: one of the periods, «За всё время» where none is
+     * asked for, and none of them where somebody typed a stretch of their own
+     * into the two boxes — the strip then says nothing rather than claiming
+     * the dates as one of its own.
+     */
+    const standing = filters.from === null && filters.to === null ? 'all' : (presets.find((preset) => inForce(preset.days))?.days.toString() ?? '');
+
+    const ask = (next: string) => (next === 'all' ? allTime() : period(Number(next)));
 
     const cell = (column: ColumnDef, event: JournalEvent) => {
         switch (column.key) {
@@ -240,14 +250,16 @@ export default function EquipmentJournal({ section, events, names, filters, perP
                 return <span className="text-muted-foreground">{event.unit?.type ?? '—'}</span>;
             case 'actor':
                 return event.actor ? (
-                    <PersonLink
-                        id={event.actor.id}
-                        title={`Открыть профиль: ${event.actor.name}`}
-                        className="text-brand-strong flex items-center gap-2 hover:underline dark:text-[#C5E27A]"
-                    >
+                    <span className="flex min-w-0 items-center gap-2">
                         <PersonFace id={event.actor.id} name={event.actor.name} avatar={event.actor.avatar} className="size-7 text-[11px]" />
-                        <span className="truncate">{event.actor.name}</span>
-                    </PersonLink>
+                        <PersonLink
+                            id={event.actor.id}
+                            title={`Открыть профиль: ${event.actor.name}`}
+                            className="text-brand-strong truncate hover:underline dark:text-[#C5E27A]"
+                        >
+                            {event.actor.name}
+                        </PersonLink>
+                    </span>
                 ) : (
                     <span className="text-muted-foreground">Система</span>
                 );
@@ -268,65 +280,53 @@ export default function EquipmentJournal({ section, events, names, filters, perP
         <AppLayout breadcrumbs={place.crumbs} fitViewport>
             <Head title="Журнал операций" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-4 lg:px-6">
+            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
                 <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Журнал операций</h1>
 
                 {/* On a phone one line: the quick periods as chips and the button to
                     the sheet, where an exact period is picked along with the rest. */}
-                <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap md:-mb-2">
-                    {/* The period keeps to one line: on a phone its two boxes share the width. */}
-                    <div className="flex w-full items-center gap-2 max-md:hidden sm:w-auto">
-                        <Input
-                            type="date"
-                            aria-label="Период с"
-                            value={from}
-                            max={to || undefined}
-                            onChange={(event) => setFrom(event.target.value)}
-                            onBlur={() => from !== (filters.from ?? '') && visit({ filters: { from: from || null } })}
-                            className="h-9 min-w-0 flex-1 sm:w-40 sm:flex-none"
-                        />
+                <div className="flex flex-wrap items-center gap-2 max-md:flex-nowrap">
+                    {/* The periods as one strip, the way the lists of this app
+                        are switched: the open one is the question being asked,
+                        and «За всё время» is the one that asks nothing. */}
+                    <Tabs value={standing} onValueChange={ask} className="shrink-0 max-md:hidden">
+                        <TabsList aria-label="Период">
+                            <TabsTrigger value="all">За всё время</TabsTrigger>
+                            {presets.map((preset) => (
+                                <TabsTrigger key={preset.days} value={String(preset.days)}>
+                                    {preset.label}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </Tabs>
 
-                        <span className="text-muted-foreground text-sm">–</span>
+                    {/* A stretch of one's own, where none of the periods above
+                        is it: one calendar rather than two boxes, since the two
+                        ends are one answer. */}
+                    <DateRangePicker
+                        value={{ from: filters.from, to: filters.to }}
+                        onChange={(range) => visit({ filters: { from: range.from, to: range.to } })}
+                        toDate={new Date()}
+                        className="max-md:hidden"
+                    />
 
-                        <Input
-                            type="date"
-                            aria-label="Период по"
-                            value={to}
-                            min={from || undefined}
-                            onChange={(event) => setTo(event.target.value)}
-                            onBlur={() => to !== (filters.to ?? '') && visit({ filters: { to: to || null } })}
-                            className="h-9 min-w-0 flex-1 sm:w-40 sm:flex-none"
-                        />
-                    </div>
-
-                    <div className="grid w-full grid-cols-4 gap-1 max-md:hidden sm:flex sm:w-auto">
-                        {presets.map((preset) => (
-                            <Button
-                                key={preset.days}
-                                variant={inForce(preset.days) ? 'default' : 'outline'}
-                                aria-pressed={inForce(preset.days)}
-                                className="h-9 min-w-0 px-2 sm:px-4"
-                                onClick={() => period(preset.days)}
-                            >
-                                {preset.label}
-                            </Button>
-                        ))}
-                    </div>
-
-                    {/* The same periods on a phone, as a row of chips that scrolls sideways if it must. */}
+                    {/* The same strip on a phone, as chips that scroll sideways if they must. */}
                     <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
-                        {presets.map((preset) => (
+                        {[
+                            { value: 'all', label: 'За всё время' },
+                            ...presets.map((preset) => ({ value: String(preset.days), label: preset.label })),
+                        ].map((one) => (
                             <button
-                                key={preset.days}
+                                key={one.value}
                                 type="button"
-                                aria-pressed={inForce(preset.days)}
-                                onClick={() => period(preset.days)}
+                                aria-pressed={standing === one.value}
+                                onClick={() => ask(one.value)}
                                 className={cn(
                                     'h-8 shrink-0 rounded-full px-3 text-sm whitespace-nowrap transition-colors',
-                                    inForce(preset.days) ? 'bg-brand-soft text-foreground font-semibold dark:bg-white/10' : 'bg-card',
+                                    standing === one.value ? 'bg-brand-soft text-foreground font-semibold dark:bg-white/10' : 'bg-card',
                                 )}
                             >
-                                {preset.label}
+                                {one.label}
                             </button>
                         ))}
                     </div>
@@ -334,13 +334,7 @@ export default function EquipmentJournal({ section, events, names, filters, perP
                     <MobileListTools
                         columns={columns}
                         filters={filters as unknown as Record<string, unknown>}
-                        onFilter={(changes) => {
-                            // The desktop's period boxes follow, so they show what is in force.
-                            const next = changes as Partial<Filters>;
-                            if ('from' in next) setFrom(next.from ?? '');
-                            if ('to' in next) setTo(next.to ?? '');
-                            visit({ filters: next });
-                        }}
+                        onFilter={(changes) => visit({ filters: changes as Partial<Filters> })}
                         sort={DEFAULT_SORT}
                         sortable={[]}
                         onSort={() => undefined}
@@ -361,11 +355,6 @@ export default function EquipmentJournal({ section, events, names, filters, perP
                             </DropdownMenuCheckboxItem>
                         ))}
                     </TableMemoryButton>
-
-                    <Button variant="outline" className="h-9 max-md:hidden" asChild>
-                        {/* The list of units, which is what the button says — the page opens on who holds what. */}
-                        <Link href={route('inventory.overview')}>К списку оборудования</Link>
-                    </Button>
                 </div>
 
                 <DataTable
