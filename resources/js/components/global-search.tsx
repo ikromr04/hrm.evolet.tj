@@ -150,7 +150,7 @@ export function GlobalSearch() {
                 label: person.name,
                 hint: person.positions.length ? person.positions.join(', ') : person.email,
                 href: route('employees.show', person.id),
-                icon: <PersonFace id={person.id} name={person.name} avatar={person.avatar} className="size-8 text-[11px]" />,
+                icon: <PersonFace id={person.id} name={person.name} avatar={person.avatar} plain className="size-8 text-[11px]" />,
             })),
             ...results.equipment.map((unit) => ({
                 key: `equipment-${unit.id}`,

@@ -362,10 +362,14 @@ function Face({ row, visible, className }: { row: EmployeeRow; visible: string[]
         );
     }
 
-    return row.avatar ? (
-        <img src={row.avatar} alt="" className={cn('shrink-0 rounded-full object-cover', faceEdge, className)} />
-    ) : (
-        <PersonAvatar name={`${row.name} ${row.surname}`} className={className} />
+    if (!row.avatar) return <PersonAvatar name={`${row.name} ${row.surname}`} className={className} />;
+
+    return (
+        // The picture opens at full size in a tab of its own; the name beside
+        // it is the way to the card.
+        <a href={row.avatar} target="_blank" rel="noopener" title={`Фотография: ${row.surname} ${row.name}`} className="shrink-0 rounded-full">
+            <img src={row.avatar} alt="" className={cn('shrink-0 rounded-full object-cover', faceEdge, className)} />
+        </a>
     );
 }
 
@@ -488,11 +492,9 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 filter: { type: 'text', param: 'search', placeholder: 'ФИО или почта' },
                 cell: (row) => (
                     <div className="flex items-center gap-3">
-                        {/* The face opens the card the name opens: it is the same
-                            person, and a picture is the easier thing to aim at. */}
-                        <Link href={route('employees.show', row.id)} tabIndex={-1} aria-hidden className="shrink-0">
-                            <Face row={row} visible={visible} className="size-[38px] text-[13px]" />
-                        </Link>
+                        {/* The face opens the photograph it is; the name beside
+                            it opens the card. */}
+                        <Face row={row} visible={visible} className="size-[38px] text-[13px]" />
                         <div className="flex min-w-0 flex-col gap-0.5">
                             <Link
                                 href={route('employees.show', row.id)}

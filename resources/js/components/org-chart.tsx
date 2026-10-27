@@ -54,7 +54,7 @@ function Count({ value, className }: { value: number; className?: string }) {
 function PersonLine({ person, head }: { person: OrgPerson; head?: boolean }) {
     return (
         <li className="flex min-w-0 items-center gap-1.5">
-            <PersonFace id={person.id} name={person.name} avatar={person.avatar} className="size-5 text-[8px]" />
+            <PersonFace id={person.id} name={person.name} avatar={person.avatar} plain className="size-5 text-[8px]" />
             <PersonLink id={person.id} className={cn('truncate text-xs hover:underline', head ? 'font-medium' : 'text-muted-foreground')}>
                 {person.name}
             </PersonLink>

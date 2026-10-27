@@ -1160,14 +1160,16 @@ export default function EquipmentShow({
                 return <StatusBadge tone={eventTone[event.kind]}>{eventLabel[event.kind]}</StatusBadge>;
             case 'actor':
                 return event.actor ? (
-                    <PersonLink
-                        id={event.actor.id}
-                        title={`Открыть профиль: ${event.actor.name}`}
-                        className="text-brand-strong flex items-center gap-2 hover:underline dark:text-[#C5E27A]"
-                    >
+                    <span className="flex min-w-0 items-center gap-2">
                         <PersonFace id={event.actor.id} name={event.actor.name} avatar={event.actor.avatar} className="size-7 text-[11px]" />
-                        <span className="truncate">{event.actor.name}</span>
-                    </PersonLink>
+                        <PersonLink
+                            id={event.actor.id}
+                            title={`Открыть профиль: ${event.actor.name}`}
+                            className="text-brand-strong truncate hover:underline dark:text-[#C5E27A]"
+                        >
+                            {event.actor.name}
+                        </PersonLink>
+                    </span>
                 ) : (
                     <span className="text-muted-foreground">Система</span>
                 );
@@ -1405,6 +1407,7 @@ export default function EquipmentShow({
                                                 id={unit.holder.id}
                                                 name={unit.holder.name}
                                                 avatar={unit.holder.avatar}
+                                                plain
                                                 className="size-10 shrink-0 text-[13px]"
                                             />
                                             <span className="flex min-w-0 flex-1 flex-col gap-0.5">

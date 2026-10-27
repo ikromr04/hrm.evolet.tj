@@ -335,11 +335,9 @@ function ColleagueRow({
 
     return (
         <li className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
-            {/* The face leads where the name leads: it is the larger target of the
-                two, and the one a reader aims at first. */}
-            <PersonLink id={person.id} className="shrink-0 rounded-full" title={`Открыть профиль: ${person.name}`}>
-                <Avatar person={person} />
-            </PersonLink>
+            {/* The face opens the photograph it is; the name beside it opens
+                the card. */}
+            <Avatar person={person} />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
                     <PersonLink id={person.id} className="text-sm font-medium hover:underline">
