@@ -1,4 +1,4 @@
-import { PersonAvatar } from '@/components/person-avatar';
+import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { useCan } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
@@ -26,7 +26,7 @@ export function PersonFace({ id, name, avatar, className }: { id: number; name: 
             <span
                 title="Фотография закрыта"
                 aria-label="Фотография закрыта"
-                className={cn('bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full', className)}
+                className={cn('bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full', faceEdge, className)}
             >
                 <Lock className="size-[45%]" />
             </span>
@@ -34,7 +34,7 @@ export function PersonFace({ id, name, avatar, className }: { id: number; name: 
     }
 
     return avatar ? (
-        <img src={avatar} alt="" className={cn('size-9 shrink-0 rounded-full object-cover', className)} />
+        <img src={avatar} alt="" className={cn('size-9 shrink-0 rounded-full object-cover', faceEdge, className)} />
     ) : (
         <PersonAvatar name={name} className={className} />
     );

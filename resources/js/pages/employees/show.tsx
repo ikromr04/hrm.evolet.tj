@@ -7,7 +7,7 @@ import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equ
 import InputError from '@/components/input-error';
 import { LevelBadge } from '@/components/language-badges';
 import { MultiSelect } from '@/components/multi-select';
-import { PersonAvatar } from '@/components/person-avatar';
+import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
 import { type Placement, type PlacementOptions } from '@/components/placements';
@@ -2566,7 +2566,10 @@ function EquipmentList({ items }: { items: ProfilePrivate['equipment'] }) {
 function LockedFace() {
     return (
         <div
-            className="bg-muted text-muted-foreground flex size-[72px] shrink-0 items-center justify-center rounded-full md:size-[88px]"
+            className={cn(
+                'bg-muted text-muted-foreground flex size-[72px] shrink-0 items-center justify-center rounded-full md:size-[88px]',
+                faceEdge,
+            )}
             title="Фотография закрыта"
             aria-label="Фотография закрыта"
         >
@@ -2602,7 +2605,7 @@ function Avatar({ employee, canEdit, onDelete }: { employee: Employee; canEdit: 
         <img
             src={employee.avatar}
             alt={`Фотография: ${employee.surname} ${employee.name}`}
-            className="size-[72px] rounded-full object-cover md:size-[88px]"
+            className={cn('size-[72px] rounded-full object-cover md:size-[88px]', faceEdge)}
         />
     ) : (
         <PersonAvatar name={`${employee.name} ${employee.surname}`} className="size-[72px] text-2xl md:size-[88px] md:text-3xl" />

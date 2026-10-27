@@ -19,6 +19,13 @@ export function avatarColors(name: string) {
     return palette[Math.abs(hash) % palette.length];
 }
 
+/**
+ * The hairline every face wears, whichever of the three it is: a photograph, a
+ * set of initials or a lock. Drawn inside the circle rather than around it, so
+ * a face takes the same room with it as without.
+ */
+export const faceEdge = 'ring-border ring-1 ring-inset';
+
 export function PersonAvatar({ name, className }: { name: string; className?: string }) {
     const getInitials = useInitials();
 
@@ -26,7 +33,7 @@ export function PersonAvatar({ name, className }: { name: string; className?: st
         <span
             aria-hidden="true"
             style={avatarColors(name)}
-            className={cn('flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold', className)}
+            className={cn('flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold', faceEdge, className)}
         >
             {getInitials(name)}
         </span>

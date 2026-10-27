@@ -18,7 +18,7 @@ import { EmployeeActions, type EmploymentStatus } from '@/components/employee-ac
 import { LanguageBadges } from '@/components/language-badges';
 import { MobileFab } from '@/components/mobile-fab';
 import { Pagination, type Paginated } from '@/components/pagination';
-import { PersonAvatar } from '@/components/person-avatar';
+import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { Phones } from '@/components/phones';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { SearchInput } from '@/components/search-input';
@@ -352,7 +352,7 @@ function Face({ row, visible, className }: { row: EmployeeRow; visible: string[]
     if (!visible.includes('avatar')) {
         return (
             <span
-                className={cn('bg-muted text-muted-foreground flex shrink-0 items-center justify-center rounded-full', className)}
+                className={cn('bg-muted text-muted-foreground flex shrink-0 items-center justify-center rounded-full', faceEdge, className)}
                 title="Фотография закрыта"
                 aria-label="Фотография закрыта"
             >
@@ -362,7 +362,7 @@ function Face({ row, visible, className }: { row: EmployeeRow; visible: string[]
     }
 
     return row.avatar ? (
-        <img src={row.avatar} alt="" className={cn('shrink-0 rounded-full object-cover', className)} />
+        <img src={row.avatar} alt="" className={cn('shrink-0 rounded-full object-cover', faceEdge, className)} />
     ) : (
         <PersonAvatar name={`${row.name} ${row.surname}`} className={className} />
     );
