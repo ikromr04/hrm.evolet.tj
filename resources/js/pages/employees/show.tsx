@@ -34,7 +34,6 @@ import {
     formatPhone,
     languageLevels,
     monthNames,
-    monthsSpan,
     tenure,
     type Education,
     type Equipment,
@@ -51,14 +50,17 @@ import { Head, Link, router, useForm } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     Camera,
+    Check,
     ChevronLeft,
     ChevronRight,
+    FileText,
     LoaderCircle,
     Lock,
     Mail,
     Pencil,
     Phone,
     Plus,
+    Printer,
     Trash2,
     Upload,
     type LucideIcon,
@@ -175,8 +177,7 @@ interface Assigned {
  */
 const TABS = [
     { key: 'profile', title: 'Профиль' },
-    { key: 'education', title: 'Образование', private: true, field: 'educations' },
-    { key: 'experience', title: 'Трудовая деятельность', private: true, field: 'work_experiences' },
+    { key: 'sheet', title: 'Личный листок' },
     { key: 'equipment', title: 'Оборудование', private: true, field: 'equipment' },
 ] as const;
 
@@ -674,6 +675,324 @@ function KpiSection() {
                 </div>
             </div>
         </Section>
+    );
+}
+
+/**
+ * «Личный листок по учёту кадров»: the sheet a personnel office keeps, as the
+ * design draws it. The design's answers too — nothing is kept or signed yet,
+ * so the tab can be read and agreed on before there is anything behind it.
+ */
+const SHEET = {
+    office: 'Evolet · Отдел кадров',
+    number: '00418',
+    filled: 94,
+    filledAt: '2026-10-12',
+    signedAt: '2026-10-12',
+    name: [
+        ['Фамилия', 'Рахимова'],
+        ['Имя', 'Нигина'],
+        ['Отчество', 'Саидовна'],
+    ],
+    general: [
+        ['Пол', 'Женский'],
+        ['Дата рождения', formatDate('1997-06-09')],
+        ['Место рождения', 'г. Душанбе'],
+        ['Национальность', 'Таджичка'],
+        ['Гражданство', 'Республика Таджикистан'],
+    ],
+    educations: [
+        ['ТГНУ', 'Прикладная математика, бакалавр', '2015–2019', 'Диплом № 0123456'],
+        ['ТТУ им. Осими', 'Информационные системы, магистр', '2019–2021', 'Диплом № 0234567'],
+    ],
+    degree: 'Нет',
+    languages: 'Английский (B2), китайский (A1)',
+    jobs: [
+        ['10.2023 — н. в.', 'Evolet, ДАС › ОРПП', 'Аналитик', '—'],
+        ['08.2021 — 09.2023', '«Сомон Групп»', 'Аналитик', 'По собственному желанию'],
+        ['07.2019 — 07.2021', '«ТехноПарк»', 'Младший аналитик', 'Переход на другую работу'],
+    ],
+    awards: 'Благодарность за вклад в проект «Дашборд KPI», 2025',
+    marital: 'Не замужем',
+    family: [
+        ['Мать', 'Рахимова Зарина Курбоновна', '1971', 'Пенсионерка'],
+        ['Брат', 'Рахимов Далер Саидович', '2001', 'Студент, ТТУ им. Осими'],
+    ],
+    passport: [
+        ['Серия и номер', 'A 00000000'],
+        ['Дата выдачи', formatDate('2020-01-01')],
+        ['Кем выдан', 'МВД Республики Таджикистан'],
+        ['ИНН', '000000000'],
+    ],
+    contacts: [
+        ['Домашний адрес', 'г. Душанбе, [улица, дом, кв.]'],
+        ['Телефон', '+992 90 000 00 01'],
+        ['Экстренный контакт · мама', '+992 90 000 00 02'],
+    ],
+    service: 'Не состоит на воинском учёте',
+    signatures: [
+        { note: 'Сведения достоверны. Обязуюсь сообщать об изменениях.', name: 'Н. Рахимова', role: 'Подпись сотрудника', at: '2026-10-12' },
+        { note: 'Принял: специалист по кадрам', name: 'Ш. Сафаров', role: 'Подпись, расшифровка', at: '2026-10-12' },
+    ],
+    missing: ['Копия трудовой книжки', 'Квалификационные сертификаты'],
+    files: [
+        { name: 'Скан паспорта.pdf', size: '1,1 МБ' },
+        { name: 'Диплом бакалавра.pdf', size: '820 КБ' },
+        { name: 'Диплом магистра.pdf', size: '790 КБ' },
+    ],
+    history: [
+        { what: 'Листок подписан сотрудником', when: '12 окт. 2026, 11:20', dot: 'bg-brand' },
+        { what: 'Обновлён адрес проживания', when: '10 окт. 2026, 16:05', dot: 'bg-[#3B82F6]' },
+        { what: 'Листок создан при приёме на работу', when: '16 окт. 2023', dot: 'bg-muted-foreground/60' },
+    ],
+};
+
+/** One numbered part of the sheet: the number, the heading, and what it holds. */
+function SheetPart({ number, title, className, children }: { number: string; title: string; className?: string; children: ReactNode }) {
+    return (
+        <section className={cn('flex flex-col gap-4 p-6 max-md:p-4', className)}>
+            <h3 className="flex items-baseline gap-2.5 text-base font-semibold">
+                <span className="text-brand-strong font-mono text-sm font-medium dark:text-[#C5E27A]">{number}</span>
+                {title}
+            </h3>
+            {children}
+        </section>
+    );
+}
+
+/**
+ * The lines of a part: a label over its answer, in as many columns as fit. A
+ * date comes through as nothing where there is no date, and the line says so
+ * rather than standing empty.
+ */
+function SheetFacts({ rows, columns = 3 }: { rows: (string | null)[][]; columns?: 3 | 4 }) {
+    return (
+        <dl className={cn('grid gap-x-6 gap-y-5', columns === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3')}>
+            {rows.map(([label, value]) => (
+                <div key={label ?? value} className="flex min-w-0 flex-col gap-1">
+                    <dt className="text-muted-foreground text-xs">{label}</dt>
+                    <dd className="text-sm font-medium break-words">{value ?? '—'}</dd>
+                </div>
+            ))}
+        </dl>
+    );
+}
+
+/** A list inside a part, framed the way the sheet frames its lists. */
+function SheetTable({ head, rows }: { head: string[]; rows: string[][] }) {
+    return (
+        <div className="overflow-hidden rounded-lg border">
+            <Table>
+                <TableHeader>
+                    <TableRow className="bg-muted/40 hover:bg-muted/40">
+                        {head.map((cell) => (
+                            <TableHead key={cell} className="text-muted-foreground h-10 px-3 text-xs font-normal">
+                                {cell}
+                            </TableHead>
+                        ))}
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {rows.map((row) => (
+                        <TableRow key={row.join()} className="hover:bg-transparent">
+                            {row.map((cell, i) => (
+                                <TableCell key={i} className={cn('px-3 py-2.5 align-top break-words whitespace-normal', i === 0 && 'font-medium')}>
+                                    {cell}
+                                </TableCell>
+                            ))}
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </div>
+    );
+}
+
+/** The sheet itself, and beside it what is still wanted for it. */
+function SheetTab() {
+    return (
+        <div className={paneGrid}>
+            <div className={pane}>
+                {/* What the sheet is at a glance, and what can be done with it. */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge tone="neutral" className="gap-1.5">
+                            <span className="bg-muted-foreground/30 inline-flex h-1 w-10 overflow-hidden rounded-full">
+                                <span className="bg-brand" style={{ width: `${SHEET.filled}%` }} />
+                            </span>
+                            Заполнен на {SHEET.filled}%
+                        </StatusBadge>
+                        <StatusBadge tone="neutral" className="gap-1.5 bg-transparent dark:bg-transparent">
+                            <Check className="text-brand-strong size-3 dark:text-[#C5E27A]" />
+                            Подписан сотрудником · {formatDate(SHEET.signedAt)}
+                        </StatusBadge>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" className="h-9">
+                            <Pencil />
+                            Редактировать
+                        </Button>
+                        <Button variant="outline" size="sm" className="h-9">
+                            <Printer />
+                            Печать
+                        </Button>
+                        <Button size="sm" className="h-9">
+                            <ArrowDownToLine />
+                            Скачать PDF
+                        </Button>
+                    </div>
+                </div>
+
+                <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0">
+                    <header className="flex items-start justify-between gap-6 border-b p-6 max-md:p-4">
+                        <div className="flex flex-col gap-1.5">
+                            <span className="text-muted-foreground text-xs font-medium">{SHEET.office}</span>
+                            <h2 className="text-xl font-semibold tracking-tight">Личный листок по учёту кадров</h2>
+                            <span className="text-muted-foreground text-sm tabular-nums">
+                                Табельный № {SHEET.number} · Дата заполнения {formatDate(SHEET.filledAt)}
+                            </span>
+                        </div>
+                        {/* Where the photograph is pasted on the printed sheet. */}
+                        <div
+                            role="img"
+                            aria-label="Место для фото 3 × 4"
+                            className="bg-muted/40 text-muted-foreground flex h-[120px] w-[90px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed text-center text-xs"
+                        >
+                            <Camera className="size-4" />
+                            Фото
+                            <br />3 × 4
+                        </div>
+                    </header>
+
+                    <SheetPart number="01" title="Фамилия, имя, отчество">
+                        <SheetFacts rows={SHEET.name} />
+                    </SheetPart>
+
+                    <SheetPart number="02" title="Общие сведения" className="border-t">
+                        <SheetFacts rows={SHEET.general} />
+                    </SheetPart>
+
+                    <SheetPart number="03" title="Образование" className="border-t">
+                        <SheetTable head={['Учебное заведение', 'Специальность, квалификация', 'Годы', 'Документ']} rows={SHEET.educations} />
+                    </SheetPart>
+
+                    {/* Two short answers share a line rather than taking one each. */}
+                    <div className="grid border-t lg:grid-cols-2">
+                        <SheetPart number="04" title="Учёная степень, звание">
+                            <p className="text-sm font-medium">{SHEET.degree}</p>
+                        </SheetPart>
+                        <SheetPart number="05" title="Знание иностранных языков" className="max-lg:border-t lg:border-l">
+                            <p className="text-sm font-medium">{SHEET.languages}</p>
+                        </SheetPart>
+                    </div>
+
+                    <SheetPart number="06" title="Трудовая деятельность" className="border-t">
+                        <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={SHEET.jobs} />
+                    </SheetPart>
+
+                    <SheetPart number="07" title="Государственные награды, поощрения" className="border-t">
+                        <p className="text-sm font-medium">{SHEET.awards}</p>
+                    </SheetPart>
+
+                    <SheetPart number="08" title="Семейное положение и состав семьи" className="border-t">
+                        <SheetFacts rows={[['Семейное положение', SHEET.marital]]} />
+                        <SheetTable head={['Родство', 'Фамилия, имя, отчество', 'Год рождения', 'Работа, учёба']} rows={SHEET.family} />
+                    </SheetPart>
+
+                    <SheetPart number="09" title="Паспортные данные" className="border-t">
+                        <SheetFacts rows={SHEET.passport} columns={4} />
+                    </SheetPart>
+
+                    <SheetPart number="10" title="Адрес и контакты" className="border-t">
+                        <SheetFacts rows={SHEET.contacts} />
+                    </SheetPart>
+
+                    <SheetPart number="11" title="Отношение к воинской обязанности" className="border-t">
+                        <p className="text-sm font-medium">{SHEET.service}</p>
+                    </SheetPart>
+
+                    <section aria-label="Подписи" className="grid gap-4 border-t p-6 max-md:p-4 sm:grid-cols-2">
+                        {SHEET.signatures.map((signature) => (
+                            <div key={signature.name} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-4">
+                                <p className="text-muted-foreground text-sm">{signature.note}</p>
+                                <div className="flex flex-wrap items-end justify-between gap-4">
+                                    <div className="flex items-center gap-2.5">
+                                        <span className="bg-brand/15 text-brand-strong flex size-7 shrink-0 items-center justify-center rounded-full dark:text-[#C5E27A]">
+                                            <Check className="size-3.5" />
+                                        </span>
+                                        <span className="flex flex-col">
+                                            <span className="text-sm font-medium">{signature.name}</span>
+                                            <span className="text-muted-foreground text-xs">{signature.role}</span>
+                                        </span>
+                                    </div>
+                                    <span className="text-muted-foreground text-sm tabular-nums">{formatDate(signature.at)}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </section>
+                </Card>
+            </div>
+
+            <aside className={pane}>
+                <Section title="Не заполнено" action={<StatusBadge tone="neutral">{SHEET.missing.length}</StatusBadge>}>
+                    <ul className="flex flex-col">
+                        {SHEET.missing.map((what) => (
+                            <li key={what} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-0">
+                                <span className="flex min-w-0 items-center gap-2">
+                                    <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
+                                    <span className="min-w-0 break-words">{what}</span>
+                                </span>
+                                <Button variant="link" className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]">
+                                    Запросить
+                                </Button>
+                            </li>
+                        ))}
+                    </ul>
+                </Section>
+
+                <Section
+                    title="Вложения"
+                    action={
+                        <Button variant="link" className="text-brand-strong h-auto gap-1 p-0 text-xs font-normal dark:text-[#C5E27A]">
+                            <Plus className="size-3.5" />
+                            Добавить
+                        </Button>
+                    }
+                >
+                    <ul className="flex flex-col gap-2">
+                        {SHEET.files.map((file) => (
+                            <li key={file.name}>
+                                <a
+                                    href="#"
+                                    className="bg-muted/40 hover:bg-muted flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors"
+                                >
+                                    <FileText className="text-muted-foreground size-4 shrink-0" />
+                                    <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+                                    <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{file.size}</span>
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                </Section>
+
+                <Section title="История изменений">
+                    <ol className="flex flex-col">
+                        {SHEET.history.map((event, index) => (
+                            <li key={event.what} className="relative flex gap-3 pb-4 last:pb-0">
+                                {/* The thread between the dots, stopping at the last one. */}
+                                {index < SHEET.history.length - 1 && <span className="bg-border absolute top-3.5 bottom-0 left-[3px] w-0.5" />}
+                                <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', event.dot)} />
+                                <span className="flex min-w-0 flex-col gap-0.5">
+                                    <span className="text-sm">{event.what}</span>
+                                    <span className="text-muted-foreground text-xs tabular-nums">{event.when}</span>
+                                </span>
+                            </li>
+                        ))}
+                    </ol>
+                </Section>
+            </aside>
+        </div>
     );
 }
 
@@ -1567,309 +1886,6 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
     );
 }
 
-type EducationRecord = ProfilePrivate['educations'][number];
-
-/** One place of study, added or changed on its own. */
-function EducationDialog({ employee, education, onClose }: { employee: Employee; education: EducationRecord | 'new'; onClose: () => void }) {
-    const existing = education === 'new' ? null : education;
-    const form = useForm({
-        institution: existing?.institution ?? '',
-        faculty: existing?.faculty ?? '',
-        specialty: existing?.specialty ?? '',
-        started_year: existing ? String(existing.started_year) : '',
-        graduated_year: existing?.graduated_year ? String(existing.graduated_year) : '',
-        diploma_number: existing?.diploma_number ?? '',
-    });
-
-    const thisYear = new Date().getFullYear();
-
-    const submit: FormEventHandler = (event) => {
-        event.preventDefault();
-        const options = { preserveScroll: true, onSuccess: onClose };
-
-        if (existing) form.put(route('employees.educations.update', [employee.id, existing.id]), options);
-        else form.post(route('employees.educations.store', employee.id), options);
-    };
-
-    return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="overflow-y-auto sm:max-h-[90vh] sm:max-w-lg">
-                {/* noValidate: see PersonalDialog — the server's rules are the real ones. */}
-                <form onSubmit={submit} noValidate className="flex flex-col gap-5">
-                    <DialogHeader>
-                        <DialogTitle>{existing ? 'Изменить образование' : 'Новое образование'}</DialogTitle>
-                        <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>
-                    </DialogHeader>
-
-                    <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-                        <div className="grid content-start gap-2 sm:col-span-2">
-                            <Label htmlFor="education-institution">Учебное заведение</Label>
-                            <Input
-                                id="education-institution"
-                                autoFocus
-                                value={form.data.institution}
-                                onChange={(e) => form.setData('institution', e.target.value)}
-                                aria-invalid={!!form.errors.institution}
-                            />
-                            <InputError message={form.errors.institution} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="education-faculty">Факультет</Label>
-                            <Input
-                                id="education-faculty"
-                                value={form.data.faculty}
-                                onChange={(e) => form.setData('faculty', e.target.value)}
-                                aria-invalid={!!form.errors.faculty}
-                            />
-                            <InputError message={form.errors.faculty} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="education-specialty">Специальность</Label>
-                            <Input
-                                id="education-specialty"
-                                value={form.data.specialty}
-                                onChange={(e) => form.setData('specialty', e.target.value)}
-                                aria-invalid={!!form.errors.specialty}
-                            />
-                            <InputError message={form.errors.specialty} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="education-started">Год поступления</Label>
-                            <Input
-                                id="education-started"
-                                type="number"
-                                inputMode="numeric"
-                                min={1950}
-                                max={thisYear}
-                                value={form.data.started_year}
-                                onChange={(e) => form.setData('started_year', e.target.value)}
-                                aria-invalid={!!form.errors.started_year}
-                            />
-                            <InputError message={form.errors.started_year} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="education-graduated">Год окончания</Label>
-                            <Input
-                                id="education-graduated"
-                                type="number"
-                                inputMode="numeric"
-                                min={1950}
-                                max={thisYear + 10}
-                                placeholder="Пусто — ещё учится"
-                                value={form.data.graduated_year}
-                                onChange={(e) => form.setData('graduated_year', e.target.value)}
-                                aria-invalid={!!form.errors.graduated_year}
-                            />
-                            <InputError message={form.errors.graduated_year} />
-                        </div>
-
-                        <div className="grid content-start gap-2 sm:col-span-2">
-                            <Label htmlFor="education-diploma">Номер диплома</Label>
-                            <Input
-                                id="education-diploma"
-                                value={form.data.diploma_number}
-                                onChange={(e) => form.setData('diploma_number', e.target.value)}
-                                aria-invalid={!!form.errors.diploma_number}
-                            />
-                            <InputError message={form.errors.diploma_number} />
-                        </div>
-                    </div>
-
-                    <DialogFooter className="gap-2">
-                        <Button type="button" variant="outline" onClick={onClose}>
-                            Отмена
-                        </Button>
-                        <Button type="submit" disabled={form.processing}>
-                            {form.processing && <LoaderCircle className="animate-spin" />}
-                            Сохранить
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-type JobRecord = ProfilePrivate['work_experiences'][number];
-
-/** One previous job, added or changed on its own. */
-function WorkExperienceDialog({
-    employee,
-    job,
-    options,
-    onClose,
-}: {
-    employee: Employee;
-    job: JobRecord | 'new';
-    options: EditOptions;
-    onClose: () => void;
-}) {
-    const existing = job === 'new' ? null : job;
-    const form = useForm({
-        organization: existing?.organization ?? '',
-        position: existing?.position ?? '',
-        country: existing?.country ?? '',
-        started_month: existing ? String(existing.started_month) : '',
-        started_year: existing ? String(existing.started_year) : '',
-        ended_month: existing?.ended_month ? String(existing.ended_month) : '',
-        ended_year: existing?.ended_year ? String(existing.ended_year) : '',
-    });
-
-    const thisYear = new Date().getFullYear();
-    const countries = [...new Set(['Таджикистан', ...options.countries])];
-
-    const submit: FormEventHandler = (event) => {
-        event.preventDefault();
-        const send = { preserveScroll: true, onSuccess: onClose };
-
-        if (existing) form.put(route('employees.experiences.update', [employee.id, existing.id]), send);
-        else form.post(route('employees.experiences.store', employee.id), send);
-    };
-
-    return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="overflow-y-auto sm:max-h-[90vh] sm:max-w-lg">
-                {/* noValidate: see PersonalDialog — the server's rules are the real ones. */}
-                <form onSubmit={submit} noValidate className="flex flex-col gap-5">
-                    <DialogHeader>
-                        <DialogTitle>{existing ? 'Изменить место работы' : 'Новое место работы'}</DialogTitle>
-                        <DialogDescription className="sr-only">Заполните поля и сохраните.</DialogDescription>
-                    </DialogHeader>
-
-                    <datalist id="job-countries">
-                        {countries.map((country) => (
-                            <option key={country} value={country} />
-                        ))}
-                    </datalist>
-
-                    <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
-                        <div className="grid content-start gap-2 sm:col-span-2">
-                            <Label htmlFor="job-organization">Организация</Label>
-                            <Input
-                                id="job-organization"
-                                autoFocus
-                                value={form.data.organization}
-                                onChange={(e) => form.setData('organization', e.target.value)}
-                                aria-invalid={!!form.errors.organization}
-                            />
-                            <InputError message={form.errors.organization} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="job-position">Должность</Label>
-                            <Input
-                                id="job-position"
-                                value={form.data.position}
-                                onChange={(e) => form.setData('position', e.target.value)}
-                                aria-invalid={!!form.errors.position}
-                            />
-                            <InputError message={form.errors.position} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="job-country">Страна</Label>
-                            <Input
-                                id="job-country"
-                                list="job-countries"
-                                value={form.data.country}
-                                onChange={(e) => form.setData('country', e.target.value)}
-                                aria-invalid={!!form.errors.country}
-                            />
-                            <InputError message={form.errors.country} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="job-started-month">Вступление</Label>
-                            <div className="grid grid-cols-[1fr_4.5rem] gap-2 sm:grid-cols-[1fr_6rem]">
-                                <Select value={form.data.started_month} onValueChange={(value) => form.setData('started_month', value)}>
-                                    <SelectTrigger id="job-started-month" aria-label="Месяц вступления">
-                                        <SelectValue placeholder="Месяц" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {monthNames.map((month, index) => (
-                                            <SelectItem key={month} value={String(index + 1)}>
-                                                {month}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Input
-                                    type="number"
-                                    inputMode="numeric"
-                                    aria-label="Год вступления"
-                                    placeholder="Год"
-                                    min={1950}
-                                    max={thisYear}
-                                    value={form.data.started_year}
-                                    onChange={(e) => form.setData('started_year', e.target.value)}
-                                    aria-invalid={!!form.errors.started_year}
-                                />
-                            </div>
-                            <InputError message={form.errors.started_month ?? form.errors.started_year} />
-                        </div>
-
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="job-ended-month">Уход</Label>
-                            <div className="grid grid-cols-[1fr_4.5rem] gap-2 sm:grid-cols-[1fr_6rem]">
-                                {/* Clearing the month clears the year too: half a date means nothing. */}
-                                <Select
-                                    value={form.data.ended_month || 'none'}
-                                    onValueChange={(value) =>
-                                        form.setData((data) => ({
-                                            ...data,
-                                            ended_month: value === 'none' ? '' : value,
-                                            ended_year: value === 'none' ? '' : data.ended_year,
-                                        }))
-                                    }
-                                >
-                                    <SelectTrigger id="job-ended-month" aria-label="Месяц ухода">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">Работает сейчас</SelectItem>
-                                        {monthNames.map((month, index) => (
-                                            <SelectItem key={month} value={String(index + 1)}>
-                                                {month}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <Input
-                                    type="number"
-                                    inputMode="numeric"
-                                    aria-label="Год ухода"
-                                    placeholder="Год"
-                                    min={1950}
-                                    max={thisYear}
-                                    disabled={!form.data.ended_month}
-                                    value={form.data.ended_year}
-                                    onChange={(e) => form.setData('ended_year', e.target.value)}
-                                    aria-invalid={!!form.errors.ended_year}
-                                />
-                            </div>
-                            <InputError message={form.errors.ended_month ?? form.errors.ended_year} />
-                        </div>
-                    </div>
-
-                    <DialogFooter className="gap-2">
-                        <Button type="button" variant="outline" onClick={onClose}>
-                            Отмена
-                        </Button>
-                        <Button type="submit" disabled={form.processing}>
-                            {form.processing && <LoaderCircle className="animate-spin" />}
-                            Сохранить
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 /** Confirms removing one record; deleting cannot be undone. */
 function DeleteRecordDialog({
     title,
@@ -2001,14 +2017,6 @@ const emptyNote = 'text-muted-foreground text-sm max-md:py-3.5 max-md:text-[15px
  * it has without one.
  */
 const stripAction = 'text-brand-strong flex shrink-0 items-center gap-1.5 text-[13px] font-medium hover:underline dark:text-[#C5E27A]';
-
-/**
- * "Add a record" under a list. On a phone it is a row of its own in the brand
- * colour across the whole width, as a native list ends with "Add…"; from `md`
- * up it stays an ordinary outlined button.
- */
-const addRecord =
-    'self-start max-md:h-12 max-md:self-stretch max-md:justify-start max-md:rounded-2xl max-md:border-0 max-md:bg-card max-md:px-4 max-md:text-[15px] max-md:font-normal max-md:text-brand-strong max-md:shadow-none max-md:dark:bg-card max-md:dark:text-[#C5E27A]';
 
 /** A record in a list card: rows ruled off from each other, flush with the card from `md` up. */
 const recordRow = 'border-t py-3 first:border-t-0 md:first:pt-0 md:last:pb-0';
@@ -2194,100 +2202,6 @@ function Languages({ items }: { items: SpokenLanguage[] }) {
                         <span className="truncate text-sm font-medium max-md:text-[15px] max-md:font-normal">{language.name}</span>
                     )}
                     <LevelBadge level={language.level} />
-                </li>
-            ))}
-        </ul>
-    );
-}
-
-/** "2010–2015", or "2019 — учится" for someone still enrolled. */
-const studyYears = (education: Education) =>
-    education.graduated_year ? `${education.started_year}–${education.graduated_year}` : `${education.started_year} — учится`;
-
-function Educations({
-    items,
-    canEdit,
-    onEdit,
-    onDelete,
-}: {
-    items: ProfilePrivate['educations'];
-    canEdit: boolean;
-    onEdit: (education: ProfilePrivate['educations'][number]) => void;
-    onDelete: (education: ProfilePrivate['educations'][number]) => void;
-}) {
-    return (
-        <ul className="flex flex-col">
-            {items.map((education) => (
-                <li key={education.id} className={cn(recordRow, 'flex items-start gap-3')}>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-words">
-                        <span className="text-sm font-medium max-md:text-[15px]">{education.institution}</span>
-                        <span className="text-sm">
-                            {education.faculty} · {education.specialty}
-                        </span>
-                        <span className="text-muted-foreground text-[13px] tabular-nums">
-                            {studyYears(education)}
-                            {education.diploma_number && ` · диплом № ${education.diploma_number}`}
-                        </span>
-                    </div>
-                    {canEdit && <RowActions onEdit={() => onEdit(education)} onDelete={() => onDelete(education)} what="образование" />}
-                </li>
-            ))}
-        </ul>
-    );
-}
-
-/** The pencil and bin that sit at the end of one record in a list. */
-function RowActions({ onEdit, onDelete, what }: { onEdit: () => void; onDelete: () => void; what: string }) {
-    return (
-        <div className="flex shrink-0 gap-1">
-            <Button variant="ghost" size="icon" className="text-muted-foreground size-9 lg:size-7" aria-label={`Изменить ${what}`} onClick={onEdit}>
-                <Pencil className="size-4" />
-            </Button>
-            <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 text-[#B42318] hover:text-[#B42318] lg:size-7 dark:text-[#F7A19A]"
-                aria-label={`Удалить ${what}`}
-                onClick={onDelete}
-            >
-                <Trash2 className="size-4" />
-            </Button>
-        </div>
-    );
-}
-
-/** "Март 2018 — Июнь 2021 · 3 года 3 мес." */
-function workPeriod(job: WorkExperience): string {
-    const now = new Date();
-    const [endYear, endMonth] = job.ended_year && job.ended_month ? [job.ended_year, job.ended_month] : [now.getFullYear(), now.getMonth() + 1];
-    const end = job.ended_year && job.ended_month ? `${monthNames[job.ended_month - 1]} ${job.ended_year}` : 'по настоящее время';
-
-    return `${monthNames[job.started_month - 1]} ${job.started_year} — ${end} · ${monthsSpan(job.started_year, job.started_month, endYear, endMonth)}`;
-}
-
-function WorkExperiences({
-    items,
-    canEdit,
-    onEdit,
-    onDelete,
-}: {
-    items: ProfilePrivate['work_experiences'];
-    canEdit: boolean;
-    onEdit: (job: JobRecord) => void;
-    onDelete: (job: JobRecord) => void;
-}) {
-    return (
-        <ul className="flex flex-col">
-            {items.map((job) => (
-                <li key={job.id} className={cn(recordRow, 'flex items-start gap-3')}>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-words">
-                        <span className="text-sm font-medium max-md:text-[15px]">{job.position}</span>
-                        <span className="text-sm">
-                            {job.organization} · {job.country}
-                        </span>
-                        <span className="text-muted-foreground text-[13px] tabular-nums">{workPeriod(job)}</span>
-                    </div>
-                    {canEdit && <RowActions onEdit={() => onEdit(job)} onDelete={() => onDelete(job)} what="место работы" />}
                 </li>
             ))}
         </ul>
@@ -2838,11 +2752,7 @@ export default function EmployeeProfile({
     // Whoever leads the departments this person is filed in, each named once:
     // somebody in two units of one department answers to one person, not two.
     const heads = [...new Map((employee.departments ?? []).flatMap((department) => department.heads).map((head) => [head.id, head])).values()];
-    // Education is edited one record at a time, so these hold a record, not a card name.
-    const [education, setEducation] = useState<EducationRecord | 'new' | null>(null);
-    const [deletingEducation, setDeletingEducation] = useState<EducationRecord | null>(null);
-    const [job, setJob] = useState<JobRecord | 'new' | null>(null);
-    const [deletingJob, setDeletingJob] = useState<JobRecord | null>(null);
+
     const [deletingAvatar, setDeletingAvatar] = useState(false);
     const [issuing, setIssuing] = useState(false);
     const shortName = `${employee.surname} ${employee.name}`;
@@ -2995,54 +2905,7 @@ export default function EmployeeProfile({
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
                         <div className="flex flex-col gap-4">
-                            {tab === 'education' && details && (
-                                <>
-                                    <Section>
-                                        {details.educations.length === 0 ? (
-                                            <p className={emptyNote}>Не указано</p>
-                                        ) : (
-                                            <Educations
-                                                items={details.educations}
-                                                canEdit={canEditBlock('education')}
-                                                onEdit={setEducation}
-                                                onDelete={setDeletingEducation}
-                                            />
-                                        )}
-                                    </Section>
-
-                                    {/* Outside the card: the card is the list, this adds to it. */}
-                                    {canEditBlock('education') && (
-                                        <Button type="button" variant="outline" className={addRecord} onClick={() => setEducation('new')}>
-                                            <Plus />
-                                            Добавить образование
-                                        </Button>
-                                    )}
-                                </>
-                            )}
-
-                            {tab === 'experience' && details && (
-                                <>
-                                    <Section>
-                                        {details.work_experiences.length === 0 ? (
-                                            <p className={emptyNote}>Не указана</p>
-                                        ) : (
-                                            <WorkExperiences
-                                                items={details.work_experiences}
-                                                canEdit={canEditBlock('experience')}
-                                                onEdit={setJob}
-                                                onDelete={setDeletingJob}
-                                            />
-                                        )}
-                                    </Section>
-
-                                    {canEditBlock('experience') && (
-                                        <Button type="button" variant="outline" className={addRecord} onClick={() => setJob('new')}>
-                                            <Plus />
-                                            Добавить место работы
-                                        </Button>
-                                    )}
-                                </>
-                            )}
+                            {tab === 'sheet' && <SheetTab />}
 
                             {tab === 'equipment' && details && (
                                 // What they hold now on the left, what has been
@@ -3349,38 +3212,6 @@ export default function EmployeeProfile({
                 )}
 
                 {issuing && <IssueEquipmentDialog employee={employee} stock={stock} types={equipmentTypes} onClose={() => setIssuing(false)} />}
-
-                {education && <EducationDialog employee={employee} education={education} onClose={() => setEducation(null)} />}
-
-                {job && options && <WorkExperienceDialog employee={employee} job={job} options={options} onClose={() => setJob(null)} />}
-
-                {deletingJob && (
-                    <DeleteRecordDialog
-                        title={`Удалить место работы «${deletingJob.organization}»?`}
-                        description="Запись исчезнет из профиля. Отменить удаление нельзя."
-                        onConfirm={() =>
-                            router.delete(route('employees.experiences.destroy', [employee.id, deletingJob.id]), {
-                                preserveScroll: true,
-                                onFinish: () => setDeletingJob(null),
-                            })
-                        }
-                        onClose={() => setDeletingJob(null)}
-                    />
-                )}
-
-                {deletingEducation && (
-                    <DeleteRecordDialog
-                        title={`Удалить образование «${deletingEducation.institution}»?`}
-                        description="Запись исчезнет из профиля. Отменить удаление нельзя."
-                        onConfirm={() =>
-                            router.delete(route('employees.educations.destroy', [employee.id, deletingEducation.id]), {
-                                preserveScroll: true,
-                                onFinish: () => setDeletingEducation(null),
-                            })
-                        }
-                        onClose={() => setDeletingEducation(null)}
-                    />
-                )}
             </AppLayout>
         </ProfileFields>
     );
