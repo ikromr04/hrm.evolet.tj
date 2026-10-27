@@ -21,10 +21,13 @@ export function avatarColors(name: string) {
 
 /**
  * The hairline every face wears, whichever of the three it is: a photograph, a
- * set of initials or a lock. Drawn inside the circle rather than around it, so
- * a face takes the same room with it as without.
+ * set of initials or a lock. In the colour the tables and the cards are drawn
+ * in, and a border rather than an inset ring: a ring is a shadow, and a
+ * photograph is content, which paints over it — so under a photograph an inset
+ * ring is there in the styles and nowhere on the screen. The border takes its
+ * width out of the circle, so a face still fills the room it is given.
  */
-export const faceEdge = 'ring-border ring-1 ring-inset';
+export const faceEdge = 'border border-border';
 
 export function PersonAvatar({ name, className }: { name: string; className?: string }) {
     const getInitials = useInitials();
