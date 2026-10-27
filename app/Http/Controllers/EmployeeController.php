@@ -49,7 +49,7 @@ class EmployeeController extends Controller
      * Public columns. Private details (user_details, user_children) are loaded
      * separately, and only for rows the viewer is allowed to see.
      */
-    private const PUBLIC_COLUMNS = ['id', 'name', 'surname', 'patronymic', 'avatar', 'sex', 'email', 'status', 'status_changed_at', 'status_note'];
+    private const PUBLIC_COLUMNS = ['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'status', 'status_changed_at', 'status_note'];
 
     public const STATUSES = ['active', 'transferred', 'fired'];
 
@@ -216,6 +216,8 @@ class EmployeeController extends Controller
             // The photograph is a line like any other: closed, the row shows the
             // initials instead, which is what a row without a photograph shows.
             'avatar' => in_array('avatar', $visible, true) ? $user->avatar : null,
+            // The upload behind it, which is what pressing the face opens.
+            'avatar_original' => in_array('avatar', $visible, true) ? $user->avatar_original : null,
             ...$this->only($visible, [
                 'patronymic' => fn () => $user->patronymic,
                 'sex' => fn () => $user->sex,

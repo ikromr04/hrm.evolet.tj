@@ -79,7 +79,7 @@ class EquipmentHistory
             // What names a unit lives in two of its category's fields, loaded
             // here for the whole story rather than asked line by line.
             ->with([
-                'user:id,name,surname,avatar',
+                'user:id,name,surname,avatar,avatar_original',
                 'equipment' => fn ($unit) => $unit->select(['id', 'equipment_type_id'])->withIdentity(),
                 'equipment.type:id,name',
                 'photos',

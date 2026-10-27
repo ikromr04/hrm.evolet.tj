@@ -46,7 +46,7 @@ interface JournalEvent {
     note: string | null;
     at: string | null;
     unit: { id: number; name: string; inventory_number: string; type: string | null; type_icon: string | null } | null;
-    actor: { id: number; name: string; avatar: string | null } | null;
+    actor: { id: number; name: string; avatar: string | null; avatar_original: string | null } | null;
 }
 
 interface Filters {
@@ -251,7 +251,13 @@ export default function EquipmentJournal({ section, events, names, filters, perP
             case 'actor':
                 return event.actor ? (
                     <span className="flex min-w-0 items-center gap-2">
-                        <PersonFace id={event.actor.id} name={event.actor.name} avatar={event.actor.avatar} className="size-7 text-[11px]" />
+                        <PersonFace
+                            id={event.actor.id}
+                            name={event.actor.name}
+                            avatar={event.actor.avatar}
+                            original={event.actor.avatar_original}
+                            className="size-7 text-[11px]"
+                        />
                         <PersonLink
                             id={event.actor.id}
                             title={`Открыть профиль: ${event.actor.name}`}

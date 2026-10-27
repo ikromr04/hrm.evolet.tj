@@ -88,7 +88,7 @@ interface Unit {
      */
     held_by_department: boolean;
     /** Null while no colleague holds it, which a department's own equipment never has. */
-    holder: { id: number; name: string; avatar: string | null } | null;
+    holder: { id: number; name: string; avatar: string | null; avatar_original: string | null } | null;
     issued_at: string | null;
     written_off_at: string | null;
     /** The day it was put on the books, for the column that is hidden until asked for. */
@@ -125,6 +125,8 @@ interface HolderRow {
     /** Which of the two this row is; a department is not a who, and is not drawn as one. */
     kind: 'person' | 'department';
     avatar: string | null;
+    /** The upload behind the thumbnail, which is what pressing the face opens. */
+    avatar_original: string | null;
     /** Where they stand; null for somebody nobody has filed in a department. */
     department: Filing | null;
     /** What they hold, under the id of the category it belongs to. */
@@ -391,7 +393,13 @@ function Holder({ unit }: { unit: Unit }) {
             // The picture and the name answer differently: the first opens the
             // photograph, the second the card.
             <span className="flex min-w-0 items-center gap-2">
-                <PersonFace id={unit.holder.id} name={unit.holder.name} avatar={unit.holder.avatar} className="size-7 text-[11px]" />
+                <PersonFace
+                    id={unit.holder.id}
+                    name={unit.holder.name}
+                    avatar={unit.holder.avatar}
+                    original={unit.holder.avatar_original}
+                    className="size-7 text-[11px]"
+                />
                 <PersonLink
                     id={unit.holder.id}
                     title={`Открыть профиль: ${unit.holder.name}`}
@@ -853,7 +861,7 @@ function HolderName({ row }: { row: HolderRow }) {
 
     return (
         <span className="flex min-w-0 items-center gap-2">
-            <PersonFace id={row.id} name={row.name} avatar={row.avatar} className="size-7 text-[11px]" />
+            <PersonFace id={row.id} name={row.name} avatar={row.avatar} original={row.avatar_original} className="size-7 text-[11px]" />
             <PersonLink id={row.id} title={`Открыть профиль: ${row.name}`} className="text-brand-strong truncate hover:underline dark:text-[#C5E27A]">
                 {row.name}
             </PersonLink>
@@ -1249,7 +1257,7 @@ export default function EquipmentIndex({
                                         className={cn(
                                             'flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors max-md:h-8 max-md:rounded-full max-md:px-3 md:h-9 md:rounded-md md:px-2.5',
                                             active
-                                                ? 'max-md:bg-brand-soft max-md:text-foreground md:bg-brand-soft md:text-foreground font-semibold max-md:font-medium max-md:font-semibold max-md:dark:bg-white/10 md:dark:bg-white/10'
+                                                ? 'bg-brand-soft text-foreground font-semibold dark:bg-white/10'
                                                 : 'max-md:bg-card max-md:text-foreground md:text-muted-foreground md:hover:bg-accent md:hover:text-foreground',
                                         )}
                                     >

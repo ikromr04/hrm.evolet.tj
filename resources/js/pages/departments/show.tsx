@@ -31,6 +31,8 @@ interface Person {
     /** "Фамилия Имя" */
     name: string;
     avatar: string | null;
+    /** The upload behind the thumbnail, which is what pressing the face opens. */
+    avatar_original: string | null;
 }
 
 interface Colleague extends Person {
@@ -304,7 +306,7 @@ function DepartmentPencil({ busy, onClick, className }: { busy: boolean; onClick
 }
 
 function Avatar({ person, className }: { person: Person; className?: string }) {
-    return <PersonFace id={person.id} name={person.name} avatar={person.avatar} className={className} />;
+    return <PersonFace id={person.id} name={person.name} avatar={person.avatar} original={person.avatar_original} className={className} />;
 }
 
 /** One colleague: avatar, name linking to the profile, positions and email; `compact` fits a narrow column. */

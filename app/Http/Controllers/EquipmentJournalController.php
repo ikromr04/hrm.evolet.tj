@@ -63,7 +63,7 @@ class EquipmentJournalController extends Controller
             // of entries loads what names them in one go rather than asking
             // after every line.
             ->with([
-                'user:id,name,surname,avatar',
+                'user:id,name,surname,avatar,avatar_original',
                 'equipment' => fn ($unit) => $unit->select(['id', 'equipment_type_id'])->withIdentity(),
                 'equipment.type:id,name,icon',
                 'photos',
@@ -108,6 +108,8 @@ class EquipmentJournalController extends Controller
                 'name' => "{$event->user->surname} {$event->user->name}",
                 // Who did it is the journal's business; their face is their card's.
                 'avatar' => EmployeeFields::showsAvatar($request->user(), $event->user) ? $event->user->avatar : null,
+                // The upload behind it, which is what pressing the face opens.
+                'avatar_original' => EmployeeFields::showsAvatar($request->user(), $event->user) ? $event->user->avatar_original : null,
             ],
             'photos' => $event->photos->map(fn ($photo) => [
                 'id' => $photo->id,

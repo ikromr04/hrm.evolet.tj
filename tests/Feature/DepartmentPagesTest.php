@@ -46,7 +46,7 @@ class DepartmentPagesTest extends TestCase
             ->where('employees_count', 3)
             ->where('departments.0.name', 'Департамент')
             ->where('departments.0.total_count', 3)
-            ->where('departments.0.heads', [['id' => $head->id, 'name' => 'Азимова Нигина', 'avatar' => null]])
+            ->where('departments.0.heads', [['id' => $head->id, 'name' => 'Азимова Нигина', 'avatar' => null, 'avatar_original' => null]])
             ->where('departments.0.members', [])
             ->where('departments.1.parent_id', $top->id)
             ->where('departments.1.total_count', 2)
@@ -83,6 +83,7 @@ class DepartmentPagesTest extends TestCase
                 'id' => $member->id,
                 'name' => 'Бобоев Фаррух',
                 'avatar' => null,
+                'avatar_original' => null,
                 'email' => $member->email,
                 // A job title is named to everybody and numbered only for
                 // whoever may open the job: this colleague may not, so the

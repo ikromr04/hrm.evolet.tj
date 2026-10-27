@@ -20,12 +20,19 @@ export function PersonFace({
     id,
     name,
     avatar,
+    original,
     plain = false,
     className,
 }: {
     id: number;
     name: string;
     avatar: string | null;
+    /**
+     * The upload behind the thumbnail. What stands in a row is a square cut
+     * for rows, and whoever presses it wants a better look than that; where a
+     * page sends only the cut one, that is what opens.
+     */
+    original?: string | null;
     /**
      * Whether the face is only a face. A photograph normally opens itself in a
      * tab of its own when it is pressed — the picture is the easiest thing on
@@ -62,7 +69,7 @@ export function PersonFace({
         // Opened rather than enlarged in place: a tab of its own is where a
         // picture is looked at, and the row underneath stays where it was.
         <a
-            href={avatar}
+            href={original ?? avatar}
             target="_blank"
             rel="noopener"
             title={`Фотография: ${name}`}

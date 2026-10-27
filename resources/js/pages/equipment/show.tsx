@@ -55,6 +55,8 @@ interface Holder {
     id: number;
     name: string;
     avatar: string | null;
+    /** The upload behind the thumbnail, which is what pressing the face opens. */
+    avatar_original: string | null;
     department: string | null;
 }
 
@@ -104,7 +106,7 @@ interface JournalEvent {
     changes: EventChanges;
     note: string | null;
     at: string | null;
-    actor: { id: number; name: string; avatar: string | null } | null;
+    actor: { id: number; name: string; avatar: string | null; avatar_original: string | null } | null;
 }
 
 interface Props {
@@ -1161,7 +1163,13 @@ export default function EquipmentShow({
             case 'actor':
                 return event.actor ? (
                     <span className="flex min-w-0 items-center gap-2">
-                        <PersonFace id={event.actor.id} name={event.actor.name} avatar={event.actor.avatar} className="size-7 text-[11px]" />
+                        <PersonFace
+                            id={event.actor.id}
+                            name={event.actor.name}
+                            avatar={event.actor.avatar}
+                            original={event.actor.avatar_original}
+                            className="size-7 text-[11px]"
+                        />
                         <PersonLink
                             id={event.actor.id}
                             title={`Открыть профиль: ${event.actor.name}`}
@@ -1424,6 +1432,7 @@ export default function EquipmentShow({
                                                 id={unit.holder.id}
                                                 name={unit.holder.name}
                                                 avatar={unit.holder.avatar}
+                                                original={unit.holder.avatar_original}
                                                 className="size-10 text-[13px]"
                                             />
                                             <div className="flex min-w-0 flex-col">

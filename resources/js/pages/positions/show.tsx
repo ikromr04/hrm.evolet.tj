@@ -60,6 +60,8 @@ interface Holder {
     /** "Фамилия Имя" */
     name: string;
     avatar: string | null;
+    /** The upload behind the thumbnail, which is what pressing the face opens. */
+    avatar_original: string | null;
     status: EmploymentStatus;
     /** Null until anybody filled that line of the card in. */
     sex: Sex | null;
@@ -245,7 +247,7 @@ function HolderRow({
 
     return (
         <li className="flex items-start gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0">
-            <PersonFace id={person.id} name={person.name} avatar={person.avatar} />
+            <PersonFace id={person.id} name={person.name} avatar={person.avatar} original={person.avatar_original} />
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-2">
                     {/* A name is not a secret; the card behind it is, and the server has

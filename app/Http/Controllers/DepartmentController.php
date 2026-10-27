@@ -296,7 +296,7 @@ class DepartmentController extends Controller
             ->with(['positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation'])
             ->orderBy('surname')
             ->orderBy('name')
-            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'email'])
+            ->get(['users.id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'email'])
             ->map(function (User $user) use ($rank, $current) {
                 $unit = $user->departments
                     ->filter(fn (Department $d) => isset($rank[$d->id]))
@@ -486,7 +486,7 @@ class DepartmentController extends Controller
     private function tree(): Collection
     {
         return Department::query()
-            ->with(['users' => fn ($q) => $q->active()->select('users.id', 'users.name', 'users.surname', 'users.avatar', 'users.email')->orderBy('surname')->orderBy('name')])
+            ->with(['users' => fn ($q) => $q->active()->select('users.id', 'users.name', 'users.surname', 'users.avatar', 'users.avatar_original', 'users.email')->orderBy('surname')->orderBy('name')])
             ->orderBy('name')
             ->get(['id', 'name', 'abbreviation', 'parent_id']);
     }
@@ -509,6 +509,8 @@ class DepartmentController extends Controller
             'name' => "{$user->surname} {$user->name}",
             // A name is nobody's secret; a face is a line of a card like any other.
             'avatar' => EmployeeFields::showsAvatar(request()->user(), $user) ? $user->avatar : null,
+            // The upload behind it, which is what pressing the face opens.
+            'avatar_original' => EmployeeFields::showsAvatar(request()->user(), $user) ? $user->avatar_original : null,
             ...($details ? [
                 'email' => $user->email,
                 // Named and, for whoever may open one, linked: the page

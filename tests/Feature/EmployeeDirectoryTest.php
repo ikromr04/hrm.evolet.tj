@@ -98,7 +98,7 @@ class EmployeeDirectoryTest extends TestCase
                 ])->all() === [['Переводчик', 'НО', 'Научный отдел']])
                 ->where('employees.data.0.private', null)
                 ->has('employees.data.0', fn (Assert $row) => $row
-                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'sex', 'email', 'roles', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
+                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'roles', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
                     ->missing('details')
                     ->missing('children')
                 )

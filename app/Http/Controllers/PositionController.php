@@ -406,7 +406,7 @@ class PositionController extends Controller
             ->when($showsPositions, fn (Builder $query) => $query->with(['positions.department', 'duties']))
             ->orderBy('surname')
             ->orderBy('name')
-            ->get(['id', 'name', 'surname', 'avatar', 'sex', 'status'])
+            ->get(['id', 'name', 'surname', 'avatar', 'avatar_original', 'sex', 'status'])
             ->map(fn (User $employee) => $this->person($employee, $viewer, $showsPositions))
             ->all();
     }
@@ -427,6 +427,8 @@ class PositionController extends Controller
             // "Фамилия Имя", as every other list in the project spells it.
             'name' => "{$employee->surname} {$employee->name}",
             'avatar' => in_array('avatar', $visible, true) ? $employee->avatar : null,
+            // The upload behind it, which is what pressing the face opens.
+            'avatar_original' => in_array('avatar', $visible, true) ? $employee->avatar_original : null,
             // What the page writes the status in: «Уволена» or «Уволен», the way
             // the rest of the project writes it.
             'sex' => in_array('sex', $visible, true) ? $employee->sex : null,

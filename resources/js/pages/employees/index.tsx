@@ -58,6 +58,8 @@ interface EmployeeRow {
     name: string;
     surname: string;
     avatar: string | null;
+    /** The upload behind the thumbnail, which is what pressing the face opens. */
+    avatar_original: string | null;
     patronymic?: string | null;
     sex?: Sex;
     email?: string;
@@ -367,7 +369,13 @@ function Face({ row, visible, className }: { row: EmployeeRow; visible: string[]
     return (
         // The picture opens at full size in a tab of its own; the name beside
         // it is the way to the card.
-        <a href={row.avatar} target="_blank" rel="noopener" title={`Фотография: ${row.surname} ${row.name}`} className="shrink-0 rounded-full">
+        <a
+            href={row.avatar_original ?? row.avatar}
+            target="_blank"
+            rel="noopener"
+            title={`Фотография: ${row.surname} ${row.name}`}
+            className="shrink-0 rounded-full"
+        >
             <img src={row.avatar} alt="" className={cn('shrink-0 rounded-full object-cover', faceEdge, className)} />
         </a>
     );

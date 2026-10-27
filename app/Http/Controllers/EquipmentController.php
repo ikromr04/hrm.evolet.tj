@@ -213,7 +213,7 @@ class EquipmentController extends Controller
             'type:id,name,icon',
             'type.fields',
             'fieldValues.field:id,role,name',
-            'holder:id,name,surname,avatar',
+            'holder:id,name,surname,avatar,avatar_original',
             'holder.departments:id,name,abbreviation,parent_id',
             'holder.departments.parent:id,name,abbreviation',
             // And the other kind of holder: the department a unit of such a
@@ -270,6 +270,8 @@ class EquipmentController extends Controller
                     // Who holds it is the point of the column; their face is a line
                     // of their card, and travels only when that line is open.
                     'avatar' => EmployeeFields::showsAvatar($request->user(), $unit->holder) ? $unit->holder->avatar : null,
+                    // The upload behind it, which is what pressing the face opens.
+                    'avatar_original' => EmployeeFields::showsAvatar($request->user(), $unit->holder) ? $unit->holder->avatar_original : null,
                 ] : null,
                 // Marked in the list, because it cuts across the statuses.
                 'in_service' => (bool) $unit->repairs_exists,
@@ -379,7 +381,7 @@ class EquipmentController extends Controller
             // holder: the two columns this table opens with say it, and the
             // rows of one department stand together under one name.
             ->with(['departments:id,name,abbreviation,parent_id', 'departments.parent:id,name,abbreviation'])
-            ->get(['id', 'name', 'surname', 'avatar']);
+            ->get(['id', 'name', 'surname', 'avatar', 'avatar_original']);
 
         $departments = Department::query()
             ->whereIn('id', $held()->select('holder_department_id'))
@@ -442,6 +444,10 @@ class EquipmentController extends Controller
                 // A department has none; it is drawn by its name.
                 'avatar' => $row['kind'] === 'person' && EmployeeFields::showsAvatar($request->user(), $row['model'])
                     ? $row['model']->avatar
+                    : null,
+                // The upload behind it, which is what pressing the face opens.
+                'avatar_original' => $row['kind'] === 'person' && EmployeeFields::showsAvatar($request->user(), $row['model'])
+                    ? $row['model']->avatar_original
                     : null,
                 // By category id, so the page can read a cell off the column it
                 // is drawing; a category it holds nothing of is simply absent.
@@ -945,9 +951,9 @@ class EquipmentController extends Controller
             // With the fields they belong to: the name and the number on the
             // card are read off the two that carry a role.
             'fieldValues.field:id,role,name',
-            'holder:id,name,surname,avatar',
+            'holder:id,name,surname,avatar,avatar_original',
             'repairs.photos',
-            'events.user:id,name,surname,avatar',
+            'events.user:id,name,surname,avatar,avatar_original',
             'events.photos',
         ]);
 
@@ -994,6 +1000,8 @@ class EquipmentController extends Controller
                     'id' => $equipment->holder->id,
                     'name' => "{$equipment->holder->surname} {$equipment->holder->name}",
                     'avatar' => EmployeeFields::showsAvatar($request->user(), $equipment->holder) ? $equipment->holder->avatar : null,
+                    // The upload behind it, which is what pressing the face opens.
+                    'avatar_original' => EmployeeFields::showsAvatar($request->user(), $equipment->holder) ? $equipment->holder->avatar_original : null,
                     // Named as every screen but the directory names a department:
                     // by its abbreviation, or by its full name where it has none.
                     'department' => $holderDepartment?->display_name,
@@ -1036,6 +1044,8 @@ class EquipmentController extends Controller
                     'id' => $event->user->id,
                     'name' => "{$event->user->surname} {$event->user->name}",
                     'avatar' => EmployeeFields::showsAvatar($request->user(), $event->user) ? $event->user->avatar : null,
+                    // The upload behind it, which is what pressing the face opens.
+                    'avatar_original' => EmployeeFields::showsAvatar($request->user(), $event->user) ? $event->user->avatar_original : null,
                 ],
                 'photos' => $event->photos->map(fn ($photo) => [
                     'id' => $photo->id,
