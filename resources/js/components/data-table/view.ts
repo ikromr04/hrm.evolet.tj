@@ -26,6 +26,62 @@ function clampWidth(width: number): number {
     return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width)));
 }
 
+/**
+ * What every page carries about this: how the company says its tables open,
+ * and whether this viewer is the one who may say it.
+ *
+ * A table is arranged by whoever is reading it, and what they arrange is their
+ * own and stays in their own browser. Underneath that is the one arrangement a
+ * table opens in before anybody has touched it — which columns are shown, in
+ * what order and how wide — and that one is the company's. The single system
+ * administrator sets it; for everybody else it is simply how the table opens.
+ */
+interface Shared {
+    auth: { sysadmin?: boolean };
+    tableViews?: Record<string, ViewState>;
+    [key: string]: unknown;
+}
+
+/**
+ * What the company set for a table: how it is arranged, and how it is sorted
+ * and narrowed — the same three things a viewer keeps under a name of their
+ * own, because they are the same question asked of everybody at once.
+ */
+interface CompanyView {
+    view: ViewState;
+    /** The sorting, the filters and the search, as a query. */
+    query: string;
+    /** The same, for a list that narrows itself inside the page. */
+    state?: unknown;
+}
+
+/** Read as it stands, since it is a row somebody wrote rather than our own state. */
+function readCompany(raw: unknown): CompanyView | null {
+    if (raw === null || typeof raw !== 'object') return null;
+
+    const one = raw as Partial<CompanyView> & Partial<ViewState>;
+    // A row written before the sorting travelled with it is the arrangement itself.
+    const view = one.view ?? (one.hidden && one.pinned ? (one as ViewState) : null);
+
+    return view ? { view, query: typeof one.query === 'string' ? one.query : '', state: one.state } : null;
+}
+
+/** What the company set for this table, if anything. */
+function useCompany(key: string): CompanyView | null {
+    return readCompany(usePage<Shared>().props.tableViews?.[key] ?? null);
+}
+
+/**
+ * How this table opens for somebody who has not arranged it themselves: what
+ * the company set for it, read against the columns this page actually has, and
+ * otherwise what the page itself draws.
+ */
+function useCompanyView(key: string, columnKeys: string[], fallback: ViewState): ViewState {
+    const one = useCompany(key);
+
+    return one ? sanitise(one.view, fallback, columnKeys) : fallback;
+}
+
 /** One of the arrangements a viewer has kept for a table, under the name they gave it. */
 export interface SavedView {
     id: string;
@@ -218,7 +274,8 @@ export function orderedColumns<Column extends { key: string }>(columns: Column[]
  * view would be nonsense.
  */
 export function useTableView(storageKey: string, columnKeys: string[], fallback: ViewState, mine?: (one: SavedView) => boolean) {
-    const [view, setView] = useState<ViewState>(() => load(storageKey, fallback, columnKeys, mine));
+    const base = useCompanyView(storageKey, columnKeys, fallback);
+    const [view, setView] = useState<ViewState>(() => load(storageKey, base, columnKeys, mine));
 
     const pin = (key: string, side: 'left' | 'right' | null) =>
         setView((current) => ({
@@ -291,8 +348,11 @@ export function resetView(storageKey: string) {
  * is the list that was asked for and stands; a bare one, from the menu, is sent
  * on to the kept list.
  */
-export function useRememberedQuery(storageKey: string) {
+export function useRememberedQuery(storageKey: string, viewKey?: string) {
     const { url } = usePage();
+    // What the company set for this table, which is where a list opens when
+    // this viewer has kept nothing of their own.
+    const company = useCompany(viewKey ?? '');
     const restored = useRef(false);
 
     useEffect(() => {
@@ -307,6 +367,10 @@ export function useRememberedQuery(storageKey: string) {
             } catch {
                 // No storage: the list opens as it is.
             }
+
+            // A viewer's own kept list comes first; under it, the one the
+            // company reads this table in.
+            saved = saved || (company?.query ?? '') || null;
             if (saved) {
                 // On a first load the router is set up only after the page's own
                 // effects have run, so the visit waits a tick for it.
@@ -320,7 +384,7 @@ export function useRememberedQuery(storageKey: string) {
             }
         }
         restored.current = true;
-    }, [storageKey, url]);
+    }, [storageKey, url, company?.query]);
 }
 
 /** A query string as it is written down: the page left out, the rest in one order. */
@@ -330,6 +394,30 @@ function canonicalQuery(query: string): string {
     params.sort();
 
     return params.toString();
+}
+
+/**
+ * Any answer written down the one way, whatever order it arrives in.
+ *
+ * What a page holds comes back from the server as it was stored, and a store
+ * is under no obligation to keep the keys in the order they were written in —
+ * «{table, label}» goes out and «{label, table}» comes back. Compared as text,
+ * the same answer would then read as a different one, and a table that nobody
+ * had touched would call itself changed.
+ */
+function stable(value: unknown): string {
+    const walk = (one: unknown): unknown => {
+        if (Array.isArray(one)) return one.map(walk);
+        if (one === null || typeof one !== 'object') return one;
+
+        return Object.fromEntries(
+            Object.entries(one as Record<string, unknown>)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, inner]) => [key, walk(inner)]),
+        );
+    };
+
+    return JSON.stringify(walk(value) ?? null);
 }
 
 /** A view as it is written down: the same arrangement always reads the same. */
@@ -353,6 +441,14 @@ function nextName(views: SavedView[]): string {
 export interface TableMemory {
     /** Whether there is anything for the menu to say. */
     offered: boolean;
+    /** Whether this viewer may say how the table opens for everybody. */
+    canPublish: boolean;
+    /** Whether the company has an arrangement of its own for this table. */
+    published: boolean;
+    /** Make what is on screen the one everybody opens the table in. */
+    publish: () => void;
+    /** Drop it, and let the page's own arrangement open the table again. */
+    unpublish: () => void;
     /** The views kept for this table, in the order they were made. */
     views: SavedView[];
     /** The view the table was last put into, even if it has been dragged about since. */
@@ -415,8 +511,14 @@ export function useTableMemory({
     /** What that state is when the page opens with nothing kept. */
     defaultState?: unknown;
 }): TableMemory {
-    const { url } = usePage();
+    const { url, props } = usePage<Shared>();
     const [kept, setKept] = useState(() => readCatalogue(viewKey));
+    // «По умолчанию» means what the company set where it has set anything, and
+    // the page's own arrangement where it has not — the columns, the sorting
+    // and the narrowing alike.
+    const company = useCompany(viewKey);
+    const base = company ? sanitise(company.view, fallback, columnKeys) : fallback;
+    const baseQuery = canonicalQuery(company?.query ?? '');
 
     const query = canonicalQuery(url.split('?')[1] ?? '');
     const shown = fingerprint(view);
@@ -425,16 +527,16 @@ export function useTableMemory({
     const tracksQuery = queryKey !== undefined;
 
     /** The page's own narrowing, written down the one way. */
-    const held = JSON.stringify(state ?? null);
-    const opened = JSON.stringify(defaultState ?? null);
+    const held = stable(state ?? null);
+    const opened = stable(company?.state ?? defaultState ?? null);
 
     const active = kept.views.find((one) => one.id === kept.active) ?? null;
     const asActive =
         active !== null &&
         shown === fingerprint(active.view) &&
         (!tracksQuery || query === canonicalQuery(active.query)) &&
-        held === JSON.stringify(active.state ?? defaultState ?? null);
-    const asPage = active === null && shown === fingerprint(fallback) && (!tracksQuery || query === '') && held === opened;
+        held === stable(active.state ?? defaultState ?? null);
+    const asPage = active === null && shown === fingerprint(base) && (!tracksQuery || query === baseQuery) && held === opened;
     const current = asActive ? 'saved' : asPage ? 'default' : 'custom';
 
     /**
@@ -473,7 +575,8 @@ export function useTableMemory({
         restored.current = true;
 
         const one = kept.views.find((view) => view.id === kept.active);
-        if (one && one.state !== undefined && one.state !== null) onState?.(one.state);
+        const narrowing = one ? one.state : company?.state;
+        if (narrowing !== undefined && narrowing !== null) onState?.(narrowing);
         // Once, when the list is drawn: afterwards the viewer is the one choosing.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -484,13 +587,13 @@ export function useTableMemory({
     const show = (one: SavedView | null) => {
         // What the page holds comes first: a page that draws its list two ways
         // learns from it which of them the columns below belong to.
-        onState?.(one ? (one.state ?? defaultState ?? null) : (defaultState ?? null));
+        onState?.(one ? (one.state ?? defaultState ?? null) : (company?.state ?? defaultState ?? null));
         // Read rather than trusted: a kept view may name a column this page no
         // longer has, and the columns may have been renamed since.
-        setView(one ? sanitise(one.view, fallback, columnKeys) : fallback);
+        setView(one ? sanitise(one.view, base, columnKeys) : base);
 
-        const wanted = one ? canonicalQuery(one.query) : '';
-        if (tracksQuery && query !== wanted) go(one?.query ?? '');
+        const wanted = one ? canonicalQuery(one.query) : baseQuery;
+        if (tracksQuery && query !== wanted) go(one?.query ?? company?.query ?? '');
     };
 
     const choose = (id: string | null) => {
@@ -520,8 +623,47 @@ export function useTableMemory({
     /** What was on screen stays there; only the view it was kept under goes. */
     const remove = (id: string) => keep({ active: kept.active === id ? null : kept.active, views: kept.views.filter((one) => one.id !== id) });
 
+    /**
+     * What is on screen, made the arrangement this table opens in for everybody
+     * who has not arranged it themselves. Nobody's own views are touched: those
+     * live in their own browsers and outrank this one.
+     */
+    const publish = () => {
+        // Let go of whatever kept view was in force before the visit, not after
+        // it: the page is drawn again on the way back, and a catalogue written
+        // afterwards would be written by the instance that has already gone —
+        // leaving the new one reading a view that is no longer in force and
+        // calling the table «изменён» over it.
+        keep({ ...kept, active: null });
+
+        router.put(
+            route('table-views.update', viewKey),
+            {
+                view: { hidden: view.hidden, pinned: view.pinned, order: view.order ?? null, widths: view.widths ?? null },
+                // The sorting and the narrowing go with the columns: a table
+                // opens the way it was left, not merely with the same columns.
+                query,
+                // Through JSON, which is how it is kept and how it comes back:
+                // whatever the page holds is plain data by the time it travels.
+                state: JSON.parse(held) as unknown as null,
+            },
+            { preserveScroll: true },
+        );
+    };
+
+    /**
+     * And back to the arrangement the page itself draws. Nobody else loses
+     * anything by it: their own views are their own, and this is only what a
+     * table opens in before any of those.
+     */
+    const unpublish = () => router.delete(route('table-views.destroy', viewKey), { preserveScroll: true });
+
     return {
         offered: current !== 'default' || kept.views.length > 0,
+        canPublish: props.auth?.sysadmin === true,
+        published: company !== null,
+        publish,
+        unpublish,
         views: kept.views,
         activeId: kept.active,
         current,

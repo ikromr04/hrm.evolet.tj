@@ -1,7 +1,8 @@
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
+import { readsEquipmentJournal, seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
+import { TABLE_KEYS, useListHref } from '@/lib/tables';
 import { type SharedData, type SidebarNavGroup } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
 import {
@@ -41,7 +42,15 @@ import AppLogo from './app-logo';
  */
 const named = ({ title }: { title: string }) => ({ title });
 
-const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean): SidebarNavGroup[] => [
+/**
+ * The menu, built for whoever is reading it.
+ *
+ * A list is linked to the way the company reads it: the sorting, the tab and
+ * the filters of its arrangement travel in the address, so pressing «Сотрудники»
+ * opens the staff list already as it is meant to be read rather than drawing it
+ * one way and rearranging it a moment later.
+ */
+const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, href: (url: string, key: string) => string): SidebarNavGroup[] => [
     {
         title: 'Обзор',
         items: [
@@ -58,9 +67,11 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
         title: 'Организация',
         items: [
             { title: 'Оргструктура', url: '/org-chart', icon: Network },
-            ...(can('employees.view') ? [{ title: 'Сотрудники', url: '/employees', icon: Users }] : []),
-            ...(can('directories.view.departments') ? [{ title: 'Подразделения', url: '/departments', icon: Building2 }] : []),
-            ...(can('directories.view.positions') ? [{ title: 'Должности', url: '/positions', icon: Briefcase }] : []),
+            ...(can('employees.view') ? [{ title: 'Сотрудники', url: href('/employees', TABLE_KEYS.employees), icon: Users }] : []),
+            ...(can('directories.view.departments')
+                ? [{ title: 'Подразделения', url: href('/departments', TABLE_KEYS.departments), icon: Building2 }]
+                : []),
+            ...(can('directories.view.positions') ? [{ title: 'Должности', url: href('/positions', TABLE_KEYS.positions), icon: Briefcase }] : []),
             // No address: the ladder a grade is a step on is not written down
             // yet, so the entry holds its place and cannot be opened.
             { title: 'Грейды', icon: Layers },
@@ -98,13 +109,25 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
                 title: 'Инвентаризация',
                 icon: Boxes,
                 items: [
-                    // The one page of the section that is built. Any part of the
-                    // fleet — own, the department's or all of it — opens it.
-                    // Only for whoever may read some part of the fleet: this is
-                    // the one page of the section that exists, and it is guarded.
-                    ...(seesEquipment(can) ? [{ title: 'Рабочее оборудование', url: '/equipment' }] : []),
+                    // Everything the section holds at once, which is why it is
+                    // read before any one kind of it. It is to hold the fleet as
+                    // a list, so it opens to whoever may read some part of the
+                    // fleet — as the page under it does, and nobody else sees
+                    // either of them.
+                    ...(seesEquipment(can)
+                        ? [
+                              { title: 'Обзор', url: href('/inventory', TABLE_KEYS.inventory) },
+                              { title: 'Рабочее оборудование', url: href('/equipment', TABLE_KEYS.equipment) },
+                          ]
+                        : []),
                     named({ title: 'Мебель' }),
                     named({ title: 'Оргтехника офиса' }),
+                    // What has happened to all of it, after the lists of what
+                    // there is: read by whoever may read the journal of some
+                    // part of the fleet.
+                    ...(readsEquipmentJournal(can)
+                        ? [{ title: 'Журнал операций', url: href('/inventory/journal', TABLE_KEYS.inventoryJournal) }]
+                        : []),
                 ],
             },
             {
@@ -123,6 +146,7 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean):
 
 export function AppSidebar() {
     const can = useCan();
+    const listHref = useListHref();
     const { sysadmin } = usePage<SharedData>().props.auth;
 
     const footerGroup: SidebarNavGroup = {
@@ -155,7 +179,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                {navGroups(can, sysadmin)
+                {navGroups(can, sysadmin, listHref)
                     .filter((group) => group.items.length > 0)
                     .map((group) => (
                         <NavMain key={group.title} group={group} />

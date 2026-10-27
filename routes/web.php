@@ -23,6 +23,7 @@ use App\Http\Controllers\PositionController;
 use App\Http\Controllers\PositionProfileController;
 use App\Http\Controllers\PositionRegulationController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\TableViewController;
 // The reference lists themselves, under a name of their own: "Directories" here
 // already stands for the controllers that serve them.
 use App\Support\Directories as DirectoryLists;
@@ -35,6 +36,26 @@ Route::middleware(['auth'])->group(function () {
     // the application, so «/» is where somebody signed in lands, and the name it
     // is called by everywhere stays «dashboard».
     Route::get('/', DashboardController::class)->name('dashboard');
+    // The front page of «Инвентаризация». The section has no index of its own,
+    // so its first page is this one. It is to hold the fleet as a list, which
+    // is what the equipment page holds, so it is open to exactly whoever may
+    // read some part of the fleet — and to nobody else.
+    // How a table opens for whoever has not arranged it themselves. Not a
+    // right of the access page: the one account outside that list decides how
+    // the company reads its tables, and the controller says so.
+    Route::put('table-views/{key}', TableViewController::class)->name('table-views.update');
+    Route::delete('table-views/{key}', [TableViewController::class, 'destroy'])->name('table-views.destroy');
+
+    Route::get('inventory', [EquipmentController::class, 'index'])
+        ->middleware('can:equipment.view.any')
+        ->name('inventory.overview');
+
+    // The same journal as «Рабочее оборудование» keeps, read inside the section
+    // it was opened from: the trail back leads to «Обзор» rather than throwing
+    // somebody out into another part of the menu.
+    Route::get('inventory/journal', EquipmentJournalController::class)
+        ->middleware('can:equipment.journal.any')
+        ->name('inventory.journal');
     Route::get('employees', [EmployeeController::class, 'index'])
         ->middleware('can:employees.view')
         ->name('employees.index');

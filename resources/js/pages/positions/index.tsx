@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
+import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
@@ -95,7 +96,7 @@ interface Props {
     canEdit: boolean;
 }
 
-const STORAGE_KEY = 'positions.table.view.v2';
+const STORAGE_KEY = TABLE_KEYS.positions;
 
 /**
  * The order the list opens in, and the one a third press on a header and "reset"

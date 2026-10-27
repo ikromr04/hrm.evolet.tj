@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\TableView;
 use App\Support\Access;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
@@ -53,6 +54,10 @@ class HandleInertiaRequests extends Middleware
                 // which nobody is granted line by line.
                 'sysadmin' => (bool) $request->user()?->hasRole(Access::SOLE_ROLE),
             ],
+            // How the tables of the app open for whoever has not arranged them
+            // themselves: one arrangement per table, set by that one account.
+            // A handful of small rows, read once per visit.
+            'tableViews' => fn () => $request->user() === null ? (object) [] : TableView::query()->pluck('view', 'key'),
             // The number beside the bell, and nothing more: the list itself is
             // fetched when the bell is pressed. Counted on every visit, so the
             // badge is as fresh as the page under it.

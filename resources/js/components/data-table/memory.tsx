@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { Bookmark, ChevronDown, Pencil, Plus, Save, Trash2 } from 'lucide-react';
+import { Bookmark, Building2, ChevronDown, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { type TableMemory } from './view';
 
@@ -89,7 +89,15 @@ export function TableMemoryButton({
 
                 <DropdownMenuContent
                     align="end"
-                    className="max-h-[32rem] w-72 overflow-y-auto"
+                    // As wide as its longest line rather than a width picked in
+                    // advance: the items name views somebody else wrote and say
+                    // what can be done to them. Never narrower than it was, and
+                    // never wider than the screen it drops onto.
+                    // Flush to the sides: the menu's own padding was a strip
+                    // along each edge that reads as part of the row under the
+                    // cursor and answers to nothing, so the rows take the whole
+                    // width and a press anywhere on one lands on it.
+                    className="max-h-[32rem] w-max max-w-[min(26rem,calc(100vw-2rem))] min-w-72 overflow-y-auto px-0"
                     // A menu closing hands the focus back to its button, which
                     // would take it out of the box the name is typed into.
                     onCloseAutoFocus={(event) => naming !== null && event.preventDefault()}
@@ -114,18 +122,11 @@ export function TableMemoryButton({
                         onValueChange={(next) => memory.choose(next === 'default' ? null : next)}
                     >
                         <DropdownMenuRadioItem value="default">По умолчанию</DropdownMenuRadioItem>
-                        {memory.views.map((one) => {
-                            // A page that draws its list two ways says which of
-                            // them a view was kept in, beside its name.
-                            const where = (one.state as { label?: string } | undefined)?.label;
-
-                            return (
-                                <DropdownMenuRadioItem key={one.id} value={one.id}>
-                                    <span className="truncate">{one.name}</span>
-                                    {where && <span className="text-muted-foreground ml-auto pl-2 text-xs whitespace-nowrap">{where}</span>}
-                                </DropdownMenuRadioItem>
-                            );
-                        })}
+                        {memory.views.map((one) => (
+                            <DropdownMenuRadioItem key={one.id} value={one.id}>
+                                <span className="truncate">{one.name}</span>
+                            </DropdownMenuRadioItem>
+                        ))}
                         {/* What is on screen, which is none of them until it is kept. */}
                         {memory.current === 'custom' && (
                             <DropdownMenuRadioItem value="custom" disabled>
@@ -145,7 +146,7 @@ export function TableMemoryButton({
                     {memory.current !== 'default' && (
                         <DropdownMenuItem onSelect={() => ask({ kind: 'new' })}>
                             <Plus />
-                            Сохранить как новый вид…
+                            Сохранить как новый вид
                         </DropdownMenuItem>
                     )}
                     {active && (
@@ -158,6 +159,29 @@ export function TableMemoryButton({
                                 <Trash2 />
                                 Удалить «{active.name}»
                             </DropdownMenuItem>
+                        </>
+                    )}
+
+                    {/*
+                     * How the table opens for everybody who has not arranged it
+                     * themselves — which is the company's business rather than
+                     * any one reader's, so only the one account outside the list
+                     * of rights is offered it. Nobody's own views are touched by
+                     * it: those are kept in their own browsers and outrank this.
+                     */}
+                    {memory.canPublish && (
+                        <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => memory.publish()}>
+                                <Building2 />
+                                Сделать видом по умолчанию для всех
+                            </DropdownMenuItem>
+                            {memory.published && (
+                                <DropdownMenuItem onSelect={() => memory.unpublish()}>
+                                    <RotateCcw />
+                                    Вернуть вид по умолчанию
+                                </DropdownMenuItem>
+                            )}
                         </>
                     )}
 

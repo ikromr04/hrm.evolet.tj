@@ -18,9 +18,14 @@ export function navItemActive(item: SidebarNavItem, url: string): boolean {
     return [item.url, ...(item.match ?? [])].some((address) => {
         if (address === undefined) return false;
 
+        // The address of an entry may carry the sorting and the filters the
+        // company reads that list with; which list it is is the path alone, and
+        // a reader who has sorted it another way is still reading that list.
+        const path = address.split('?')[0];
+
         // The main page is the root address, which opens every other one:
         // matched by the prefix it would light up on all of them.
-        return address === '/' ? url === '/' || url.startsWith('/?') : url.startsWith(address);
+        return path === '/' ? url === '/' || url.startsWith('/?') : url.startsWith(path);
     });
 }
 

@@ -36,6 +36,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type PrivateDetails, type Sex, type SpokenLanguage } from '@/lib/employee';
+import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
@@ -669,7 +670,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
 // and 300 pixels wide in a saved width — and knows nothing of the «Отдел»
 // beside it. Applying the half of it that still fits would leave a table
 // nobody arranged, so the saved views start again here.
-const STORAGE_KEY = 'employees.table.view.v6';
+const STORAGE_KEY = TABLE_KEYS.employees;
 const QUERY_KEY = 'employees.table.query';
 
 function defaultView() {
@@ -749,7 +750,7 @@ export default function Employees({
         columns.map((c) => c.key),
         defaults,
     );
-    useRememberedQuery(QUERY_KEY);
+    useRememberedQuery(QUERY_KEY, STORAGE_KEY);
     // Everything the viewer has done to this list — the columns and the
     // questions both — is kept by one press and forgotten by the next.
     const memory = useTableMemory({
