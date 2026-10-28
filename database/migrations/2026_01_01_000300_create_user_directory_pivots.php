@@ -7,14 +7,22 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Languages an employee speaks and how well; public, like positions.
+     * What joins a card to the two directories it can name more than one entry
+     * of: the countries a person is a citizen of, and the languages they speak,
+     * each with how well. Both are public, like positions.
+     *
+     * An entry struck off a directory takes its links with it, and so does a
+     * deleted account: neither leaves a citizenship or a language behind.
      */
     public function up(): void
     {
-        Schema::create('languages', function (Blueprint $table) {
+        Schema::create('citizenship_user', function (Blueprint $table) {
             $table->id();
-            $table->string('name')->unique();
+            $table->foreignId('citizenship_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
+
+            $table->unique(['citizenship_id', 'user_id']);
         });
 
         Schema::create('language_user', function (Blueprint $table) {
@@ -34,6 +42,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('language_user');
-        Schema::dropIfExists('languages');
+        Schema::dropIfExists('citizenship_user');
     }
 };

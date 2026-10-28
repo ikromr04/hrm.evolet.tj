@@ -115,6 +115,31 @@ return new class extends Migration
             $table->primary([$pivotPermission, $pivotRole], 'role_has_permissions_permission_id_role_id_primary');
         });
 
+        /*
+         * A right given to, or taken from, one person in particular.
+         *
+         * Rights normally travel with a position: every "Аналитик" may do the
+         * same things. Now and then one person needs something their position
+         * does not carry — or must not have something it does. Such an
+         * exception is kept here and beats the position either way, so there is
+         * one place to look when the question is why this colleague, and not
+         * their neighbour, can do a thing.
+         *
+         * The right is stored by name rather than by id: the list of rights
+         * lives in code (App\Support\Access), and an exception should survive
+         * the permissions table being seeded again.
+         */
+        Schema::create('permission_overrides', static function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->string('permission');
+            // True: given on top of the position. False: taken away from it.
+            $table->boolean('allowed');
+            $table->timestamps();
+
+            $table->unique(['user_id', 'permission']);
+        });
+
         app('cache')
             ->store(config('permission.cache.store') != 'default' ? config('permission.cache.store') : null)
             ->forget(config('permission.cache.key'));
@@ -129,6 +154,7 @@ return new class extends Migration
 
         throw_if(empty($tableNames), 'Error: config/permission.php not found and defaults could not be merged. Please publish the package configuration before proceeding, or drop the tables manually.');
 
+        Schema::dropIfExists('permission_overrides');
         Schema::dropIfExists($tableNames['role_has_permissions']);
         Schema::dropIfExists($tableNames['model_has_roles']);
         Schema::dropIfExists($tableNames['model_has_permissions']);

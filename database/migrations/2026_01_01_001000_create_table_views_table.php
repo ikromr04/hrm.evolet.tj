@@ -9,10 +9,10 @@ return new class extends Migration
     /**
      * How a table opens for somebody who has never touched it.
      *
-     * Every viewer keeps their own arrangements in their own browser, and that
-     * stays as it is. What was missing is the one underneath: the columns a
-     * table shows the first time anybody opens it, which until now was written
-     * into the page itself and could only be changed by changing the page.
+     * Every viewer keeps their own arrangements in their own browser. This is
+     * the one underneath: the columns a table shows the first time anybody
+     * opens it, which would otherwise be written into the page and could only
+     * be changed by changing the page.
      *
      * The system administrator sets it from the «Вид» menu, having arranged the
      * table the way the company wants it read. One row per table, named by the
@@ -20,13 +20,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // A run that failed half way leaves the table behind — MySQL cannot take
-        // a CREATE TABLE back — and is not recorded as done, so the next run
-        // would stop at "already exists". Nothing else ever made this one.
-        Schema::dropIfExists('table_views');
-
         Schema::create('table_views', function (Blueprint $table) {
-            $table->engine('InnoDB');
             $table->id();
             // The key the page keeps its views under, which is what the browser
             // writes its own arrangements beside.
@@ -41,6 +35,9 @@ return new class extends Migration
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::dropIfExists('table_views');
