@@ -36,7 +36,8 @@ interface Person {
 }
 
 interface Colleague extends Person {
-    email: string;
+    /** Null where the reader may not read addresses: the line is then left out. */
+    email: string | null;
     /** The id travels only for somebody who may open the position's page. */
     positions: { id: number | null; name: string; unit: PositionUnit | null }[];
 }
@@ -323,17 +324,18 @@ function ColleagueRow({
     /** Which unit under this department the person works in, where that is not this one. */
     unit?: string | null;
 }) {
-    const email = (
-        <a
-            href={`mailto:${person.email}`}
-            className={cn(
-                'text-brand-strong truncate hover:underline dark:text-[#C5E27A]',
-                compact ? 'self-start text-[13px]' : 'hidden shrink-0 text-sm sm:block',
-            )}
-        >
-            {person.email}
-        </a>
-    );
+    const email =
+        person.email === null ? null : (
+            <a
+                href={`mailto:${person.email}`}
+                className={cn(
+                    'text-brand-strong truncate hover:underline dark:text-[#C5E27A]',
+                    compact ? 'self-start text-[13px]' : 'hidden shrink-0 text-sm sm:block',
+                )}
+            >
+                {person.email}
+            </a>
+        );
 
     return (
         <li className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
@@ -427,13 +429,17 @@ function PhoneColleagueRow({ person, href }: { person: Colleague; href: string |
             href={href}
             leading={<Avatar person={person} className="size-10" />}
             title={person.name}
-            subtitle={person.positions.length > 0 ? person.positions.map((position) => position.name).join(', ') : person.email}
+            subtitle={person.positions.length > 0 ? person.positions.map((position) => position.name).join(', ') : (person.email ?? undefined)}
+            // The envelope only where there is an address to write to: a reader
+            // who may not read addresses is not shown one.
             trailing={
-                <Button variant="ghost" size="icon" className="text-brand-strong size-10 dark:text-[#C5E27A]" asChild>
-                    <a href={`mailto:${person.email}`} aria-label={`Написать: ${person.email}`} title={person.email}>
-                        <Mail className="size-5" />
-                    </a>
-                </Button>
+                person.email === null ? undefined : (
+                    <Button variant="ghost" size="icon" className="text-brand-strong size-10 dark:text-[#C5E27A]" asChild>
+                        <a href={`mailto:${person.email}`} aria-label={`Написать: ${person.email}`} title={person.email}>
+                            <Mail className="size-5" />
+                        </a>
+                    </Button>
+                )
             }
         />
     );

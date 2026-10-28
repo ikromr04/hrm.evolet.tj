@@ -77,7 +77,14 @@ class RoleController extends Controller
 
         // What the dialog ticked, or — when it was not offered any — looking
         // around, which every position carries.
-        $role->syncPermissions($data['permissions'] ?? Access::defaults());
+        $role->syncPermissions(
+            isset($data['permissions'])
+                // Only the rights this person holds themselves, so that a new
+                // position cannot be written with more in it than its author
+                // has — and then worn. See Access::writable.
+                ? Access::writable($request->user(), $data['permissions'], [])
+                : Access::defaults()
+        );
         $this->forgetCache();
 
         return back();
@@ -93,7 +100,8 @@ class RoleController extends Controller
         // The system administrator answers yes to everything through
         // Gate::before, so its rights are not a list anybody edits.
         if (isset($data['permissions']) && $role->name !== Access::SOLE_ROLE) {
-            $role->syncPermissions($data['permissions']);
+            // Only the rights this person holds themselves; see Access::writable.
+            $role->syncPermissions(Access::writable($request->user(), $data['permissions'], $role->permissions->pluck('name')->all()));
         }
 
         $this->forgetCache();

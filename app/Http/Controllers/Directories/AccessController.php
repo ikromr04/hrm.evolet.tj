@@ -79,7 +79,8 @@ class AccessController extends Controller
             'permissions.*' => ['string', Rule::in(Access::keys())],
         ], attributes: ['permissions' => 'доступы']);
 
-        $role->syncPermissions($data['permissions']);
+        // Only the rights this person holds themselves; see Access::writable.
+        $role->syncPermissions(Access::writable($request->user(), $data['permissions'], $role->permissions->pluck('name')->all()));
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 
         return back();

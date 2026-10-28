@@ -29,6 +29,16 @@ class EmployeeAccessController extends Controller
             'allowed' => ['present', 'nullable', 'boolean'],
         ], attributes: ['permission' => 'доступ', 'allowed' => 'решение']);
 
+        // Nobody hands out what they have not got: without this, whoever may
+        // decide on access decides on their own, and one request per right
+        // turns the catalogue into a full administrator. Taking a right away
+        // is left alone — that way lies no escalation.
+        abort_if(
+            $data['allowed'] === true && ! Access::mayGrant($request->user(), $data['permission']),
+            403,
+            'Этот доступ нельзя выдать: у вас его нет.',
+        );
+
         if ($data['allowed'] === null) {
             $employee->permissionOverrides()->where('permission', $data['permission'])->delete();
 

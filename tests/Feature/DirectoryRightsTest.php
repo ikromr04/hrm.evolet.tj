@@ -182,11 +182,20 @@ class DirectoryRightsTest extends TestCase
             ->put("/directories/access/{$role->id}", ['permissions' => ['employees.view']])
             ->assertForbidden();
 
-        $keeper = $this->person(Directories::viewPermission('access'), Directories::editPermission('access'));
+        // Deciding on access decides only on what the decider holds: handing
+        // out more than that would make this one right worth every other.
+        $keeper = $this->person(Directories::viewPermission('access'), Directories::editPermission('access'), 'employees.view');
+        // What this position carries that the keeper does not: none of their
+        // business, and so neither granted nor taken away by their form.
+        $untouched = $role->permissions->pluck('name')->reject(fn (string $name) => $name === 'employees.view')->values();
+
         $this->actingAs($keeper)
             ->put("/directories/access/{$role->id}", ['permissions' => ['employees.view']])
             ->assertRedirect();
-        $this->assertSame(['employees.view'], $role->fresh()->permissions->pluck('name')->all());
+        $this->assertSame(
+            $untouched->push('employees.view')->sort()->values()->all(),
+            $role->fresh()->permissions->pluck('name')->sort()->values()->all(),
+        );
 
         // A personal exception on somebody's card is the same duty, so it takes
         // the same right rather than one of its own.

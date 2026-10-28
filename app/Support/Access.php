@@ -127,6 +127,39 @@ final class Access
     }
 
     /**
+     * A list of rights as this person may write it down.
+     *
+     * Nobody hands out what they have not got. Deciding on access is itself a
+     * right, and without this rule it is the only right anybody needs: whoever
+     * may tick the boxes ticks their own, and the whole catalogue follows —
+     * passports, addresses, the lot. So what is asked for is kept to the rights
+     * the asker holds, and whatever the row already carried beyond them is left
+     * exactly as it was, neither granted nor quietly taken away.
+     *
+     * The system administrator holds everything through Gate::before, so for
+     * that one account this filters nothing.
+     *
+     * @param  list<string>  $asked  the rights the form sent
+     * @param  list<string>  $held  the rights the row carries today
+     * @return list<string>
+     */
+    public static function writable(User $user, array $asked, array $held): array
+    {
+        $mine = array_filter(self::keys(), fn (string $key) => $user->can($key));
+
+        return array_values(array_unique([
+            ...array_intersect($asked, $mine),
+            ...array_diff($held, $mine),
+        ]));
+    }
+
+    /** Whether this person may hand this right to somebody else. */
+    public static function mayGrant(User $user, string $permission): bool
+    {
+        return $user->can($permission);
+    }
+
+    /**
      * What one does to a colleague rather than to a line of their card, which is
      * what the "Действия" column of the table holds. Adding somebody is among
      * them: it is not a line of anybody's card but the card itself.

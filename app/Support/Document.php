@@ -271,7 +271,22 @@ final class Document
      */
     public static function resolve(?string $text, array $values): ?string
     {
-        return $text === null || $values === [] ? $text : strtr($text, $values);
+        if ($text === null || $values === []) {
+            return $text;
+        }
+
+        // Escaped on the way in, and this is the whole of the reason: the body
+        // is cleaned once, when it is written, and what is put into it here is
+        // not that body but a name out of the database — a department's, a
+        // head's — which nothing cleans and anybody who may rename a department
+        // writes. Dropped in raw it would be read as markup by the page that
+        // draws the document, which draws it as HTML.
+        $safe = array_map(
+            fn (string $value) => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            $values,
+        );
+
+        return strtr($text, $safe);
     }
 
     /**

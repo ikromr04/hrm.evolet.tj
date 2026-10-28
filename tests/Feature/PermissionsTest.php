@@ -239,13 +239,52 @@ class PermissionsTest extends TestCase
 
         // It takes the same right as the table itself: whoever holds that right
         // may, somebody who merely reads the table may not.
-        $this->actingAs($this->withRights('employees.view', 'directories.view.access', 'directories.edit.access'))
+        $this->actingAs($this->withRights(
+            'employees.view',
+            'directories.view.access',
+            'directories.edit.access',
+            // And the right being handed out, which is the rule below.
+            'equipment.journal.all',
+        ))
             ->put("/employees/{$colleague->id}/access", ['permission' => 'equipment.journal.all', 'allowed' => true])
             ->assertRedirect();
 
         $this->actingAs($this->withRights('employees.view', 'directories.view.access'))
             ->put("/employees/{$colleague->id}/access", ['permission' => 'equipment.journal.all', 'allowed' => true])
             ->assertForbidden();
+    }
+
+    public function test_nobody_hands_out_a_right_they_have_not_got()
+    {
+        $colleague = $this->withRights('employees.view');
+        // Everything it takes to decide on access, and nothing else — which is
+        // what the one right would otherwise be worth: a request per key and
+        // the whole catalogue follows.
+        $keeper = $this->withRights('employees.view', 'directories.view.access', 'directories.edit.access');
+
+        $this->actingAs($keeper)
+            ->put("/employees/{$keeper->id}/access", ['permission' => 'employees.field.passport_number', 'allowed' => true])
+            ->assertForbidden();
+
+        $this->actingAs($keeper)
+            ->put("/employees/{$colleague->id}/access", ['permission' => 'employees.field.passport_number', 'allowed' => true])
+            ->assertForbidden();
+
+        $this->assertSame(0, PermissionOverride::count());
+        $this->assertFalse($keeper->fresh()->can('employees.field.passport_number'));
+
+        // Taking one away is nobody's way up, so it is left alone.
+        PermissionOverride::create([
+            'user_id' => $colleague->id,
+            'permission' => 'employees.field.passport_number',
+            'allowed' => true,
+        ]);
+
+        $this->actingAs($keeper)
+            ->put("/employees/{$colleague->id}/access", ['permission' => 'employees.field.passport_number', 'allowed' => false])
+            ->assertRedirect();
+
+        $this->assertFalse($colleague->fresh()->can('employees.field.passport_number'));
     }
 
     public function test_the_card_shows_a_system_administrator_where_each_right_comes_from()

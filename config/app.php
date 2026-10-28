@@ -41,6 +41,11 @@ return [
 
     'debug' => (bool) env('APP_DEBUG', false),
 
+    // Whether the content policy refuses what it describes or merely reports
+    // it. Reported until somebody has watched a working browser say nothing
+    // against it; see AddSecurityHeaders.
+    'csp_enforce' => (bool) env('CSP_ENFORCE', false),
+
     /*
     |--------------------------------------------------------------------------
     | Application URL

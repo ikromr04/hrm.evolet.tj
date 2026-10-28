@@ -512,7 +512,10 @@ class DepartmentController extends Controller
             // The upload behind it, which is what pressing the face opens.
             'avatar_original' => EmployeeFields::showsAvatar(request()->user(), $user) ? $user->avatar_original : null,
             ...($details ? [
-                'email' => $user->email,
+                // A line of a card like the face above it: this page is open to
+                // everybody who signs in, and an address is a right somebody
+                // may not have been given.
+                'email' => in_array('email', EmployeeFields::visibleTo(request()->user(), $user), true) ? $user->email : null,
                 // Named and, for whoever may open one, linked: the page
                 // that listed this department's positions is gone, and a job
                 // title in a colleague's card is the way back to it. The id is
