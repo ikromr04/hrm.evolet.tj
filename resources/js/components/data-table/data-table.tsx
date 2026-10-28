@@ -510,7 +510,10 @@ export function DataTable<Row>({
                     style={{ width: tableWidth }}
                 >
                     <thead ref={head} className="bg-sidebar sticky top-0 z-30">
-                        <tr className="text-muted-foreground text-left text-[13px] whitespace-nowrap">
+                        {/* A name too long for the column it heads wraps, as the
+                            cells under it do: a header cut off mid-word says
+                            less about its column than two short lines do. */}
+                        <tr className="text-muted-foreground text-left text-[13px] break-words whitespace-normal">
                             {visible.map((column, index) => {
                                 const canSort = sortable.includes(column.key);
                                 // What the header announces as sorted, which is

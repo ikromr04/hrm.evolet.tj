@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { Bookmark, Building2, ChevronDown, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { Building2, ChevronDown, ListFilter, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { type TableMemory } from './view';
 
@@ -79,8 +79,8 @@ export function TableMemoryButton({
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button variant="outline" className={cn('h-9 font-normal', className)}>
-                        <Bookmark />
-                        {active ? active.name : 'Вид'}
+                        <ListFilter />
+                        {active ? active.name : 'Фильтр'}
                         {/* An arrangement that belongs to no kept view is marked as its own. */}
                         {memory.current === 'custom' && <span className="bg-brand size-1.5 rounded-full" aria-label="изменён" />}
                         <ChevronDown className="text-muted-foreground" />
@@ -116,7 +116,7 @@ export function TableMemoryButton({
                         </>
                     )}
 
-                    <DropdownMenuLabel>Вид таблицы</DropdownMenuLabel>
+                    <DropdownMenuLabel>Фильтры таблицы</DropdownMenuLabel>
                     <DropdownMenuRadioGroup
                         value={memory.current === 'custom' ? 'custom' : (memory.activeId ?? 'default')}
                         onValueChange={(next) => memory.choose(next === 'default' ? null : next)}
@@ -146,7 +146,7 @@ export function TableMemoryButton({
                     {memory.current !== 'default' && (
                         <DropdownMenuItem onSelect={() => ask({ kind: 'new' })}>
                             <Plus />
-                            Сохранить как новый вид
+                            Сохранить как новый фильтр
                         </DropdownMenuItem>
                     )}
                     {active && (
@@ -174,12 +174,12 @@ export function TableMemoryButton({
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onSelect={() => memory.publish()}>
                                 <Building2 />
-                                Сделать видом по умолчанию для всех
+                                Сделать фильтром по умолчанию для всех
                             </DropdownMenuItem>
                             {memory.published && (
                                 <DropdownMenuItem onSelect={() => memory.unpublish()}>
                                     <RotateCcw />
-                                    Вернуть вид по умолчанию
+                                    Вернуть фильтр по умолчанию
                                 </DropdownMenuItem>
                             )}
                         </>
@@ -198,7 +198,7 @@ export function TableMemoryButton({
             <Dialog open={naming !== null} onOpenChange={(open) => !open && setNaming(null)}>
                 <DialogContent className="sm:max-w-sm">
                     <DialogHeader>
-                        <DialogTitle>{naming?.kind === 'rename' ? 'Переименовать вид' : 'Новый вид'}</DialogTitle>
+                        <DialogTitle>{naming?.kind === 'rename' ? 'Переименовать фильтр' : 'Новый фильтр'}</DialogTitle>
                         <DialogDescription>Колонки, сортировка и фильтры сохранятся под этим названием.</DialogDescription>
                     </DialogHeader>
 

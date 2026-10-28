@@ -117,13 +117,19 @@ function parseCatalogue(raw: string | null): Catalogue {
         if (!saved) return NO_VIEWS;
 
         if (Array.isArray(saved.views)) {
-            const views = saved.views.filter((one) => one?.id && one?.view?.hidden && one.view.pinned);
+            const views = saved.views
+                .filter((one) => one?.id && one?.view?.hidden && one.view.pinned)
+                // What these were called before they were called filters. A
+                // name somebody typed is theirs and stays; only the offered
+                // «Вид 2» is read as the «Фильтр 2» it would be named today, so
+                // a list kept earlier does not mix the two words.
+                .map((one) => (/^Вид \d+$/.test(one.name) ? { ...one, name: one.name.replace('Вид', 'Фильтр') } : one));
 
             return { active: views.some((one) => one.id === saved.active) ? saved.active : null, views };
         }
 
         if (saved.hidden && saved.pinned) {
-            const legacy: SavedView = { id: 'kept', name: 'Вид 1', view: saved, query: '' };
+            const legacy: SavedView = { id: 'kept', name: 'Фильтр 1', view: saved, query: '' };
 
             return { active: legacy.id, views: [legacy] };
         }
@@ -143,7 +149,7 @@ function sanitise(saved: ViewState | undefined, fallback: ViewState, known: stri
         const kept = (list: string[]) => list.filter((column) => known.includes(column));
         // A view saved before columns could be dragged has no order at all; that
         // is the page's own order, and so is an order left with nothing in it.
-        const order = Array.isArray(saved.order) ? kept(saved.order) : [];
+        const order = sameOrder(Array.isArray(saved.order) ? kept(saved.order) : [], known);
         // Likewise for widths, which are read one by one: a column that has been
         // renamed or dropped since leaves no ghost behind, and a width that is
         // not a number — or is one from before the limits were what they are —
@@ -214,6 +220,19 @@ export function orderedKeys(columnKeys: string[], order: string[] | undefined): 
     return result;
 }
 
+/**
+ * An order with nothing of its own to say, said as nothing.
+ *
+ * Spelling out the page's own order is the same arrangement as leaving the
+ * order empty, and the two have to be written down the same way: a column
+ * dragged to one side and back is exactly where it was, and a kept view that
+ * compared the two spellings would call that a change and go on calling it one
+ * for as long as the table was open.
+ */
+function sameOrder(order: string[], columnKeys: string[]): string[] {
+    return order.length === columnKeys.length && order.every((key, at) => key === columnKeys[at]) ? [] : order;
+}
+
 /** Which of the three runs of columns a column sits in. */
 function groupOf(view: ViewState, key: string): 'left' | 'center' | 'right' {
     if (view.pinned.left.includes(key)) return 'left';
@@ -249,7 +268,7 @@ export function reorderColumn(view: ViewState, columnKeys: string[], key: string
     if (group === 'left') return { ...view, pinned: { ...view.pinned, left: next } };
     if (group === 'right') return { ...view, pinned: { ...view.pinned, right: next } };
 
-    return { ...view, order: next };
+    return { ...view, order: sameOrder(next, columnKeys) };
 }
 
 /**
@@ -431,11 +450,11 @@ function fingerprint(view: ViewState): string {
     });
 }
 
-/** «Вид 3»: the name a new one is offered under, after the highest already taken. */
+/** «Фильтр 3»: the name a new one is offered under, after the highest already taken. */
 function nextName(views: SavedView[]): string {
-    const taken = views.map((one) => Number(/^Вид (\d+)$/.exec(one.name)?.[1] ?? 0));
+    const taken = views.map((one) => Number(/^Фильтр (\d+)$/.exec(one.name)?.[1] ?? 0));
 
-    return `Вид ${Math.max(0, ...taken) + 1}`;
+    return `Фильтр ${Math.max(0, ...taken) + 1}`;
 }
 
 export interface TableMemory {
@@ -530,14 +549,25 @@ export function useTableMemory({
     const held = stable(state ?? null);
     const opened = stable(company?.state ?? defaultState ?? null);
 
-    const active = kept.views.find((one) => one.id === kept.active) ?? null;
-    const asActive =
-        active !== null &&
-        shown === fingerprint(active.view) &&
-        (!tracksQuery || query === canonicalQuery(active.query)) &&
-        held === stable(active.state ?? defaultState ?? null);
-    const asPage = active === null && shown === fingerprint(base) && (!tracksQuery || query === baseQuery) && held === opened;
-    const current = asActive ? 'saved' : asPage ? 'default' : 'custom';
+    /** Whether a kept view is what is on screen — columns, question and narrowing alike. */
+    const matches = (one: SavedView) =>
+        shown === fingerprint(one.view) &&
+        (!tracksQuery || query === canonicalQuery(one.query)) &&
+        held === stable(one.state ?? defaultState ?? null);
+
+    const chosen = kept.views.find((one) => one.id === kept.active) ?? null;
+    /**
+     * An arrangement that is one of the kept filters is that filter, whichever
+     * of them was last chosen from the menu — the one in force first, so that
+     * two filters that happen to be alike do not swap under the hand. A table
+     * that said «изменён» over an arrangement it has already written down would
+     * be offering to keep it a second time.
+     */
+    const fitting = (chosen !== null && matches(chosen) ? chosen : null) ?? kept.views.find(matches) ?? null;
+    /** And the arrangement the table opens in, which belongs to no filter. */
+    const atPage = shown === fingerprint(base) && (!tracksQuery || query === baseQuery) && held === opened;
+    const active = fitting ?? (atPage ? null : chosen);
+    const current = fitting !== null ? 'saved' : atPage ? 'default' : 'custom';
 
     /**
      * Writes the catalogue down, and beside it the query of whichever view is in
@@ -580,6 +610,20 @@ export function useTableMemory({
         // Once, when the list is drawn: afterwards the viewer is the one choosing.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    /**
+     * The mark in the menu follows what is on screen. Where the arrangement has
+     * become one of the kept filters — by a drag that put a column back, or by
+     * repeating one filter's columns while another was in force — that filter
+     * is the one in force from then on, and the next visit opens in it.
+     */
+    useEffect(() => {
+        const id = fitting?.id ?? (atPage ? null : kept.active);
+
+        if (id !== kept.active) keep({ ...kept, active: id });
+        // Everything this reads is derived from `kept` and from what is drawn.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fitting?.id, atPage, kept.active]);
 
     /** The list as one address, with the questions it is being asked, or without them. */
     const go = (next: string) => router.get(`${window.location.pathname}${next ? `?${next}` : ''}`, {}, { preserveScroll: true, replace: true });
@@ -665,7 +709,7 @@ export function useTableMemory({
         publish,
         unpublish,
         views: kept.views,
-        activeId: kept.active,
+        activeId: active?.id ?? null,
         current,
         suggestedName: nextName(kept.views),
         choose,

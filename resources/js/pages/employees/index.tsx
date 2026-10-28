@@ -492,10 +492,6 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 key: 'name',
                 label: 'Сотрудник',
                 width: 320,
-                // The column that takes whatever room the others leave: a name
-                // with a face and an address beside it is the one cell here glad
-                // of it, and the width is the floor it fills up from.
-                fill: true,
                 private: false,
                 filter: { type: 'text', param: 'search', placeholder: 'ФИО или почта' },
                 cell: (row) => (

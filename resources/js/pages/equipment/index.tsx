@@ -647,7 +647,6 @@ function buildColumns(options: Options): ColumnDef[] {
             key: 'name',
             label: 'Наименование',
             width: 380,
-            fill: true,
             filter: { type: 'text', param: 'name', placeholder: 'Название модели' },
         },
         {
