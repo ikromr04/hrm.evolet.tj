@@ -448,24 +448,33 @@ export function DirectoryManager({
         const short = item.abbreviation ?? item.label;
         const full = item.abbreviation ? item.label : null;
 
-        return (
-            <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="flex items-center gap-2">
-                    {own && icons && <IconChip icon={(item.icon && equipmentIcons[item.icon]) || fallbackIcon} size={28} iconSize={15} />}
-                    {recordUrl ? (
-                        <Link
-                            href={recordUrl(item)}
-                            className={cn('text-brand-strong hover:underline dark:text-[#C5E27A]', own ? 'font-medium' : 'font-semibold')}
-                            title={`Открыть ${labels.accusative}: ${rowLabel(item)}`}
-                        >
-                            {short}
-                        </Link>
-                    ) : (
-                        <span className={cn(!own && 'font-semibold')}>{short}</span>
-                    )}
-                    {own && item.protected && <Lock className="text-muted-foreground size-3.5" aria-label="Системная запись: удалить нельзя" />}
-                </span>
+        // Both lines are the name, so both belong to the link — the way the
+        // chart and the staff list draw one. Only the abbreviation takes the
+        // underline: two underlined lines read as two names rather than one.
+        const named = (
+            <>
+                <span className={cn('group-hover:underline', own ? 'font-medium' : 'font-semibold')}>{short}</span>
                 {full && <span className="text-muted-foreground text-[13px] leading-tight">{full}</span>}
+            </>
+        );
+
+        return (
+            <span className="flex min-w-0 items-start gap-2">
+                {own && icons && <IconChip icon={(item.icon && equipmentIcons[item.icon]) || fallbackIcon} size={28} iconSize={15} />}
+                {recordUrl ? (
+                    <Link
+                        href={recordUrl(item)}
+                        className="group text-brand-strong flex min-w-0 flex-col gap-0.5 dark:text-[#C5E27A]"
+                        title={`Открыть ${labels.accusative}: ${rowLabel(item)}`}
+                    >
+                        {named}
+                    </Link>
+                ) : (
+                    <span className="flex min-w-0 flex-col gap-0.5">{named}</span>
+                )}
+                {own && item.protected && (
+                    <Lock className="text-muted-foreground mt-0.5 size-3.5 shrink-0" aria-label="Системная запись: удалить нельзя" />
+                )}
             </span>
         );
     };
