@@ -28,6 +28,7 @@ use App\Http\Controllers\TableViewController;
 // already stands for the controllers that serve them.
 use App\Support\Directories as DirectoryLists;
 use Illuminate\Http\Request;
+use Illuminate\Routing\RedirectController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -92,7 +93,14 @@ Route::middleware(['auth'])->group(function () {
 
     // Where it used to be read. Links and bookmarks from before the move land
     // on it rather than on nothing.
-    Route::redirect('equipment', 'inventory/equipment');
+    // Registered for GET alone rather than with Route::redirect(), which takes
+    // every verb. Uncached that is harmless — the routes are held by method and
+    // address, so a POST route written further down replaces the redirect's
+    // claim on the same address and nothing is amiss. Cached, which is what the
+    // company's server runs, both are kept and the first registered answers: the
+    // redirect took the POST that files a new unit, the form landed back on the
+    // list it was opened from, and nothing was written.
+    Route::get('equipment', RedirectController::class)->defaults('destination', '/inventory/equipment')->defaults('status', 302);
     // Before the card, or "journal" would be read as a unit's id. What went on
     // over a period is a right of its own.
     Route::get('equipment/journal', EquipmentJournalController::class)
@@ -119,7 +127,7 @@ Route::middleware(['auth'])->group(function () {
         ->name('inventory.office.create');
 
     // Where the form used to be opened from.
-    Route::redirect('equipment/create', 'inventory/equipment/create');
+    Route::get('equipment/create', RedirectController::class)->defaults('destination', '/inventory/equipment/create')->defaults('status', 302);
     // The card of a unit outside what this person may see is not theirs to
     // open; the gate takes the unit itself and says so.
     Route::get('equipment/{equipment}', [EquipmentController::class, 'show'])
@@ -159,7 +167,7 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('can:'.DirectoryLists::viewPermission('departments'))
         ->name('departments.index');
     // Where the list used to be read from, for whatever still points there.
-    Route::redirect('departments/units', '/departments');
+    Route::get('departments/units', RedirectController::class)->defaults('destination', '/departments')->defaults('status', 302);
 
     Route::get('departments/{department}', [DepartmentController::class, 'show'])->name('departments.show');
 
