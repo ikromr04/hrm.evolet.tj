@@ -1280,33 +1280,34 @@ export default function EquipmentShow({
                     </div>
 
                     <NeighbourIcons prev={neighbours.prev} next={neighbours.next} tab={tab} />
-
-                    {/* The way through the list, at the end of the header line:
-                        the card is read one after another, and the pair belongs
-                        beside the name of the one being read rather than down
-                        among its sections. */}
-                    <div className="ml-auto flex shrink-0 items-end gap-2 max-md:hidden">
-                        <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
-                    </div>
                 </div>
 
                 {/* The sections of the card, read the way a colleague's card
-                    reads its own: one line of words with the open one underlined.
+                    reads its own: one line of words with the open one underlined,
+                    and at the end of that line the way through to the units
+                    either side — both are about which card is open rather than
+                    about the thing in it, which is what the header says.
                     On a phone the strip stays under the top bar while the card
                     scrolls, on a frosted band from edge to edge. */}
-                <Tabs value={tab} onValueChange={(next) => setTab(next as TabKey)} className="min-w-0">
-                    <TabsList
-                        variant="line"
-                        aria-label="Разделы"
-                        className="max-md:bg-background/90 overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:px-4 max-md:backdrop-blur-xl [&::-webkit-scrollbar]:hidden"
-                    >
-                        {shownTabs.map((item) => (
-                            <TabsTrigger key={item.key} value={item.key}>
-                                {item.title}
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
-                </Tabs>
+                <div className="flex items-center justify-between gap-4">
+                    <Tabs value={tab} onValueChange={(next) => setTab(next as TabKey)} className="min-w-0">
+                        <TabsList
+                            variant="line"
+                            aria-label="Разделы"
+                            className="max-md:bg-background/90 overflow-x-auto [scrollbar-width:none] max-md:sticky max-md:top-[calc(3rem+env(safe-area-inset-top))] max-md:z-20 max-md:-mx-3 max-md:gap-x-5 max-md:px-4 max-md:backdrop-blur-xl [&::-webkit-scrollbar]:hidden"
+                        >
+                            {shownTabs.map((item) => (
+                                <TabsTrigger key={item.key} value={item.key}>
+                                    {item.title}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                    </Tabs>
+
+                    <div className="flex shrink-0 items-center gap-2 max-md:hidden">
+                        <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />
+                    </div>
+                </div>
 
                 {tab === 'overview' && (
                     // A phone spaces the blocks wider: their titles stand between them.

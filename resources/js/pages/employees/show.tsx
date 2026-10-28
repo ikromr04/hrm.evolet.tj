@@ -7,6 +7,7 @@ import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equ
 import InputError from '@/components/input-error';
 import { LevelBadge } from '@/components/language-badges';
 import { MultiSelect } from '@/components/multi-select';
+import { PaperBandRow } from '@/components/paper-band';
 import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
@@ -57,10 +58,8 @@ import {
     LoaderCircle,
     Lock,
     Mail,
-    Pencil,
     Phone,
     Plus,
-    Printer,
     Trash2,
     Upload,
     type LucideIcon,
@@ -813,43 +812,54 @@ function SheetTab() {
     return (
         <div className={paneGrid}>
             <div className={pane}>
-                {/* What the sheet is at a glance, and what can be done with it. */}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <StatusBadge tone="neutral" className="gap-1.5">
-                            <span className="bg-muted-foreground/30 inline-flex h-1 w-10 overflow-hidden rounded-full">
-                                <span className="bg-brand" style={{ width: `${SHEET.filled}%` }} />
-                            </span>
-                            Заполнен на {SHEET.filled}%
-                        </StatusBadge>
-                        <StatusBadge tone="neutral" className="gap-1.5 bg-transparent dark:bg-transparent">
-                            <Check className="text-brand-strong size-3 dark:text-[#C5E27A]" />
+                {/* Whose sheet this is and under what number, in the block the
+                    rest of the page is built from rather than in a heading of
+                    the document's own — the sheet is read here as part of a
+                    card, and printed as a document elsewhere. */}
+                <Section
+                    title="Личный листок по учёту кадров"
+                    action={
+                        // What can be done with the sheet, in the header of the
+                        // block it belongs to — the way every other block of
+                        // this card carries its own one action.
+                        <span className="flex flex-wrap items-center gap-4">
+                            {/* Taking a copy away is not changing anything, so
+                                the two read in the colour of the page and only
+                                «Изменить» is written in the brand's. */}
+                            {['Печать', 'Скачать'].map((label) => (
+                                <Button key={label} variant="link" className="text-foreground h-auto p-0 text-xs font-normal">
+                                    {label}
+                                </Button>
+                            ))}
+                            <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
+                                Изменить
+                            </Button>
+                        </span>
+                    }
+                >
+                    {/* How much of the sheet is filled in and whether it has
+                        been signed: a band across the top of the block, drawn
+                        the way the regulation draws how far a department has
+                        got through reading it. */}
+                    <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6">
+                        <span className="text-muted-foreground text-[13px]">Заполнение</span>
+
+                        <span className="bg-muted block h-1.5 w-[18rem] shrink-0 overflow-hidden rounded-full">
+                            <span className="bg-brand block h-full rounded-full" style={{ width: `${SHEET.filled}%` }} />
+                        </span>
+
+                        <span className="text-sm font-semibold tabular-nums">{SHEET.filled}%</span>
+
+                        <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[13px]">
+                            <Check className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]" />
                             Подписан сотрудником · {formatDate(SHEET.signedAt)}
-                        </StatusBadge>
-                    </div>
+                        </span>
+                    </PaperBandRow>
 
-                    <div className="flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" className="h-9">
-                            <Pencil />
-                            Редактировать
-                        </Button>
-                        <Button variant="outline" size="sm" className="h-9">
-                            <Printer />
-                            Печать
-                        </Button>
-                        <Button size="sm" className="h-9">
-                            <ArrowDownToLine />
-                            Скачать PDF
-                        </Button>
-                    </div>
-                </div>
-
-                <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0">
-                    <header className="flex items-start justify-between gap-6 border-b p-6 max-md:p-4">
-                        <div className="flex flex-col gap-1.5">
+                    <div className="flex items-start justify-between gap-6">
+                        <div className="flex min-w-0 flex-col gap-1.5">
                             <span className="text-muted-foreground text-xs font-medium">{SHEET.office}</span>
-                            <h2 className="text-xl font-semibold tracking-tight">Личный листок по учёту кадров</h2>
-                            <span className="text-muted-foreground text-sm tabular-nums">
+                            <span className="text-sm tabular-nums">
                                 Табельный № {SHEET.number} · Дата заполнения {formatDate(SHEET.filledAt)}
                             </span>
                         </div>
@@ -863,8 +873,10 @@ function SheetTab() {
                             Фото
                             <br />3 × 4
                         </div>
-                    </header>
+                    </div>
+                </Section>
 
+                <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0">
                     <SheetPart number="01" title="Фамилия, имя, отчество">
                         <SheetFacts rows={SHEET.name} />
                     </SheetPart>
@@ -2897,10 +2909,16 @@ export default function EmployeeProfile({
                         </div>
 
                         {neighbours !== null && <NeighbourCorners prev={neighbours.prev} next={neighbours.next} tab={tab} />}
-                        {neighbours !== null && <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />}
                     </div>
 
-                    <ProfileTabs tabs={tabs} active={tab} onChange={setTab} />
+                    {/* The tabs and the way out to the cards either side on one
+                        line: both are about which card is open rather than
+                        about the person in it, and the hero above is about the
+                        person. */}
+                    <div className="flex items-center justify-between gap-4">
+                        <ProfileTabs tabs={tabs} active={tab} onChange={setTab} />
+                        {neighbours !== null && <Neighbours prev={neighbours.prev} next={neighbours.next} tab={tab} />}
+                    </div>
 
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
