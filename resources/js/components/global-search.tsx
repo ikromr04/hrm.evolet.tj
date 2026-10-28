@@ -1,16 +1,19 @@
+import { navGroups } from '@/components/app-sidebar';
 import { CategoryChip } from '@/components/equipment-icon';
 import { PersonFace } from '@/components/person-face';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { readsEquipmentJournal, seesDirectories, seesEquipment, useCan } from '@/lib/access';
+import { directoryLists, seesEquipment, useCan } from '@/lib/access';
 import { type EquipmentStatus, statusLabel } from '@/lib/equipment';
+import { INVENTORY_PLACES } from '@/lib/inventory';
+import { useListHref } from '@/lib/tables';
 import { cn } from '@/lib/utils';
-import { router } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+import { router, usePage } from '@inertiajs/react';
 import {
     BookMarked,
     Briefcase,
     Building2,
     CornerDownLeft,
-    History,
     IdCard,
     Languages,
     Laptop,
@@ -18,9 +21,12 @@ import {
     LoaderCircle,
     type LucideIcon,
     Network,
+    PackagePlus,
     Search,
     Settings,
+    UserPlus,
     Users,
+    Wrench,
 } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -53,6 +59,45 @@ interface Item {
 }
 
 const EMPTY: SearchResults = { employees: [], equipment: [], departments: [], positions: [], roles: [], equipmentTypes: [], languages: [] };
+
+/** Somewhere this person may go: a page of the menu, a form, a list already narrowed. */
+interface Destination {
+    label: string;
+    /** Where it belongs — the section, or what the form is part of. */
+    hint: string;
+    href: string;
+    icon: LucideIcon;
+    /** Other words it answers to, which its own name does not contain. */
+    words?: string;
+}
+
+/**
+ * The words every «add something» answers to besides its own name, so that one
+ * of them — whichever the hand reaches for — brings up all of them at once and
+ * the reader picks what they came to add.
+ */
+const ADDING = 'добавить добавление создать создание новый новая новое завести';
+
+/**
+ * The destinations a query reaches, as rows of the list.
+ *
+ * Three things are searched: the name, the place it belongs to and whatever
+ * else it answers to, because that is how these are remembered — «добавить
+ * мебель» is looked for as «мебель» as often as by its own name, and «добавить»
+ * on its own is looked for when the reader knows they are adding something and
+ * not yet what.
+ */
+const reached = (group: string, destinations: Destination[], term: string): Item[] =>
+    destinations
+        .filter((one) => !term || one.label.toLowerCase().includes(term) || one.hint.toLowerCase().includes(term) || (one.words ?? '').includes(term))
+        .map((one) => ({
+            key: `${group}-${one.href}`,
+            group,
+            label: one.label,
+            hint: one.hint,
+            href: one.href,
+            icon: iconBox(one.icon),
+        }));
 
 const iconBox = (Icon: LucideIcon) => (
     <span className="bg-muted text-muted-foreground flex size-8 shrink-0 items-center justify-center rounded-md">
@@ -99,11 +144,15 @@ function useSearch(query: string): { results: SearchResults; loading: boolean } 
 /** The header search: employees, departments, positions, roles and pages; opens with Ctrl + K. */
 export function GlobalSearch() {
     const can = useCan();
+    const { sysadmin } = usePage<SharedData>().props.auth;
+    const listHref = useListHref();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [active, setActive] = useState(0);
     const { results, loading } = useSearch(open ? query : '');
     const list = useRef<HTMLUListElement>(null);
+    /** Whether the mark was last moved by the arrow keys, which is what makes the list follow it. */
+    const byKeys = useRef(false);
 
     useEffect(() => {
         const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -116,26 +165,118 @@ export function GlobalSearch() {
         return () => window.removeEventListener('keydown', onKeyDown);
     }, []);
 
-    const pages = useMemo(
-        () =>
-            [
-                { label: 'Главная', href: '/', icon: LayoutGrid },
-                ...(can('employees.view') ? [{ label: 'Сотрудники', href: '/employees', icon: Users }] : []),
-                { label: 'Оргструктура', href: '/org-chart', icon: Network },
-                // The other two pages of the section. Each takes the right its
-                // list has always been read by.
-                ...(can('directories.view.departments') ? [{ label: 'Подразделения', href: '/departments', icon: Building2 }] : []),
-                ...(can('directories.view.positions') ? [{ label: 'Должности', href: '/positions', icon: Briefcase }] : []),
-                // Any part of the fleet — own, the department's or all of it — opens the section.
-                ...(seesEquipment(can) ? [{ label: 'Рабочее оборудование', href: '/inventory/equipment', icon: Laptop }] : []),
-                // The journal opens for whoever may read it on any part of the fleet;
-                // the page itself shows only the entries of that part.
-                ...(readsEquipmentJournal(can) ? [{ label: 'Журнал операций', href: '/inventory/journal', icon: History }] : []),
-                // One list is enough: the section opens on the first one its
-                // viewer may read.
-                ...(seesDirectories(can) ? [{ label: 'Справочники', href: '/directories', icon: BookMarked }] : []),
-                { label: 'Настройки', href: '/settings', icon: Settings },
-            ] as const,
+    /**
+     * Everywhere the menu leads, read off the menu itself rather than written
+     * out again here: a second list of pages is a list that goes stale, and the
+     * one nobody looks at is always the stale one. A section inside a group
+     * says which group it belongs to, so «Мебель» is not read as a page of its
+     * own with no place in the company.
+     */
+    const pages = useMemo<Destination[]>(() => {
+        const found: Destination[] = [];
+
+        navGroups(can, sysadmin, listHref).forEach((group) =>
+            group.items.forEach((item) => {
+                if (item.url) found.push({ label: item.title, hint: group.title ?? 'Навигация', href: item.url, icon: item.icon ?? LayoutGrid });
+
+                // A page inside a section draws no icon of its own in the menu;
+                // here it borrows the section's, so a row is never iconless.
+                (item.items ?? []).forEach((one) => {
+                    if (one.url) found.push({ label: one.title, hint: item.title, href: one.url, icon: item.icon ?? LayoutGrid });
+                });
+            }),
+        );
+
+        return [
+            ...found,
+            // The lists of «Справочники» share one page and so stand in the menu
+            // as one entry; here each is looked for by its own name — nobody
+            // searches for «справочники» when what they want is «филиалы».
+            ...directoryLists
+                .filter((list) => can(list.view))
+                .map((list) => ({ label: list.title, hint: 'Справочники', href: `/directories/${list.key}`, icon: BookMarked })),
+            { label: 'Настройки', hint: 'Моя учётная запись', href: '/settings', icon: Settings },
+        ];
+    }, [can, sysadmin, listHref]);
+
+    /**
+     * The forms that start something new. They are pages like any other, but
+     * they are looked for by what they make — «новый сотрудник» rather than
+     * «сотрудники» — so they are named that way and kept apart.
+     */
+    const forms = useMemo<Destination[]>(
+        () => [
+            ...(can('employees.create')
+                ? [{ label: 'Добавить сотрудника', hint: 'Приём на работу', href: '/employees/create', icon: UserPlus, words: ADDING }]
+                : []),
+            ...(can('equipment.create')
+                ? Object.values(INVENTORY_PLACES).map((place) => ({
+                      label: place.add.label,
+                      hint: place.title,
+                      href: place.add.href,
+                      icon: PackagePlus,
+                      words: ADDING,
+                  }))
+                : []),
+            // The lists that are added to through a window on their own page:
+            // the address asks for that window, so one press does what two did.
+            ...(can('directories.edit.departments')
+                ? [{ label: 'Добавить отдел', hint: 'Подразделения', href: '/departments?add=1', icon: Building2, words: ADDING }]
+                : []),
+            ...(can('directories.edit.positions')
+                ? [{ label: 'Добавить должность', hint: 'Должности', href: '/positions?add=1', icon: Briefcase, words: ADDING }]
+                : []),
+            ...directoryLists
+                .filter((list) => list.add !== null && can(list.edit))
+                .map((list) => ({
+                    label: list.add as string,
+                    hint: `Справочники · ${list.title}`,
+                    href: `/directories/${list.key}?add=1`,
+                    icon: BookMarked,
+                    words: ADDING,
+                })),
+        ],
+        [can],
+    );
+
+    /**
+     * The work itself, rather than the page it is done on: a list already
+     * narrowed to what somebody came looking for. Each is a page plus the
+     * question it is read with, which is exactly what the lists keep in their
+     * addresses.
+     */
+    const operations = useMemo<Destination[]>(
+        () => [
+            ...(seesEquipment(can)
+                ? [
+                      { label: 'Выданное оборудование', hint: 'Инвентаризация', href: route('inventory.overview', { tab: 'issued' }), icon: Laptop },
+                      { label: 'Оборудование на балансе', hint: 'Инвентаризация', href: route('inventory.overview', { tab: 'stock' }), icon: Laptop },
+                      {
+                          label: 'Оборудование на обслуживании',
+                          hint: 'Инвентаризация',
+                          href: route('inventory.overview', { tab: 'service' }),
+                          icon: Wrench,
+                      },
+                      {
+                          label: 'Списанное оборудование',
+                          hint: 'Инвентаризация',
+                          href: route('inventory.overview', { tab: 'written_off' }),
+                          icon: Laptop,
+                      },
+                  ]
+                : []),
+            ...(can('employees.view')
+                ? [
+                      { label: 'Уволенные сотрудники', hint: 'Сотрудники', href: route('employees.index', { status: 'fired' }), icon: Users },
+                      {
+                          label: 'Переведённые сотрудники',
+                          hint: 'Сотрудники',
+                          href: route('employees.index', { status: 'transferred' }),
+                          icon: Users,
+                      },
+                  ]
+                : []),
+        ],
         [can],
     );
 
@@ -204,17 +345,36 @@ export function GlobalSearch() {
                 href: route('employees.index', { language: [language.id] }),
                 icon: iconBox(Languages),
             })),
-            // With nothing typed, the pages work as quick navigation.
-            ...pages
-                .filter((page) => !term || page.label.toLowerCase().includes(term))
-                .map((page) => ({ key: `page-${page.href}`, group: 'Разделы', label: page.label, href: page.href, icon: iconBox(page.icon) })),
+            // With nothing typed, these three work as quick navigation; with
+            // something typed they are matched by their own words and by the
+            // section they belong to, so «мебель» finds both the page and the
+            // form that adds a desk to it.
+            ...reached('Разделы', pages, term),
+            ...reached('Формы', forms, term),
+            ...reached('Операции', operations, term),
         ];
-    }, [results, pages, query, can]);
+    }, [results, pages, forms, operations, query, can]);
 
-    // A new set of results starts from the top.
-    useEffect(() => setActive(0), [items]);
+    // A new set of results starts from the top, list and mark together — and a
+    // set is new when what is in it is new, not when the array holding it is.
+    // Judged by the array, a render that changed nothing would put the mark
+    // back on the first row and the list back at its top, which is what a
+    // cursor crossing a row does.
+    const shown = items.map((one) => one.key).join('|');
 
     useEffect(() => {
+        setActive(0);
+        list.current?.scrollTo({ top: 0 });
+    }, [shown]);
+
+    useEffect(() => {
+        // Only the keys scroll the list. A pointer is already where it wants to
+        // be: scrolling under it would slide another row beneath the cursor,
+        // that row would take the mark, and the two would chase each other
+        // down the list for as long as the hand stayed still.
+        if (!byKeys.current) return;
+
+        byKeys.current = false;
         list.current?.querySelector(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
     }, [active]);
 
@@ -231,7 +391,10 @@ export function GlobalSearch() {
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
-            if (items.length) setActive((current) => (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
+            if (!items.length) return;
+
+            byKeys.current = true;
+            setActive((current) => (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length);
         } else if (event.key === 'Enter') {
             event.preventDefault();
             if (items[active]) go(items[active].href);
@@ -304,7 +467,7 @@ export function GlobalSearch() {
                                     data-index={index}
                                     role="option"
                                     aria-selected={index === active}
-                                    onMouseMove={() => setActive(index)}
+                                    onMouseEnter={() => setActive(index)}
                                     onClick={() => go(item.href)}
                                     className={cn('flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5', index === active && 'bg-accent')}
                                 >

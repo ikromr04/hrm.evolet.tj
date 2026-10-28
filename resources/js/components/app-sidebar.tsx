@@ -25,6 +25,7 @@ import {
     UserSearch,
     Users,
 } from 'lucide-react';
+import { useLayoutEffect, useRef } from 'react';
 import AppLogo from './app-logo';
 
 /**
@@ -50,7 +51,9 @@ const named = ({ title }: { title: string }) => ({ title });
  * opens the staff list already as it is meant to be read rather than drawing it
  * one way and rearranging it a moment later.
  */
-const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, href: (url: string, key: string) => string): SidebarNavGroup[] => [
+// Exported so that the palette searches the very menu this draws: two lists
+// of pages drift apart, and the one nobody looks at is the one that goes stale.
+export const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, href: (url: string, key: string) => string): SidebarNavGroup[] => [
     {
         title: 'Обзор',
         items: [
@@ -149,10 +152,46 @@ const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, 
     },
 ];
 
+/** Where the menu stood, kept for this tab alone. */
+const SCROLL_KEY = 'evolet.sidebar.scroll';
+
 export function AppSidebar() {
     const can = useCan();
     const listHref = useListHref();
     const { sysadmin } = usePage<SharedData>().props.auth;
+    const menu = useRef<HTMLDivElement>(null);
+
+    /**
+     * The menu stays where it was left. Every visit draws the whole shell
+     * again — the layout is rebuilt with the page it holds — so a menu that
+     * remembered nothing would spring back to the top each time somebody
+     * followed a link near its foot, taking the section they were reading out
+     * of sight. The place is written down as it scrolls and put back before
+     * the first paint, so nothing is seen to move.
+     */
+    useLayoutEffect(() => {
+        const list = menu.current;
+        if (!list) return;
+
+        try {
+            const at = Number(sessionStorage.getItem(SCROLL_KEY) ?? 0);
+            if (at > 0) list.scrollTop = at;
+        } catch {
+            // Storage can be unavailable; the menu then opens at the top, as it did.
+        }
+
+        const remember = () => {
+            try {
+                sessionStorage.setItem(SCROLL_KEY, String(list.scrollTop));
+            } catch {
+                // As above: a menu that cannot remember still scrolls.
+            }
+        };
+
+        list.addEventListener('scroll', remember, { passive: true });
+
+        return () => list.removeEventListener('scroll', remember);
+    }, []);
 
     const footerGroup: SidebarNavGroup = {
         // Settings live under the avatar next to «Выйти». Repeating them here
@@ -183,7 +222,7 @@ export function AppSidebar() {
                 </SidebarMenu>
             </SidebarHeader>
 
-            <SidebarContent>
+            <SidebarContent ref={menu}>
                 {navGroups(can, sysadmin, listHref)
                     .filter((group) => group.items.length > 0)
                     .map((group) => (

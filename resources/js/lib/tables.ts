@@ -1,5 +1,6 @@
 import { type SharedData } from '@/types';
 import { usePage } from '@inertiajs/react';
+import { useCallback } from 'react';
 
 /**
  * The key a table keeps its arrangements under: every viewer's own in their
@@ -43,9 +44,14 @@ interface Arrangement {
 export function useListHref(): (url: string, key: string) => string {
     const set = usePage<SharedData>().props.tableViews as Record<string, Arrangement> | undefined;
 
-    return (url, key) => {
-        const query = set?.[key]?.query ?? '';
+    // Steady between renders, for the reason useCan gives: the menu and the
+    // palette are both built from it inside a `useMemo`.
+    return useCallback(
+        (url: string, key: string) => {
+            const query = set?.[key]?.query ?? '';
 
-        return query ? `${url}?${query}` : url;
-    };
+            return query ? `${url}?${query}` : url;
+        },
+        [set],
+    );
 }

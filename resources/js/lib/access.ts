@@ -1,5 +1,6 @@
 import { type SharedData } from '@/types';
 import { usePage } from '@inertiajs/react';
+import { useCallback } from 'react';
 
 /**
  * Who may do what.
@@ -78,7 +79,11 @@ export interface AccessSection {
 export function useCan(): (permission: Permission) => boolean {
     const { auth } = usePage<SharedData>().props;
 
-    return (permission) => auth.can[permission] === true;
+    // The same function for as long as the rights are the same ones. A fresh
+    // one every render is a fresh answer to every `useMemo` that asks a
+    // question with it, and a list rebuilt on every keystroke of a page that
+    // was not even redrawn is how a cursor loses the row it was over.
+    return useCallback((permission: Permission) => auth.can[permission] === true, [auth.can]);
 }
 
 /**
@@ -135,6 +140,10 @@ export interface DirectoryList {
     key: string;
     title: string;
     view: Permission;
+    /** The right to write in it, which is what «Добавить …» asks for. */
+    edit: Permission;
+    /** One row of it, as the button that adds one names it — null for a list that is a table of ticks rather than a list of rows. */
+    add: string | null;
 }
 
 /**
@@ -143,18 +152,36 @@ export interface DirectoryList {
  * from this array agrees with where "Справочники" takes them.
  */
 export const directoryLists: DirectoryList[] = [
-    { key: 'roles', title: 'Роли доступа', view: 'directories.view.roles' },
+    { key: 'roles', title: 'Роли доступа', view: 'directories.view.roles', edit: 'directories.edit.roles', add: 'Добавить роль доступа' },
     // "Отделы" left the same way the job titles did: the departments are read
     // beside the chart they are drawn into, under "Структура компании", and the
     // right that opens them is still directories.view.departments.
-    { key: 'languages', title: 'Языки', view: 'directories.view.languages' },
-    { key: 'citizenships', title: 'Гражданства', view: 'directories.view.citizenships' },
-    { key: 'employment_types', title: 'Типы занятости', view: 'directories.view.employment_types' },
-    { key: 'branches', title: 'Филиалы', view: 'directories.view.branches' },
-    { key: 'equipment', title: 'Категории техники', view: 'directories.view.equipment' },
+    { key: 'languages', title: 'Языки', view: 'directories.view.languages', edit: 'directories.edit.languages', add: 'Добавить язык' },
+    {
+        key: 'citizenships',
+        title: 'Гражданства',
+        view: 'directories.view.citizenships',
+        edit: 'directories.edit.citizenships',
+        add: 'Добавить гражданство',
+    },
+    {
+        key: 'employment_types',
+        title: 'Типы занятости',
+        view: 'directories.view.employment_types',
+        edit: 'directories.edit.employment_types',
+        add: 'Добавить тип занятости',
+    },
+    { key: 'branches', title: 'Филиалы', view: 'directories.view.branches', edit: 'directories.edit.branches', add: 'Добавить филиал' },
+    {
+        key: 'equipment',
+        title: 'Категории техники',
+        view: 'directories.view.equipment',
+        edit: 'directories.edit.equipment',
+        add: 'Добавить категорию техники',
+    },
     // Who may do what: a list of the section like the others, last because it is
     // read after one knows what there is to hand out.
-    { key: 'access', title: 'Доступы', view: 'directories.view.access' },
+    { key: 'access', title: 'Доступы', view: 'directories.view.access', edit: 'directories.edit.access', add: null },
 ];
 
 /** Whether at least one list is open, which is what opens the section itself. */

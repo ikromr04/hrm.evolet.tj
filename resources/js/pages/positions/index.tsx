@@ -21,6 +21,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
 import { TABLE_KEYS } from '@/lib/tables';
@@ -147,8 +148,8 @@ const collator = new Intl.Collator('ru');
  * were the two widest columns, and each of them said what the position's own
  * page says better — the holders with the duties each of them carries beside
  * their name, the duties themselves numbered and whole. What is left is where
- * the position sits and what it is called, so all the room goes to the name: it
- * is the column that fills the table, and it wraps.
+ * the position sits and what it is called, so most of the room goes to the
+ * name, and it wraps rather than being cut.
  */
 /** What the one text filter looks through, said in full for whoever opens it. */
 const SEARCH_HINT = 'Поиск по всем полям';
@@ -163,12 +164,8 @@ const columns: ColumnDef[] = [
     // the department's own page.
     { key: 'department', label: 'Департамент', width: 240 },
     { key: 'unit', label: 'Отдел', width: 200 },
-    // The column that takes whatever room the others leave, and the width is the
-    // floor it fills up from rather than what it is drawn at. A job title is the
-    // point of the row and the one value here that is glad of the room: it wraps
-    // instead of being cut. Said outright rather than left to be the last column
-    // standing, because the three of them can be dragged into any order and the
-    // name is the one to hand the gap to wherever it ends up.
+    // A job title is the point of the row and the one value here glad of the
+    // room, so it is the widest of the three and wraps instead of being cut.
     //
     // The funnel here is the search this page used to carry above the table:
     // it answers by the job title, by either step of the structure and by the
@@ -178,7 +175,6 @@ const columns: ColumnDef[] = [
         key: 'name',
         label: 'Должность',
         width: 245,
-        fill: true,
         filter: { type: 'text', param: 'q', placeholder: SEARCH_HINT },
     },
 ];
@@ -497,6 +493,9 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
     // either.
     const [chosen, setChosen] = useState<Narrowing>(NOTHING_CHOSEN);
     const [editing, setEditing] = useState<Position | 'new' | null>(null);
+
+    // «Добавить должность» from the palette lands here with the window open.
+    useAskedToAdd(canEdit, () => setEditing('new'));
     const [deleting, setDeleting] = useState<Position | null>(null);
 
     /**

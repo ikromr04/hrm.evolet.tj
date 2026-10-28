@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
@@ -228,6 +229,9 @@ export function DirectoryManager({
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
     const [query, setQuery] = useState('');
     const [editing, setEditing] = useState<DirectoryItem | 'new' | null>(null);
+
+    // «Добавить …» from the palette lands here with the window already asked for.
+    useAskedToAdd(canEdit, () => setEditing('new'));
     const [deleting, setDeleting] = useState<DirectoryItem | null>(null);
 
     const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
@@ -281,7 +285,6 @@ export function DirectoryManager({
                           key: 'count',
                           label: countLabel,
                           width: 320,
-                          fill: true,
                           ...(counted.length > 0 ? { filter: { type: 'multi' as const, param: 'counted', options: counted } } : {}),
                       },
                   ]
@@ -305,7 +308,6 @@ export function DirectoryManager({
                           key: 'name',
                           label: 'Название',
                           width: 320,
-                          fill: true,
                           filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
                       },
                       { key: 'count', label: countLabel, width: 200 },
