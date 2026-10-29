@@ -53,7 +53,11 @@ const named = ({ title }: { title: string }) => ({ title });
  */
 // Exported so that the palette searches the very menu this draws: two lists
 // of pages drift apart, and the one nobody looks at is the one that goes stale.
-export const navGroups = (can: (permission: Permission) => boolean, sysadmin: boolean, href: (url: string, key: string) => string): SidebarNavGroup[] => [
+export const navGroups = (
+    can: (permission: Permission) => boolean,
+    sysadmin: boolean,
+    href: (url: string, key: string) => string,
+): SidebarNavGroup[] => [
     {
         title: 'Обзор',
         items: [
