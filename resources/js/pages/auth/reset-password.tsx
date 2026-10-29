@@ -37,7 +37,7 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
     };
 
     return (
-        <AuthLayout title="Новый пароль" description="Придумайте новый пароль для входа в систему">
+        <AuthLayout title="Новый пароль" description="Придумайте пароль не короче 12 символов, с буквами и цифрами">
             <Head title="Сброс пароля" />
 
             <form noValidate className="flex flex-col gap-6" onSubmit={submit}>

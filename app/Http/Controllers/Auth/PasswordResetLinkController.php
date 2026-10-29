@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\GuessLimit;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -39,6 +40,29 @@ class PasswordResetLinkController extends Controller
         $request->validate([
             'email' => 'required|email',
         ]);
+
+        // Unlike a password, a letter is counted whether it went anywhere or not
+        // — and whether the broker sent it or refused it as too soon. What is
+        // being limited here is not somebody's guessing but the letters
+        // themselves: three for one address in ten minutes, so that nobody's
+        // inbox can be filled from this form and the host's mail is not spent on
+        // it. That this form also says plainly whether an address belongs to
+        // anybody here is a trade the company made knowingly, explained above,
+        // and a limit counted by address does nothing about it.
+        // And counted a second time without the address, because the limit per
+        // address cannot see a list being walked: seventy-seven colleagues are
+        // seventy-seven first letters, each of them the first for its address.
+        // Both are asked before either is spent, so a form refused by one does
+        // not quietly spend the other's allowance.
+        $limits = [GuessLimit::on('password.letter', $request), GuessLimit::on('password.letters', $request)];
+
+        foreach ($limits as $limit) {
+            $limit->ensure();
+        }
+
+        foreach ($limits as $limit) {
+            $limit->hit();
+        }
 
         $status = Password::sendResetLink($request->only('email'));
 

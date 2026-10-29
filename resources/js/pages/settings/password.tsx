@@ -56,7 +56,7 @@ export default function Password() {
                 <div className="space-y-6">
                     {/* The phone's top bar already names the page; the advice moves under the fields there, as a note. */}
                     <div className="max-md:hidden">
-                        <HeadingSmall title="Смена пароля" description="Выберите длинный пароль, который больше нигде не используется" />
+                        <HeadingSmall title="Смена пароля" description="Не менее 12 символов, с буквами и цифрами, и больше нигде не используется" />
                     </div>
 
                     <form noValidate onSubmit={updatePassword} className="space-y-6 max-md:space-y-4">
@@ -114,7 +114,7 @@ export default function Password() {
                         </div>
 
                         <p className="text-muted-foreground -mt-2 px-1 text-[13px] md:hidden">
-                            Выберите длинный пароль, который больше нигде не используется.
+                            Не менее 12 символов, с буквами и цифрами, и больше нигде не используется.
                         </p>
 
                         <div className="flex items-center gap-4 max-md:flex-col max-md:items-stretch max-md:gap-2">

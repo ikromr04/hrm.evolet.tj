@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -51,6 +52,33 @@ class AppServiceProvider extends ServiceProvider
         // typed on the company's server out of habit it would take every card
         // with it, so there they refuse to run even with --force.
         DB::prohibitDestructiveCommands($this->app->isProduction());
+
+        // What «Password::defaults()» means. Three forms ask for it — the page a
+        // reset letter leads to, the password page in the settings, and the
+        // command that makes the first account — and unconfigured it means eight
+        // characters and nothing else, which is the one thing it should not mean.
+        //
+        // Length is what is asked for here, rather than a capital letter and a
+        // punctuation mark and a digit in prescribed proportions. Twelve
+        // characters of two ordinary words beat eight with an exclamation mark
+        // wedged on the end, and a rule demanding a zoo of symbols is answered
+        // with «Parol123!» and a note under the keyboard — which is the attack
+        // this is meant to be about. Letters and digits are still both asked for,
+        // since twelve characters are otherwise free to be a telephone number or
+        // a date of birth, and those are the first things anybody tries.
+        Password::defaults(function () {
+            $password = Password::min(12)->letters()->numbers();
+
+            // ->uncompromised() asks api.pwnedpasswords.com whether this password
+            // turns up in a published leak. That is a request over the network
+            // for every password typed, so it belongs only where passwords are
+            // real: in the test suite it would be one call per assertion, and on
+            // a developer's machine — often with no internet at all — a wait and
+            // then nothing, since the verifier counts a failed request as "not
+            // leaked". It fails open on the company's shared hosting too, which
+            // is a reason to expect little of it rather than to leave it out.
+            return $this->app->isProduction() ? $password->uncompromised() : $password;
+        });
 
         // One account passes every authorization check, including rights added
         // later: the system administrator. There is exactly one of them, and

@@ -28,7 +28,7 @@ class CreateSysadminTest extends TestCase
         '--name' => 'Некруз',
         '--sex' => 'male',
         '--email' => 'admin@evolet.tj',
-        '--password' => 'correct-horse',
+        '--password' => 'correct-horse-42',
         // The way cron runs it: whatever is not given is not asked for.
         '--no-interaction' => true,
     ];
@@ -48,8 +48,8 @@ class CreateSysadminTest extends TestCase
             ->expectsQuestion('Отчество (можно оставить пустым)', null)
             ->expectsQuestion('Пол', 'male')
             ->expectsQuestion('E-mail', 'Admin@Evolet.tj')
-            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse')
-            ->expectsQuestion('Пароль ещё раз', 'correct-horse')
+            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse-42')
+            ->expectsQuestion('Пароль ещё раз', 'correct-horse-42')
             ->assertSuccessful();
 
         $admin = User::sole();
@@ -64,7 +64,7 @@ class CreateSysadminTest extends TestCase
         // The private half of the card exists, as it does for anybody else.
         $this->assertNotNull($admin->details);
 
-        $this->assertTrue(Auth::validate(['email' => 'admin@evolet.tj', 'password' => 'correct-horse']));
+        $this->assertTrue(Auth::validate(['email' => 'admin@evolet.tj', 'password' => 'correct-horse-42']));
         // Any right at all, including ones nobody has thought of yet.
         $this->assertTrue(Gate::forUser($admin)->allows('employees.delete'));
         $this->assertTrue(Gate::forUser($admin)->allows('a-right-added-later'));
@@ -81,7 +81,7 @@ class CreateSysadminTest extends TestCase
 
         $this->assertSame('Саидович', $admin->patronymic);
         $this->assertTrue($admin->hasRole(Access::SOLE_ROLE));
-        $this->assertTrue(Auth::validate(['email' => 'admin@evolet.tj', 'password' => 'correct-horse']));
+        $this->assertTrue(Auth::validate(['email' => 'admin@evolet.tj', 'password' => 'correct-horse-42']));
         // Nothing is mailed: the password is known to whoever typed it.
         Notification::assertNothingSent();
     }
@@ -113,10 +113,10 @@ class CreateSysadminTest extends TestCase
             ->expectsQuestion('E-mail', 'admin@evolet.tj')
             // Too short, then mistyped the second time.
             ->expectsQuestion('Пароль (ввод не отображается)', 'short')
-            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse')
-            ->expectsQuestion('Пароль ещё раз', 'correct-hose')
-            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse')
-            ->expectsQuestion('Пароль ещё раз', 'correct-horse')
+            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse-42')
+            ->expectsQuestion('Пароль ещё раз', 'correct-hose-42')
+            ->expectsQuestion('Пароль (ввод не отображается)', 'correct-horse-42')
+            ->expectsQuestion('Пароль ещё раз', 'correct-horse-42')
             ->assertSuccessful();
 
         $this->assertSame('admin@evolet.tj', User::role(Access::SOLE_ROLE)->sole()->email);
@@ -126,6 +126,9 @@ class CreateSysadminTest extends TestCase
     {
         $this->artisan('hrm:sysadmin', [...self::OPTIONS, '--sex' => 'other'])->assertFailed();
         $this->artisan('hrm:sysadmin', [...self::OPTIONS, '--password' => 'short'])->assertFailed();
+        // Long enough and refused anyway: thirteen characters of nothing but
+        // letters are a word or two, and words are what anybody tries first.
+        $this->artisan('hrm:sysadmin', [...self::OPTIONS, '--password' => 'tolkobukvybez'])->assertFailed();
         $this->artisan('hrm:sysadmin', [...self::OPTIONS, '--email' => 'not-an-address'])->assertFailed();
 
         $this->assertSame(0, User::count());

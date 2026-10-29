@@ -19,15 +19,15 @@ class PasswordUpdateTest extends TestCase
             ->from('/settings/password')
             ->put('/settings/password', [
                 'current_password' => 'password',
-                'password' => 'new-password',
-                'password_confirmation' => 'new-password',
+                'password' => 'novyi-parol-2026',
+                'password_confirmation' => 'novyi-parol-2026',
             ]);
 
         $response
             ->assertSessionHasNoErrors()
             ->assertRedirect('/settings/password');
 
-        $this->assertTrue(Hash::check('new-password', $user->refresh()->password));
+        $this->assertTrue(Hash::check('novyi-parol-2026', $user->refresh()->password));
     }
 
     public function test_correct_password_must_be_provided_to_update_password()
@@ -39,12 +39,14 @@ class PasswordUpdateTest extends TestCase
             ->from('/settings/password')
             ->put('/settings/password', [
                 'current_password' => 'wrong-password',
-                'password' => 'new-password',
-                'password_confirmation' => 'new-password',
+                'password' => 'novyi-parol-2026',
+                'password_confirmation' => 'novyi-parol-2026',
             ]);
 
         $response
             ->assertSessionHasErrors('current_password')
             ->assertRedirect('/settings/password');
+
+        $this->assertTrue(Hash::check('password', $user->refresh()->password));
     }
 }
