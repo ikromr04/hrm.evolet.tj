@@ -244,9 +244,10 @@ class EmployeeCreateTest extends TestCase
             $password = (new ReflectionClass($mail))->getProperty('password')->getValue($mail);
             $body = implode(' ', $mail->toMail($employee)->introLines);
 
-            // Between eight and twelve characters, and it is in the letter.
-            $this->assertGreaterThanOrEqual(8, strlen($password));
-            $this->assertLessThanOrEqual(12, strlen($password));
+            // Long enough for the password page to accept it if they ever type
+            // it back, and it is in the letter.
+            $this->assertGreaterThanOrEqual(12, strlen($password));
+            $this->assertLessThanOrEqual(16, strlen($password));
             $this->assertTrue(Hash::check($password, $employee->password));
 
             return str_contains($body, $password) && str_contains($body, $employee->email);
