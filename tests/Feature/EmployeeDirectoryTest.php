@@ -77,6 +77,37 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page->has('employees.data', 2));
     }
 
+    /**
+     * The name column's own search reaches only the lines the viewer may read.
+     *
+     * A filter on a field nobody may read is refused outright further up, and
+     * the toolbar search has always asked the same question field by field.
+     * This one box did not: it ran over the surname, the name, the patronymic
+     * and the address alike, so typing an address narrowed the list to the one
+     * person holding it — which answers whose address it is without printing a
+     * character of it.
+     */
+    public function test_the_name_search_does_not_reach_a_line_nobody_may_read()
+    {
+        $nigina = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина', 'email' => 'n.azimova@evolet.test']);
+
+        $viewer = $this->colleague();
+        $viewer->revokePermissionTo('employees.field.email');
+
+        $this->actingAs($viewer)
+            ->get('/employees?search=n.azimova@evolet.test')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->has('employees.data', 0));
+
+        // For somebody who may read the address it narrows as it always did.
+        $this->actingAs($this->colleague())
+            ->get('/employees?search=n.azimova@evolet.test')
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('employees.data', 1)
+                ->where('employees.data.0.id', $nigina->id)
+            );
+    }
+
     public function test_colleagues_see_public_fields_only()
     {
         $colleague = User::factory()->has(UserDetail::factory(), 'details')->create(['surname' => 'Азимова']);

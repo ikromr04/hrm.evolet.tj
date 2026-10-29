@@ -15,6 +15,7 @@ use App\Observers\EquipmentObserver;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentName;
+use App\Support\PhotoStore;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\RedirectResponse;
@@ -24,8 +25,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -818,6 +819,24 @@ class EquipmentController extends Controller
         $holder = $employee?->id ?? $data['holder_user_id'] ?? null;
         $department = $employee === null ? ($data['holder_department_id'] ?? null) : null;
 
+        // Putting a unit on the books and handing it to somebody are two rights,
+        // and this route can only ask for the first: whether the second is
+        // needed depends on what the form filled in. A form opened from a
+        // colleague's card was asked for both at the door, above. This is the
+        // other way in — the plain form, which offers the question only to
+        // somebody who may answer it, so an answer arriving here from a page
+        // that was not offered it is refused rather than quietly obeyed.
+        //
+        // Refused whole, not filed without the handover: somebody who believes
+        // they have just given a laptop to a colleague, and whose records say
+        // it is in the stockroom, is worse off than somebody told plainly that
+        // this part is not theirs to do.
+        if (($holder !== null || $department !== null) && ! $request->user()->can('equipment.issue')) {
+            throw ValidationException::withMessages([
+                $department === null ? 'holder_user_id' : 'holder_department_id' => 'Выдавать оборудование вам нельзя. Поставьте единицу на учёт без владельца — выдаст тот, кому это разрешено.',
+            ]);
+        }
+
         $equipment = Equipment::create([
             ...Arr::except($data, [
                 'name', 'inventory_number', 'holder_user_id', 'holder_department_id', 'issued_at', 'photos', 'another', 'fields',
@@ -1097,7 +1116,7 @@ class EquipmentController extends Controller
         }
 
         // The photographs are on disk; the rows go by themselves, files do not.
-        Storage::disk('public')->delete($equipment->photos->flatMap(fn ($photo) => [$photo->path, $photo->preview])->all());
+        PhotoStore::forget($equipment->photos->flatMap(fn ($photo) => [$photo->path, $photo->preview])->all());
 
         $equipment->delete();
 

@@ -195,7 +195,7 @@ class EmployeeController extends Controller
         $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages:id,name'])
             ->where('status', $status);
         $this->applySearch($query, $filters['q'], $visible);
-        $this->applyFilters($query, $filters);
+        $this->applyFilters($query, $filters, $visible);
         $this->applySort($query, $sort, $direction);
 
         $employees = $query->paginate($perPage)->withQueryString();
@@ -319,7 +319,13 @@ class EmployeeController extends Controller
 
         // Nobody types a password for somebody else: one is picked here, sent
         // to them, and never seen again — not even by whoever added them.
-        $password = Str::password(random_int(8, 12), symbols: false);
+        //
+        // Twelve characters at the shortest, because that is the shortest the
+        // password policy accepts (AppServiceProvider): the system has no
+        // business mailing somebody a password its own forms would refuse.
+        // Str::password always puts both letters and digits in, so the rest of
+        // the policy is met by construction.
+        $password = Str::password(random_int(12, 16), symbols: false);
 
         $employee = DB::transaction(function () use ($data, $password) {
             $employee = User::create([
@@ -462,8 +468,18 @@ class EmployeeController extends Controller
                     ]),
                     // What they hold and what happened to it while they held it:
                     // one field, two things to read.
+                    // Both readings are narrowed to the units this viewer may
+                    // see, by the same rule the equipment pages go by: a unit
+                    // outside their part of the fleet is no more theirs to read
+                    // on a colleague's card than on the fleet's own page. The
+                    // card used to name every one of them — what it is called,
+                    // the number on its sticker, the notes written about it —
+                    // and only decided afterwards which were worth a link.
                     ...($shows('equipment') && $this->openUnitsFor($request->user(), $employee) ? [
-                        'equipment' => $employee->equipment->map(fn (Equipment $e) => $this->equipment($e, $request->user()))->all(),
+                        'equipment' => $employee->equipment
+                            ->filter(fn (Equipment $e) => in_array($e->id, $this->openUnits, true))
+                            ->map(fn (Equipment $e) => $this->equipment($e, $request->user()))
+                            ->values()->all(),
                         'equipment_history' => $this->equipmentHistory($employee),
                     ] : []),
                     // The passport reads as three lines, each its own field, so a
@@ -705,12 +721,25 @@ class EmployeeController extends Controller
 
     /**
      * @param  array<string, mixed>  $filters
+     * @param  list<string>  $visible
      */
-    private function applyFilters(Builder $query, array $filters): void
+    private function applyFilters(Builder $query, array $filters, array $visible): void
     {
+        // The name column's own search. Like the toolbar's, and for the same
+        // reason applySearch gives, it reaches only the fields the viewer may
+        // read: an e-mail address typed in here used to narrow the list to the
+        // one person holding it, which says whose it is as plainly as printing
+        // it would — and it said so to a viewer whose right to that field had
+        // been taken away. The surname and the name are readable to anybody who
+        // may see the list at all.
+        $columns = ['surname', 'name', ...array_filter(
+            ['patronymic', 'email'],
+            fn (string $field) => in_array($field, $visible, true),
+        )];
+
         $query
-            ->when($filters['search'] !== '', fn (Builder $q) => $q->where(function (Builder $q) use ($filters) {
-                foreach (['surname', 'name', 'patronymic', 'email'] as $column) {
+            ->when($filters['search'] !== '', fn (Builder $q) => $q->where(function (Builder $q) use ($filters, $columns) {
+                foreach ($columns as $column) {
                     $q->orWhere($column, 'like', "%{$filters['search']}%");
                 }
             }))
@@ -1175,7 +1204,16 @@ class EmployeeController extends Controller
      */
     private function equipmentHistory(User $employee): array
     {
-        $events = EquipmentHistory::of($employee)->events();
+        // Narrowed to the units the viewer may see. An entry about one they may
+        // not is dropped whole rather than shown with the unit left unnamed:
+        // what a unit is called is only half of what an entry gives away, and
+        // the notes and the photographs are the other half.
+        //
+        // openUnits was worked out a moment ago, for the links, off the very
+        // same ids — so this costs nothing beyond the reading of it.
+        $events = EquipmentHistory::of($employee)->events()
+            ->filter(fn (EquipmentEvent $event) => in_array($event->equipment_id, $this->openUnits, true))
+            ->values();
 
         return [
             'events' => $events->map(fn (EquipmentEvent $event) => [

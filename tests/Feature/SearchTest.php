@@ -60,6 +60,37 @@ class SearchTest extends TestCase
         $this->getJson('/search?q=Душанбе')->assertJsonCount(0, 'employees');
     }
 
+    /**
+     * A line of a card the viewer may not read is neither searched nor shown.
+     *
+     * Searching it is the same leak by a shorter road: type an address, get back
+     * the one person it belongs to, and the answer is whose address it is —
+     * which is the very thing the right was taken away to stop. The palette used
+     * to search the address and hand it back besides.
+     */
+    public function test_a_line_nobody_may_read_is_neither_searched_nor_handed_back()
+    {
+        $nigina = User::factory()->create(['surname' => 'Азимова', 'name' => 'Нигина', 'email' => 'n.azimova@evolet.test']);
+
+        $viewer = $this->colleague(['surname' => 'Холов', 'name' => 'Бахром']);
+        $viewer->revokePermissionTo('employees.field.email');
+
+        $this->actingAs($viewer);
+
+        $this->getJson('/search?q=n.azimova@evolet.test')->assertOk()->assertJsonCount(0, 'employees');
+
+        // Found by her name all the same, with the address left empty.
+        $this->getJson('/search?q=Азимова')
+            ->assertOk()
+            ->assertJsonPath('employees.0.id', $nigina->id)
+            ->assertJsonPath('employees.0.email', null);
+
+        // And for somebody who may read it, both still work as they did.
+        $this->actingAs($this->colleague(['surname' => 'Шарипов', 'name' => 'Фируз']));
+
+        $this->getJson('/search?q=n.azimova@evolet.test')->assertOk()->assertJsonPath('employees.0.id', $nigina->id);
+    }
+
     public function test_finds_departments_positions_and_roles()
     {
         $this->seed(RoleSeeder::class);

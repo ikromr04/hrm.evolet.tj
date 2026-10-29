@@ -31,7 +31,9 @@ import {
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 interface SearchResults {
-    employees: { id: number; name: string; avatar: string | null; email: string; positions: string[] }[];
+    // The address comes through empty for a viewer whose right to that line of
+    // a card was taken away, exactly as the face does.
+    employees: { id: number; name: string; avatar: string | null; email: string | null; positions: string[] }[];
     /** A unit of hardware, found by anything printed on it or by who has it. */
     equipment: {
         id: number;
@@ -289,7 +291,7 @@ export function GlobalSearch() {
                 key: `employee-${person.id}`,
                 group: 'Сотрудники',
                 label: person.name,
-                hint: person.positions.length ? person.positions.join(', ') : person.email,
+                hint: person.positions.length ? person.positions.join(', ') : (person.email ?? undefined),
                 href: route('employees.show', person.id),
                 icon: <PersonFace id={person.id} name={person.name} avatar={person.avatar} plain className="size-8 text-[11px]" />,
             })),

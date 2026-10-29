@@ -105,24 +105,39 @@ class SearchController extends Controller
      */
     private function employees(array $words): array
     {
+        $viewer = request()->user();
+        // Only the lines this viewer may read are searched or shown, by the
+        // same rule the staff list goes by. A word matched against a field they
+        // have no right to tells them what is in it without printing it: type
+        // an address, get the one person holding it, and now you know whose it
+        // is. The surname, the name and the job title are nobody's secret —
+        // this page is open to everybody who signs in.
+        $shows = fn (string $field) => in_array($field, EmployeeFields::visibleTo($viewer), true);
         $query = User::active()->with('positions:id,name');
 
         foreach ($words as $word) {
             $like = "%{$word}%";
-            $query->where(fn (Builder $q) => $q
-                ->where('surname', 'like', $like)
-                ->orWhere('name', 'like', $like)
-                ->orWhere('patronymic', 'like', $like)
-                ->orWhere('email', 'like', $like)
-                ->orWhereHas('positions', fn (Builder $q) => $q->where('name', 'like', $like)));
+            $query->where(function (Builder $q) use ($like, $shows) {
+                $q->where('surname', 'like', $like)
+                    ->orWhere('name', 'like', $like)
+                    ->orWhereHas('positions', fn (Builder $q) => $q->where('name', 'like', $like));
+
+                foreach (['patronymic', 'email'] as $field) {
+                    if ($shows($field)) {
+                        $q->orWhere($field, 'like', $like);
+                    }
+                }
+            });
         }
 
         return $query->orderBy('surname')->orderBy('name')->limit(self::LIMIT)->get(['id', 'name', 'surname', 'avatar', 'email'])
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => "{$u->surname} {$u->name}",
-                'avatar' => EmployeeFields::showsAvatar(request()->user(), $u) ? $u->avatar : null,
-                'email' => $u->email,
+                'avatar' => EmployeeFields::showsAvatar($viewer, $u) ? $u->avatar : null,
+                // Asked of this card rather than of cards at large: one's own
+                // address is one's own to read whatever the position allows.
+                'email' => in_array('email', EmployeeFields::visibleTo($viewer, $u), true) ? $u->email : null,
                 'positions' => $u->positions->pluck('name')->sort()->values(),
             ])
             ->all();

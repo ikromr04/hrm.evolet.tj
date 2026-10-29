@@ -8,6 +8,7 @@ import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useCan } from '@/lib/access';
 import { blankValues, ownFields, roleName, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
@@ -173,8 +174,15 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
     // rather than added first and issued in a second window. Coming from a
     // colleague's card the handing over is the whole point of the form, so
     // there is nothing to tick and the unit goes across either way.
+    //
+    // But handing a unit over is a right of its own, and somebody may well be
+    // allowed to put units on the books without it. For them the question is
+    // not asked at all, rather than asked and then refused by the server once
+    // the form has been filled in. From a card the right was demanded before
+    // the page was drawn, so there is nothing to ask there either.
+    const mayIssue = useCan()('equipment.issue');
     const [issuing, setIssuing] = useState(false);
-    const handingOver = forEmployee !== null || issuing;
+    const handingOver = forEmployee !== null || (issuing && mayIssue);
     // What state a unit arrived in is often written later, when somebody has it
     // in their hands, so the form does not ask until asked.
     const [describing, setDescribing] = useState(false);
@@ -530,8 +538,11 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                 )}
             </div>
 
-            {/* Not a property of the unit but something done with it, so it stands apart. */}
-            {category && (
+            {/* Not a property of the unit but something done with it, so it stands
+                apart — and it stands nowhere at all for somebody who may file a
+                unit but not hand one over: an empty ruled band asking nothing is
+                worse than no band. */}
+            {category && (forEmployee !== null || mayIssue) && (
                 <div className={cn(row[layout], 'border-t pt-6')}>
                     {/* Asked for whom only where nobody is fixed; from a card it is
                         already answered, and the form says so instead of asking. */}

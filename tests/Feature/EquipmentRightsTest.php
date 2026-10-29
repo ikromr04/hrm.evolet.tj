@@ -296,6 +296,47 @@ class EquipmentRightsTest extends TestCase
         $this->assertNull(Equipment::whereInventory('EV-0422')->first()->holder_user_id);
     }
 
+    /**
+     * The other way a unit changes hands as it arrives: the plain form, with a
+     * colleague picked in it rather than a card it was opened from. The route
+     * can ask only for the right to bring a unit in — whether a handover is
+     * part of the request at all is decided by what the form filled in — so
+     * the right to hand one over is asked of the request itself.
+     */
+    public function test_naming_a_holder_on_the_plain_form_takes_the_right_to_hand_units_over()
+    {
+        $colleague = User::factory()->create();
+
+        $payload = fn (string $number) => [
+            'equipment_type_id' => $this->type()->id,
+            'name' => 'Ноутбук Dell Latitude 5440',
+            'inventory_number' => $number,
+            'holder_user_id' => $colleague->id,
+            'issued_at' => '2026-10-01',
+        ];
+
+        // May bring a unit in, and nothing else.
+        $keeper = $this->person('equipment.create');
+
+        $this->actingAs($keeper)
+            ->post('/equipment', $payload('EV-0421'))
+            ->assertSessionHasErrors('holder_user_id');
+
+        // Refused whole rather than filed with the handover quietly dropped:
+        // records saying the laptop is in the stockroom, held by somebody sure
+        // they handed it over, are worse than a plain refusal.
+        $this->assertSame(0, Equipment::count());
+
+        $clerk = $this->person('equipment.create', 'equipment.issue');
+
+        $this->actingAs($clerk)->post('/equipment', $payload('EV-0422'))->assertRedirect();
+
+        $unit = Equipment::whereInventory('EV-0422')->first();
+
+        $this->assertSame($colleague->id, $unit->holder_user_id);
+        $this->assertSame('issued', $unit->status);
+    }
+
     public function test_an_administrator_needs_none_of_these_rights()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');

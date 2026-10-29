@@ -784,7 +784,7 @@ class EquipmentTest extends TestCase
 
     public function test_a_unit_can_be_photographed_as_it_is_entered()
     {
-        Storage::fake('public');
+        Storage::fake('photos');
 
         $this->actingAs($this->sysadmin())
             ->post('/equipment', [
@@ -805,8 +805,8 @@ class EquipmentTest extends TestCase
         $arrival = $unit->events()->sole();
         $this->assertSame('created', $arrival->kind);
         $photo = $arrival->photos()->sole();
-        Storage::disk('public')->assertExists($photo->path);
-        Storage::disk('public')->assertExists($photo->preview);
+        Storage::disk('photos')->assertExists($photo->path);
+        Storage::disk('photos')->assertExists($photo->preview);
     }
 
     public function test_a_handover_made_while_entering_a_unit_still_needs_its_date()
@@ -1242,6 +1242,51 @@ class EquipmentTest extends TestCase
                 // The handover, the service, the return, and where it went next.
                 ->has('employee.private.equipment_history.events', 4)
                 ->where('employee.private.equipment_history.events.0.unit.name', 'Ноутбук Dell')
+            );
+    }
+
+    /**
+     * A card is not a way round the fleet's own rules.
+     *
+     * The equipment block of a colleague's card used to be built from
+     * everything they held or had ever held, and only afterwards decided which
+     * of it was worth a link. So a viewer who may see nothing but their own
+     * equipment still read, on anybody's card, what every unit was called, the
+     * number on its sticker and the notes written about it — the whole of what
+     * the fleet page would have refused them.
+     */
+    public function test_a_card_names_only_the_units_the_viewer_may_see()
+    {
+        $admin = $this->sysadmin();
+        $colleague = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $stranger = User::factory()->create();
+
+        // The commonest arrangement there is: may read the equipment block of a
+        // card, and sees no equipment but their own.
+        $viewer = $this->mayLookAround(User::factory()->create())->givePermissionTo('employees.field.equipment');
+
+        $mine = Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук, что теперь мой']);
+        $theirs = Equipment::factory()->ofType($this->type())->create(['name' => 'Ноутбук, что ушёл дальше']);
+
+        // Both passed through the colleague's hands. One of them ended up with
+        // the viewer, the other with somebody the viewer may know nothing about.
+        foreach ([[$mine, $viewer], [$theirs, $stranger]] as [$unit, $next]) {
+            $this->actingAs($admin)->post("/equipment/{$unit->id}/issue", ['holder_user_id' => $colleague->id, 'issued_at' => '2026-01-10']);
+            $this->actingAs($admin)->post("/equipment/{$unit->id}/take", ['returned_at' => '2026-03-01']);
+            $this->actingAs($admin)->post("/equipment/{$unit->id}/issue", ['holder_user_id' => $next->id, 'issued_at' => '2026-03-02']);
+        }
+
+        // The administrator reads the lot: four entries about each unit, so
+        // eight — which is what the viewer below must not be shown.
+        $this->actingAs($admin)
+            ->get("/employees/{$colleague->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page->has('employee.private.equipment_history.events', 6));
+
+        $this->actingAs($viewer)
+            ->get("/employees/{$colleague->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('employee.private.equipment_history.events', fn ($events) => collect($events)->isNotEmpty()
+                    && collect($events)->every(fn ($event) => $event['unit']['name'] === 'Ноутбук, что теперь мой'))
             );
     }
 
