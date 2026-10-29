@@ -30,7 +30,7 @@ class PhotoUploadTest extends TestCase
         parent::setUp();
 
         $this->seed(RoleSeeder::class);
-        Storage::fake('public');
+        Storage::fake('photos');
     }
 
     /**
@@ -89,8 +89,8 @@ class PhotoUploadTest extends TestCase
 
         $photo = $unit->events()->where('kind', 'condition')->sole()->photos()->sole();
 
-        Storage::disk('public')->assertExists($photo->path);
-        Storage::disk('public')->assertExists($photo->preview);
+        Storage::disk('photos')->assertExists($photo->path);
+        Storage::disk('photos')->assertExists($photo->preview);
     }
 
     public function test_an_avatar_goes_by_the_same_rules()
@@ -109,5 +109,78 @@ class PhotoUploadTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->assertNotNull($employee->fresh()->getRawOriginal('avatar'));
+    }
+
+    /**
+     * A picture that weighs nothing and claims to be enormous.
+     *
+     * This is the shape of the thing the limit is for: the file passes every
+     * rule about weight and format, and opening it would ask the server for
+     * gigabytes. The eight-megabyte cap on the upload cannot see it, because
+     * the file really is small — it is the open picture that is not.
+     */
+    public function test_a_picture_claiming_more_points_than_can_be_opened_is_refused(): void
+    {
+        $unit = $this->unit();
+
+        $this->actingAs($this->sysadmin())
+            ->put("/equipment/{$unit->id}/state", [
+                'condition' => 'Рабочее',
+                'photos' => [$this->claiming(30_000, 30_000)],
+            ])
+            ->assertSessionHasErrors(['photos.0' => ReadableImage::TOO_MANY_POINTS]);
+
+        $this->assertSame(0, $unit->events()->where('kind', 'condition')->count());
+    }
+
+    public function test_an_avatar_claiming_the_same_is_refused_too(): void
+    {
+        $employee = User::factory()->create();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/avatar", ['avatar' => $this->claiming(20_000, 20_000)])
+            ->assertSessionHasErrors(['avatar' => ReadableImage::TOO_MANY_POINTS]);
+
+        $this->assertNull($employee->fresh()->getRawOriginal('avatar'));
+    }
+
+    /**
+     * The count is read off the header and nothing is opened to get it — which
+     * is the only way the question can be asked at all, since opening the
+     * picture is the thing being guarded against.
+     *
+     * Both files below hold a header and not one row of pixels after it. The
+     * one within the ceiling passes, and it could only pass unopened.
+     */
+    public function test_the_count_is_read_off_the_header_rather_than_by_opening_the_picture(): void
+    {
+        $said = [];
+        $fail = function (string $message) use (&$said) {
+            $said[] = $message;
+        };
+
+        (new ReadableImage)->validate('avatar', $this->claiming(5_000, 5_000), $fail);
+
+        $this->assertSame([], $said, 'Двадцать пять миллионов точек — ровно потолок, и он должен проходить.');
+
+        (new ReadableImage)->validate('avatar', $this->claiming(5_000, 5_001), $fail);
+
+        $this->assertSame([ReadableImage::TOO_MANY_POINTS], $said);
+    }
+
+    /**
+     * A PNG that says how large it is and holds nothing else: the eight-byte
+     * signature and one IHDR chunk, which is all getimagesize() reads.
+     */
+    private function claiming(int $width, int $height): UploadedFile
+    {
+        $header = pack('N2C5', $width, $height, 8, 2, 0, 0, 0);
+        $chunk = 'IHDR'.$header;
+        $png = "\x89PNG\r\n\x1a\n".pack('N', strlen($header)).$chunk.pack('N', crc32($chunk));
+
+        $path = tempnam(sys_get_temp_dir(), 'claiming').'.png';
+        file_put_contents($path, $png);
+
+        return new UploadedFile($path, 'IMG_0001.png', 'image/png', null, true);
     }
 }
