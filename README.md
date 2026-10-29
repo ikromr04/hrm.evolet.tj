@@ -28,7 +28,6 @@ cp .env.example .env
 php artisan key:generate
 # создать базу hrm и прописать её в .env
 php artisan migrate --seed
-php artisan storage:link
 composer run dev
 ```
 

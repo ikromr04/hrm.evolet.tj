@@ -3,11 +3,11 @@
 namespace App\Models;
 
 use App\Support\Photo;
+use App\Support\PhotoStore;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -46,10 +46,10 @@ class EquipmentPhoto extends Model
         $folder = "equipment/{$equipment->id}/photos";
         $name = Str::random(20);
 
-        $original = $photo->storeAs($folder, "{$name}.".$photo->extension(), 'public');
+        $original = $photo->storeAs($folder, "{$name}.".$photo->extension(), PhotoStore::DISK);
         $preview = "{$folder}/{$name}_preview.jpg";
 
-        Storage::disk('public')->put($preview, Photo::fit(Storage::disk('public')->path($original), self::PREVIEW));
+        PhotoStore::disk()->put($preview, Photo::fit(PhotoStore::disk()->path($original), self::PREVIEW));
 
         return $equipment->photos()->create([
             'equipment_event_id' => $event->id,
@@ -78,11 +78,16 @@ class EquipmentPhoto extends Model
     /**
      * The upload, opened when a thumbnail is clicked.
      *
+     * An address of the application rather than of a file: the picture is
+     * answered by EquipmentPhotoController, which asks whether this unit is the
+     * viewer's to open before it hands anything over. Still a plain URL to
+     * everything that reads this, which is the whole interface.
+     *
      * @return Attribute<string, never>
      */
     protected function url(): Attribute
     {
-        return Attribute::get(fn (): string => Storage::disk('public')->url($this->path));
+        return Attribute::get(fn (): string => route('equipment.photos.show', [$this->equipment_id, $this->id]));
     }
 
     /**
@@ -90,6 +95,6 @@ class EquipmentPhoto extends Model
      */
     protected function previewUrl(): Attribute
     {
-        return Attribute::get(fn (): string => Storage::disk('public')->url($this->preview));
+        return Attribute::get(fn (): string => route('equipment.photos.preview', [$this->equipment_id, $this->id]));
     }
 }

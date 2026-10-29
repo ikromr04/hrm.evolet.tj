@@ -16,6 +16,7 @@ use App\Http\Controllers\EmployeeWorkExperienceController;
 use App\Http\Controllers\EquipmentController;
 use App\Http\Controllers\EquipmentDetailsController;
 use App\Http\Controllers\EquipmentJournalController;
+use App\Http\Controllers\EquipmentPhotoController;
 use App\Http\Controllers\EquipmentRepairController;
 use App\Http\Controllers\EquipmentStatusController;
 use App\Http\Controllers\NotificationController;
@@ -188,6 +189,22 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     Route::post('avatar', [EmployeeAvatarController::class, 'update'])->middleware('can:employees.photo,employee')->name('avatar.update');
     Route::delete('avatar', [EmployeeAvatarController::class, 'destroy'])->middleware('can:employees.photo,employee')->name('avatar.destroy');
 
+    // And the photograph itself, read rather than written. It is here because
+    // the file is not under the web root: served as a static file, the address
+    // was the whole of the security — whoever held it read the face, forever,
+    // and no right was ever asked. A former colleague, somebody the link was
+    // forwarded to, anything that logged the address.
+    //
+    // No gate on the route: whether a face is this viewer's to look at is not a
+    // bare permission but a question about the pair of them, and the controller
+    // asks it with EmployeeFields::showsAvatar — the same call every page that
+    // draws the face already makes. Nor is it the right above: the photograph is
+    // managed by HR and looked at by everybody.
+    //
+    // The file is named by its own name and nothing else; the card in the first
+    // half of the address is what says which names are its photograph.
+    Route::get('avatar/{file}', [EmployeeAvatarController::class, 'show'])->name('avatar.show');
+
     Route::put('personal', [EmployeeDetailsController::class, 'personal'])->middleware('can:employees.edit.block.main,employee')->name('personal');
     Route::put('passport', [EmployeeDetailsController::class, 'passport'])->middleware('can:employees.edit.block.passport,employee')->name('passport');
     Route::put('contacts', [EmployeeDetailsController::class, 'contacts'])->middleware('can:employees.edit.block.contacts,employee')->name('contacts');
@@ -272,6 +289,24 @@ Route::middleware('auth')->prefix('equipment/{equipment}')->name('equipment.')->
         Route::put('repairs/{repair}', [EquipmentRepairController::class, 'update'])->name('repairs.update');
         Route::delete('repairs/{repair}', [EquipmentRepairController::class, 'destroy'])->name('repairs.destroy');
     });
+});
+
+// The pictures out of a unit's journal, for the same reason the employee's
+// photograph above is read through an address of the application: a file under
+// the web root is handed to whoever holds its address and nobody is ever asked.
+//
+// What a laptop looked like when it came back is a fact about that unit, so the
+// gate is the one the card itself is opened with — a picture of a unit outside
+// what this person may see is no more theirs than the card it hangs off.
+//
+// Scoped, so a picture is only ever looked for among the photographs of the unit
+// named in the address: one unit's id cannot be paired with another's picture.
+Route::middleware(['auth', 'can:view,equipment'])->prefix('equipment/{equipment}')->name('equipment.photos.')->scopeBindings()->group(function () {
+    Route::get('photos/{photo}', [EquipmentPhotoController::class, 'show'])->name('show');
+    // The scaled copy the journal draws in its strip of thumbnails, beside the
+    // upload rather than in place of it: the strip would otherwise carry several
+    // megabytes a picture.
+    Route::get('photos/{photo}/preview', [EquipmentPhotoController::class, 'preview'])->name('preview');
 });
 
 // Keeping the job titles: the same right the access table has always named the

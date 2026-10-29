@@ -160,7 +160,7 @@ class EquipmentJournalTest extends TestCase
 
     public function test_service_can_be_photographed_and_the_pictures_stay_with_the_record()
     {
-        Storage::fake('public');
+        Storage::fake('photos');
         $unit = Equipment::factory()->ofType($this->type())->create();
 
         $this->actingAs($this->sysadmin())->post("/equipment/{$unit->id}/repairs", [
@@ -171,8 +171,8 @@ class EquipmentJournalTest extends TestCase
 
         $repair = $unit->repairs()->sole();
         $photo = $repair->photos()->sole();
-        Storage::disk('public')->assertExists($photo->path);
-        Storage::disk('public')->assertExists($photo->preview);
+        Storage::disk('photos')->assertExists($photo->path);
+        Storage::disk('photos')->assertExists($photo->preview);
 
         // Readable from either side: the record it came with, and the journal.
         $this->assertSame($photo->id, $unit->events()->where('kind', 'repair_added')->sole()->photos()->sole()->id);
@@ -180,7 +180,7 @@ class EquipmentJournalTest extends TestCase
 
     public function test_a_return_can_be_photographed_and_the_pictures_go_to_its_entry()
     {
-        Storage::fake('public');
+        Storage::fake('photos');
         $employee = User::factory()->create();
         $unit = Equipment::factory()->ofType($this->type())->issuedTo($employee->id)->create();
 
@@ -192,13 +192,13 @@ class EquipmentJournalTest extends TestCase
 
         // On the entry that records the return, not on some entry of its own.
         $photo = $unit->events()->where('kind', 'stocked')->sole()->photos()->sole();
-        Storage::disk('public')->assertExists($photo->path);
-        Storage::disk('public')->assertExists($photo->preview);
+        Storage::disk('photos')->assertExists($photo->path);
+        Storage::disk('photos')->assertExists($photo->preview);
     }
 
     public function test_a_handover_and_a_write_off_keep_their_pictures_too()
     {
-        Storage::fake('public');
+        Storage::fake('photos');
         $employee = User::factory()->create();
         $unit = Equipment::factory()->ofType($this->type())->create();
         $admin = $this->sysadmin();
@@ -250,7 +250,7 @@ class EquipmentJournalTest extends TestCase
 
     public function test_a_check_keeps_its_photographs_and_a_later_one_does_not_replace_them()
     {
-        Storage::fake('public');
+        Storage::fake('photos');
         $unit = Equipment::factory()->ofType($this->type())->create(['condition' => 'Новое, в упаковке']);
         $admin = $this->sysadmin();
 
@@ -273,8 +273,8 @@ class EquipmentJournalTest extends TestCase
 
         // Kept twice over: the upload, and the copy the interface shows.
         $photo = $unit->photos()->first();
-        Storage::disk('public')->assertExists($photo->path);
-        Storage::disk('public')->assertExists($photo->preview);
+        Storage::disk('photos')->assertExists($photo->path);
+        Storage::disk('photos')->assertExists($photo->preview);
         $this->assertNotSame($photo->path, $photo->preview);
     }
 

@@ -37,14 +37,32 @@ return [
             'throw' => false,
         ],
 
+        // Every photograph the company keeps: the faces on the cards and the
+        // pictures in the fleet's journal. Nothing of this is reachable from the
+        // web root — a face is read through /employees/{id}/avatar/{file} and a
+        // unit's picture through /equipment/{id}/photos/{id}, both of which ask
+        // whether the person looking may see that card before they answer. A
+        // static file asks nobody, which is why these do not sit beside the
+        // stylesheets.
+        'photos' => [
+            'driver' => 'local',
+            'root' => storage_path('app/photos'),
+            'throw' => false,
+        ],
+
+        // Where photographs used to be kept, back when a URL was all it took to
+        // read one. Still configured because the files are still there until
+        // `hrm:photos-private` has been run on a server, and the serving code
+        // looks here when the private disk does not have the file; see
+        // App\Support\PhotoStore. Nothing writes here any more.
+        //
+        // Hence PUBLIC_DISK_ROOT: on shared hosting that forbids symlinks, or
+        // where the web root is a folder apart from the application, the files
+        // were written straight into …/public_html/storage rather than reached
+        // through the symlink `storage:link` makes. That is where the command
+        // has to find them. See docs/deploy-cpanel.md.
         'public' => [
             'driver' => 'local',
-            // Photographs are kept in storage/ and shown through the symlink
-            // `storage:link` makes in the web root. Shared hosting often forbids
-            // symlinks, and sometimes the web root is a folder apart from the
-            // application altogether; there PUBLIC_DISK_ROOT names a real folder
-            // inside the web root (…/public_html/storage) and the files are
-            // written straight into it. See docs/deploy-cpanel.md.
             'root' => env('PUBLIC_DISK_ROOT') ?: storage_path('app/public'),
             'url' => env('APP_URL').'/storage',
             'visibility' => 'public',
@@ -76,8 +94,11 @@ return [
     |
     */
 
-    'links' => [
-        public_path('storage') => storage_path('app/public'),
-    ],
+    // Nothing. `storage:link` exists to put a folder of uploads inside the web
+    // root, and the only uploads this application keeps are photographs, which
+    // are precisely what must not be in there: see the `photos` disk above.
+    // Left empty rather than deleted so that running the command changes
+    // nothing instead of quietly reopening the hole.
+    'links' => [],
 
 ];

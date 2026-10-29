@@ -17,7 +17,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Notifications\Notification;
-use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Contracts\Permission;
 use Spatie\Permission\Contracts\Permission as PermissionContract;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
@@ -116,23 +115,31 @@ class User extends Authenticatable
     }
 
     /**
-     * Both columns hold a path on the public disk, but every reader wants a
-     * URL, so they hand one out. The path itself is still reachable through
+     * Both columns hold the path of a file, but every reader wants a URL, so
+     * they hand one out. The path itself is still reachable through
      * getRawOriginal(), which is what deleting the file needs.
      */
     protected function avatar(): Attribute
     {
-        return Attribute::get(fn (?string $path) => self::publicUrl($path));
+        return Attribute::get(fn (?string $path) => $this->photoUrl($path));
     }
 
     protected function avatarOriginal(): Attribute
     {
-        return Attribute::get(fn (?string $path) => self::publicUrl($path));
+        return Attribute::get(fn (?string $path) => $this->photoUrl($path));
     }
 
-    private static function publicUrl(?string $path): ?string
+    /**
+     * An address of the application rather than of a file: the photograph is
+     * answered by EmployeeAvatarController, which asks whether this face is the
+     * viewer's to look at before it hands anything over. Only the file's own
+     * name goes into the address — whose card it belongs to is already the
+     * first half of it, and that card is the one thing that says which files
+     * are its photograph.
+     */
+    private function photoUrl(?string $path): ?string
     {
-        return $path ? Storage::disk('public')->url($path) : null;
+        return $path === null ? null : route('employees.avatar.show', [$this->id, basename($path)]);
     }
 
     /**

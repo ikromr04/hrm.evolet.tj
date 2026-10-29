@@ -23,6 +23,10 @@ class EmployeeAvatarTest extends TestCase
         parent::setUp();
 
         $this->seed([RoleSeeder::class, PositionSeeder::class]);
+        Storage::fake('photos');
+        // And the disk photographs used to be kept on, so that while the
+        // transition fallback is still looking there nothing in these tests
+        // reaches the real one.
         Storage::fake('public');
     }
 
@@ -58,9 +62,9 @@ class EmployeeAvatarTest extends TestCase
         [$thumbnail, $original] = $this->paths($employee);
         $this->assertNotNull($thumbnail);
         $this->assertNotNull($original);
-        Storage::disk('public')->assertExists([$thumbnail, $original]);
+        Storage::disk('photos')->assertExists([$thumbnail, $original]);
 
-        [$width, $height] = getimagesizefromstring(Storage::disk('public')->get($thumbnail));
+        [$width, $height] = getimagesizefromstring(Storage::disk('photos')->get($thumbnail));
         $this->assertSame([240, 240], [$width, $height]);
     }
 
@@ -75,7 +79,7 @@ class EmployeeAvatarTest extends TestCase
         $this->assertNotSame($thumbnail, $original);
 
         // The upload keeps its own size, so it can be opened properly.
-        [$width, $height] = getimagesizefromstring(Storage::disk('public')->get($original));
+        [$width, $height] = getimagesizefromstring(Storage::disk('photos')->get($original));
         $this->assertSame([900, 600], [$width, $height]);
     }
 
@@ -90,8 +94,8 @@ class EmployeeAvatarTest extends TestCase
         $this->actingAs($admin)->post("/employees/{$employee->id}/avatar", ['avatar' => UploadedFile::fake()->image('second.jpg')]);
         $after = $this->paths($employee);
 
-        Storage::disk('public')->assertMissing($before);
-        Storage::disk('public')->assertExists($after);
+        Storage::disk('photos')->assertMissing($before);
+        Storage::disk('photos')->assertExists($after);
     }
 
     public function test_an_admin_deletes_the_photo_and_its_files()
@@ -107,7 +111,7 @@ class EmployeeAvatarTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->assertSame([null, null], $this->paths($employee));
-        Storage::disk('public')->assertMissing($files);
+        Storage::disk('photos')->assertMissing($files);
     }
 
     public function test_the_model_hands_out_urls_not_paths()
@@ -116,8 +120,14 @@ class EmployeeAvatarTest extends TestCase
 
         $this->actingAs($this->sysadmin())->post("/employees/{$employee->id}/avatar", ['avatar' => UploadedFile::fake()->image('photo.jpg')]);
 
-        $this->assertStringStartsWith('/storage/', $employee->refresh()->avatar);
-        $this->assertStringStartsWith('/storage/', $employee->avatar_original);
+        // An address of the application, which asks who is looking before it
+        // answers — and not a static file, which would be read by anybody who
+        // ever came by the link.
+        $employee->refresh();
+        [$thumbnail, $original] = $this->paths($employee);
+
+        $this->assertStringEndsWith("/employees/{$employee->id}/avatar/".basename($thumbnail), $employee->avatar);
+        $this->assertStringEndsWith("/employees/{$employee->id}/avatar/".basename($original), $employee->avatar_original);
     }
 
     public function test_anything_that_is_not_an_image_is_rejected()
