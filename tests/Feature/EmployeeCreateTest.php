@@ -487,13 +487,44 @@ class EmployeeCreateTest extends TestCase
         });
     }
 
+    /**
+     * A colleague goes on the books without saying whether they are a man or a
+     * woman.
+     *
+     * The column used to be an enum of those two and nothing else, so the
+     * question had to be answered before anybody could be added at all. It is a
+     * line of the card like any other now, and the card opens with it empty —
+     * which is the half that a rule alone would not have proved: the staff list
+     * reads a sex to pick the wording of «замужем», and a page that assumed one
+     * would fall over on the first card that has none.
+     */
+    public function test_a_colleague_is_added_without_a_sex_and_their_card_opens()
+    {
+        Notification::fake();
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->post('/employees', $this->payload(['sex' => null]))
+            ->assertSessionHasNoErrors();
+
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+        $this->assertNotNull($employee);
+        $this->assertNull($employee->sex);
+
+        $this->actingAs($admin)->get("/employees/{$employee->id}")->assertOk();
+        $this->actingAs($admin)->get('/employees')->assertOk();
+
+        // And a third thing is still not one of the answers.
+        $this->actingAs($admin)->post('/employees', $this->payload(['email' => 'kto@evolet.co.uk', 'sex' => 'other']))
+            ->assertSessionHasErrors('sex');
+    }
+
     public function test_the_form_needs_a_name_and_a_free_address()
     {
         $taken = User::factory()->create(['email' => 'taken@evolet.tj']);
         $admin = $this->sysadmin();
 
         $this->actingAs($admin)->post('/employees', [])
-            ->assertSessionHasErrors(['surname', 'name', 'sex', 'email']);
+            ->assertSessionHasErrors(['surname', 'name', 'email']);
 
         $this->actingAs($admin)->post('/employees', $this->payload(['email' => $taken->email]))
             ->assertSessionHasErrors('email');

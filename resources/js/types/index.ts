@@ -82,7 +82,8 @@ export interface User {
     surname: string;
     patronymic: string | null;
     avatar: string | null;
-    sex: 'male' | 'female';
+    /** Null where the card leaves it unsaid. */
+    sex: 'male' | 'female' | null;
     email: string;
     email_verified_at: string | null;
     created_at: string;

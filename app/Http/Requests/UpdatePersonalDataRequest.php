@@ -70,7 +70,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'surname' => $sent($line('surname', ['required', 'string', 'max:100'])),
             'name' => $sent($line('name', ['required', 'string', 'max:100'])),
             'patronymic' => $sent(['nullable', 'string', 'max:100']),
-            'sex' => $sent($line('sex', ['required', Rule::in(['male', 'female'])])),
+            'sex' => $sent($line('sex', ['nullable', Rule::in(['male', 'female'])])),
             'birth_date' => $sent(['nullable', 'date', 'before_or_equal:today']),
             ...collect(EmployeeCard::employmentRules())
                 ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))

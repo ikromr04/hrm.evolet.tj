@@ -83,7 +83,9 @@ class StoreEmployeeRequest extends FormRequest
             'surname' => ['required', 'string', 'max:100'],
             'name' => ['required', 'string', 'max:100'],
             'patronymic' => ['nullable', 'string', 'max:100'],
-            'sex' => ['required', Rule::in(['male', 'female'])],
+            // Said where it is known and left out where it is not: one of the
+            // two values or nothing at all, never a third thing.
+            'sex' => ['nullable', Rule::in(['male', 'female'])],
             'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
             'birth_place' => ['nullable', 'string', 'max:255'],
             ...$this->citizenshipRules(),
