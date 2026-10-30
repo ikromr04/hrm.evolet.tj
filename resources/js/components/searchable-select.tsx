@@ -47,7 +47,12 @@ export function SearchableSelect({
     value,
     onChange,
     options,
-    placeholder = 'Выберите',
+    // What a closed box says of a field nobody has answered. The state and
+    // not the invitation: the shape of the control already invites, and what
+    // a reader of a half-filled page looks for is which lines are empty.
+    // «Выберите…» is passed in only where it teaches something the shape
+    // does not — a list that takes a value of one's own.
+    placeholder = 'Не выбрано',
     searchPlaceholder = 'Поиск',
     empty = 'Ничего не найдено',
     invalid,
@@ -63,6 +68,15 @@ export function SearchableSelect({
     const listRef = useRef<HTMLDivElement>(null);
 
     const chosen = options.find((option) => option.value === value);
+
+    /**
+     * Whether the field has an answer at all.
+     *
+     * An entry whose value is empty is not one: lists here carry such an entry
+     * so that a choice can be taken back, and picking it leaves the field as
+     * empty as it started.
+     */
+    const answered = chosen !== undefined && chosen.value !== '';
 
     const matches = useMemo(() => {
         const term = query.trim().toLocaleLowerCase();
@@ -134,10 +148,14 @@ export function SearchableSelect({
                         className,
                     )}
                 >
-                    {/* An entry standing for nothing — «Не указано» — is as much an
-                        unanswered field as an empty one, so it is greyed like one
-                        rather than read as a value somebody chose. */}
-                    <span className={cn('truncate', (!chosen || chosen.value === '') && 'text-placeholder')}>{chosen?.label ?? placeholder}</span>
+                    {/* A list may carry an entry standing for nothing — «Не выбрано» —
+                        so that a choice already made can be taken back. Closed, the
+                        box says what it would say with no such entry at all: the
+                        placeholder, in the placeholder's grey. Showing that entry's
+                        own label instead hid every placeholder such a list was given,
+                        so a list told to say «Выберите или впишите» said nothing of
+                        the kind. */}
+                    <span className={cn('truncate', !answered && 'text-placeholder')}>{answered ? chosen.label : placeholder}</span>
                     <ChevronDown className="size-4 shrink-0 opacity-50" />
                 </button>
             </PopoverTrigger>

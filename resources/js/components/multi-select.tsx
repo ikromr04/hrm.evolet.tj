@@ -24,6 +24,9 @@ export function MultiSelect<T extends string | number>({
     options,
     value,
     onChange,
+    // The same word the single-value list uses: one state, one wording, so
+    // that two lists side by side do not describe the same emptiness twice
+    // over.
     placeholder = 'Не выбрано',
     searchPlaceholder = 'Поиск',
     chipClassName,

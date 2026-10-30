@@ -161,7 +161,6 @@ export function Placements({
                                                 options={duties.map((duty) => ({ value: duty.id, label: duty.name }))}
                                                 value={placement.duty_ids}
                                                 onChange={(chosen) => patch(index, { duty_ids: chosen })}
-                                                placeholder="Не выбрано"
                                                 searchPlaceholder="Поиск обязанности"
                                             />
                                             <p className="text-muted-foreground text-[13px]">

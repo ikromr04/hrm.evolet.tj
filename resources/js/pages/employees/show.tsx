@@ -1565,7 +1565,7 @@ function MainDialog({
      * still the answer on file — and an empty line, since neither is required.
      */
     const named = (list: string[], value: string) => [
-        { value: '', label: 'Не указано' },
+        { value: '', label: 'Не выбрано' },
         ...[...new Set([...list, ...(value === '' ? [] : [value])])]
             .sort((a, b) => a.localeCompare(b, 'ru'))
             .map((name) => ({ value: name, label: name })),
@@ -2288,7 +2288,6 @@ function IssueEquipmentDialog({
                                     options={stock.map((unit) => ({ value: unit.id, label: `${unit.name} · ${unit.inventory_number}` }))}
                                     value={form.data.equipment}
                                     onChange={(value) => form.setData('equipment', value)}
-                                    placeholder="Ничего не выбрано"
                                     searchPlaceholder="Поиск по названию или номеру"
                                 />
                                 <InputError message={form.errors.equipment} />
