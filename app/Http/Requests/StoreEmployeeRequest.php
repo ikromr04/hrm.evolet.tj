@@ -172,7 +172,7 @@ class StoreEmployeeRequest extends FormRequest
             'citizenship.*' => 'гражданство',
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
-            'email' => 'e-mail',
+            'email' => 'электронная почта',
             'roles' => 'позиция',
             ...EmployeeCard::accountAttributes(),
             ...EmployeeCard::employmentAttributes(),

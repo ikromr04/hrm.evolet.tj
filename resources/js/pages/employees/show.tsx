@@ -463,7 +463,7 @@ function ContactsDialog({ employee, details, onClose }: { employee: Employee; de
                                     id="contacts-email"
                                     type="email"
                                     autoComplete="off"
-                                    placeholder="name@evolet.tj"
+                                    placeholder="name@evolet.co.uk"
                                     value={form.data.email}
                                     onChange={(e) => form.setData('email', e.target.value)}
                                     aria-invalid={!!form.errors.email}

@@ -66,7 +66,7 @@ export default function Profile({ pendingEmail, status }: { pendingEmail: string
                                 onChange={(event) => setData('email', event.target.value)}
                                 required
                                 autoComplete="username"
-                                placeholder="name@evolet.tj"
+                                placeholder="name@evolet.co.uk"
                                 aria-invalid={!!errors.email}
                                 className="max-md:h-11"
                             />
