@@ -3,6 +3,7 @@ import { type Regulation } from '@/components/department-regulation';
 import { DocumentTabs } from '@/components/document-tabs';
 import { EditPencil } from '@/components/edit-pencil';
 import { type EmploymentStatus } from '@/components/employee-actions';
+import { PageContent } from '@/components/page-content';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PositionEditor, type DepartmentOption } from '@/components/position-editor';
@@ -371,7 +372,7 @@ export default function PositionPage({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={position.display_name} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
+            <PageContent>
                 {/* The two documents are the page, and what is known about the
                     position stands beside them rather than in place of them. Both
                     columns are told they may be narrower than their contents: a
@@ -473,7 +474,7 @@ export default function PositionPage({
                         </Section>
                     </aside>
                 </div>
-            </div>
+            </PageContent>
 
             {/* The same window the list of positions opens, so a job is named,
                 filed and described in one place however it was reached. */}

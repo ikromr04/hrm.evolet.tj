@@ -10,6 +10,8 @@ import { DocumentTabs } from '@/components/document-tabs';
 import { EditPencil } from '@/components/edit-pencil';
 import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PositionName, positionTitle, type PositionUnit } from '@/components/position-name';
@@ -596,7 +598,7 @@ export default function DepartmentPage({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={title} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
+            <PageContent>
                 {/* A phone: the top bar already names the department, so the head of
                     the page is a grouped card of facts, the way into the staff list is
                     a row of its own and the two views share one segmented control. */}
@@ -698,7 +700,7 @@ export default function DepartmentPage({
                         the initials, and this is where they are spelled out.
                         The phone has it in the bar instead — one line there is
                         all there is room for. */}
-                    <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden lg:col-span-2">{title}</h1>
+                    <PageTitle className="lg:col-span-2">{title}</PageTitle>
 
                     {/* The documents on the left, the way through the structure on the right. */}
                     <div className="flex items-center gap-3 max-md:hidden lg:col-span-2">
@@ -1013,7 +1015,7 @@ export default function DepartmentPage({
                         </div>
                     )}
                 </div>
-            </div>
+            </PageContent>
 
             {/* The same window «Подразделения» opens, saving through the same
                 address, and this page re-implements none of it. */}

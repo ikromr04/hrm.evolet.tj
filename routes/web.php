@@ -473,7 +473,6 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,
         'employment_types' => Directories\EmploymentTypeController::class,
-        'branches' => Directories\BranchController::class,
         'equipment' => Directories\EquipmentTypeController::class,
     ];
 

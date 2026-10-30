@@ -3,9 +3,9 @@
 namespace App\Http\Requests;
 
 use App\Models\User;
+use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 /**
  * The "Семья" card of the profile: marital status, the spouse and the children.
@@ -15,6 +15,9 @@ use Illuminate\Validation\Rule;
  * which keeps it out of validated() and so out of the save: an empty spouse or
  * an empty list of children sent by somebody who may only set the marital status
  * must not wipe what HR has on file.
+ *
+ * What each of those lines may hold is described in EmployeeCard, which is where
+ * the create page reads it from as well.
  */
 class UpdateFamilyRequest extends FormRequest
 {
@@ -36,25 +39,16 @@ class UpdateFamilyRequest extends FormRequest
         // editableBy() picks the scope itself: one's own card is read against the
         // profile rights, anybody else's against the employees ones.
         $editable = EmployeeFields::editableBy($this->user(), $employee);
+        $lines = array_values(array_intersect(EmployeeCard::FAMILY_LINES, $editable));
 
-        $rules = [];
+        $rules = EmployeeCard::familyRules($lines);
 
-        if (in_array('marital_status', $editable, true)) {
-            $rules['marital_status'] = ['nullable', Rule::in(['single', 'married'])];
-        }
-
-        if (in_array('spouse', $editable, true)) {
-            $rules['spouse_name'] = ['nullable', 'string', 'max:150'];
-            $rules['spouse_birth_date'] = ['nullable', 'date', 'before_or_equal:today'];
-        }
-
-        if (in_array('children', $editable, true)) {
-            // Only false carries meaning here ("HR says there are none"); the true
-            // case is derived from the rows below, so the two cannot drift.
-            $rules['has_children'] = ['nullable', 'boolean'];
-            $rules['children'] = ['present', 'array', 'max:20'];
-            $rules['children.*.full_name'] = ['required', 'string', 'max:150'];
-            $rules['children.*.birth_date'] = ['nullable', 'date', 'before_or_equal:today'];
+        // The children are replaced wholesale, so the list travels even when it
+        // is empty — a form that forgot the field must not read as "the children
+        // on file are gone". Which is the one thing this card says differently
+        // from the create page, where there is nothing on file to lose.
+        if (in_array('children', $lines, true)) {
+            $rules['children'] = ['present', 'array', 'max:'.EmployeeCard::MAX_ROWS];
         }
 
         return $rules;
@@ -65,12 +59,6 @@ class UpdateFamilyRequest extends FormRequest
      */
     public function attributes(): array
     {
-        return [
-            'marital_status' => 'семейное положение',
-            'spouse_name' => 'ФИО супруга',
-            'spouse_birth_date' => 'дата рождения супруга',
-            'children.*.full_name' => 'ФИО ребёнка',
-            'children.*.birth_date' => 'дата рождения ребёнка',
-        ];
+        return EmployeeCard::familyAttributes();
     }
 }

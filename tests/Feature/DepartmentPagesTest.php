@@ -42,7 +42,7 @@ class DepartmentPagesTest extends TestCase
         $unit->users()->attach([$a->id => ['is_head' => false], $b->id => ['is_head' => false], $fired->id => ['is_head' => false]]);
 
         $this->actingAs($this->mayLookAround($a))->get('/org-chart')->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->component('departments/index')
+            ->component('departments/chart')
             ->where('employees_count', 3)
             ->where('departments.0.name', 'Департамент')
             ->where('departments.0.total_count', 3)
@@ -125,7 +125,7 @@ class DepartmentPagesTest extends TestCase
         $this->actingAs($this->colleague());
 
         $this->get('/org-chart')->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->component('departments/index')
+            ->component('departments/chart')
             ->where('departments', fn ($chart) => $named($chart, $top->id) === 'ДМ')
             ->where('departments', fn ($chart) => $named($chart, $unit->id) === 'ОД')
             ->where('departments', fn ($chart) => $named($chart, $sub->id) === 'Группа вёрстки')

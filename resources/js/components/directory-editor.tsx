@@ -17,11 +17,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { type AccessRight, type AccessSection } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIconNames, equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { cn } from '@/lib/utils';
-import { useForm } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { useMemo, useState, type FormEventHandler, type ReactNode } from 'react';
 
@@ -64,15 +64,8 @@ export interface EditableRecord {
 
 /** One row of a reference list: the record, and what the list itself shows. */
 export interface DirectoryItem extends EditableRecord {
-    /** Working employees who hold it; for departments, heads included. */
+    /** Working employees who hold it. */
     users_count: number;
-    /**
-     * What the count counts, named: the list is drawn in place of the number,
-     * each with the way to its own page where the viewer may follow it.
-     */
-    count_items?: { id: number | null; name: string; url: string; unit?: { name: string; full_name: string } | null }[];
-    /** Departments only: working employees here and in sub-departments, each counted once. */
-    total_count?: number;
 }
 
 export interface Labels {
@@ -189,10 +182,10 @@ export function DirectoryEditor({
     item,
     items,
     field,
-    abbreviated,
+    abbreviated = false,
     routeName,
     labels,
-    tree,
+    tree = false,
     icons,
     sections,
     rights,
@@ -212,10 +205,19 @@ export function DirectoryEditor({
     item: EditableRecord | null;
     items: EditableRecord[];
     field: 'title' | 'name';
-    abbreviated: boolean;
+    /**
+     * Whether the record also has a short name to write (departments). The five
+     * reference lists have none and say nothing about it, so the field is left
+     * out of the form and out of the save alike.
+     */
+    abbreviated?: boolean;
     routeName: string;
     labels: Labels;
-    tree: boolean;
+    /**
+     * Whether the record can be filed under another one (departments). A flat
+     * list offers no placement, and a save from it carries none.
+     */
+    tree?: boolean;
     icons?: string[];
     /**
      * The parts of the stock a category can belong to, where a list is kept in
@@ -249,7 +251,7 @@ export function DirectoryEditor({
 }) {
     // A position that is new to the system may look around, like every other
     // one; what it opens beyond that is ticked here.
-    const form = useForm<{
+    const form = useClearingForm<{
         label: string;
         abbreviation: string;
         parent_id: number | null;
@@ -419,8 +421,11 @@ export function DirectoryEditor({
                         way every field on a phone does. */}
                     <div className={cn('grid items-start gap-4', abbreviated && 'sm:grid-cols-[minmax(0,1fr)_10rem]')}>
                         <div className="grid content-start gap-2">
-                            <Label htmlFor="directory-label">Название</Label>
+                            <Label htmlFor="directory-label" required>
+                                Название
+                            </Label>
                             <Input
+                                aria-required
                                 id="directory-label"
                                 className="max-md:h-11"
                                 autoFocus

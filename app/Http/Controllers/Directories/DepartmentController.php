@@ -43,7 +43,7 @@ class DepartmentController extends Controller
         $totals = Department::staffTotals($departments);
         $opensPositions = Gate::allows(Directories::viewPermission('positions'));
 
-        return Inertia::render('directories/departments', [
+        return Inertia::render('departments/index', [
             // Reading a list and keeping it are two rights, so the page says
             // which one it is looking at.
             'canEdit' => Directories::canEdit($request->user(), 'departments'),

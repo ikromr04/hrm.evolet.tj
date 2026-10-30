@@ -12,11 +12,17 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * The steps of the "new colleague" wizard that file several records at once:
- * where they studied, where they worked, and what hardware they are given.
- * Each step may be left empty, which is how it is skipped.
+ * The endpoints of a card that take a whole list at a time rather than a record
+ * at a time: where somebody studied, where they worked, and what hardware they
+ * are handed. An empty list is an answer, and a bad row is named on the row it
+ * happened in.
+ *
+ * These used to be the last steps of the "new colleague" wizard, which is gone —
+ * a new colleague is now written in one request, from one page. The endpoints
+ * are not: the card still fills these blocks in, and what each row may hold is
+ * described once, in EmployeeCard, and read from there by both.
  */
-class EmployeeWizardStepsTest extends TestCase
+class EmployeeRecordListsTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -116,7 +122,7 @@ class EmployeeWizardStepsTest extends TestCase
             ->assertSessionHasErrors('records.0.ended_year');
     }
 
-    public function test_an_empty_step_is_simply_skipped()
+    public function test_an_empty_list_files_nothing()
     {
         $employee = $this->employee();
         $admin = $this->sysadmin();
@@ -156,7 +162,7 @@ class EmployeeWizardStepsTest extends TestCase
         $this->assertNotSame($employee->id, $taken->refresh()->holder_user_id);
     }
 
-    public function test_only_managers_file_these_steps()
+    public function test_only_managers_file_these_blocks()
     {
         $employee = $this->employee();
 

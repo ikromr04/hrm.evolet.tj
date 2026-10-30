@@ -1,9 +1,11 @@
 import { CategoryFieldInputs, FieldInput } from '@/components/category-field-inputs';
 import { DataTable, MobileListTools, TableMemoryButton, useTableMemory, useTableView, type ColumnDef, type ViewState } from '@/components/data-table';
+import { DatePicker } from '@/components/date-picker';
 import { ChangeLines, EventRow } from '@/components/equipment-changes';
 import { CategoryChip } from '@/components/equipment-icon';
 import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
 import InputError from '@/components/input-error';
+import { PageContent } from '@/components/page-content';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PhotoInput } from '@/components/photo-input';
@@ -16,6 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
 import { type EquipmentRights } from '@/lib/access';
 import { formatDate } from '@/lib/employee';
@@ -35,7 +38,8 @@ import { blankValues, ownFields, readFieldValue, roleName, type CategoryField, t
 import { INVENTORY_PLACES, type InventoryPlace } from '@/lib/inventory';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
+import { parseISO } from 'date-fns';
 import {
     ArrowDownToLine,
     Check,
@@ -468,7 +472,7 @@ function SpecsDialog({
     sections: { value: string; label: string }[];
     onClose: () => void;
 }) {
-    const form = useForm({
+    const form = useClearingForm({
         equipment_type_id: String(unit.equipment_type_id),
         name: unit.name,
         inventory_number: unit.inventory_number,
@@ -547,7 +551,11 @@ function SpecsDialog({
 
         return (
             <div className="grid content-start gap-2">
-                <Label htmlFor={`specs-${key}`}>{roleName(asked, role)}</Label>
+                {/* Whether the category insists on this one is kept on the field
+                    itself, where the directory put it. */}
+                <Label htmlFor={`specs-${key}`} required={field.required}>
+                    {roleName(asked, role)}
+                </Label>
                 <FieldInput
                     field={field}
                     id={`specs-${key}`}
@@ -591,8 +599,11 @@ function SpecsDialog({
                     </div>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="specs-type">Категория</Label>
+                        <Label htmlFor="specs-type" required>
+                            Категория
+                        </Label>
                         <SearchableSelect
+                            required
                             id="specs-type"
                             value={form.data.equipment_type_id}
                             onChange={pickType}
@@ -655,7 +666,7 @@ function StateDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
 
     const [photos, setPhotos] = useState<File[]>([]);
 
-    const form = useForm<{ condition: string; checked_at: string; next_inventory_at: string; photos: File[] }>({
+    const form = useClearingForm<{ condition: string; checked_at: string; next_inventory_at: string; photos: File[] }>({
         condition: unit.condition ?? '',
         checked_at: today,
         next_inventory_at: inAYear.toISOString().slice(0, 10),
@@ -694,25 +705,23 @@ function StateDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="grid content-start gap-2">
                             <Label htmlFor="state-checked">Последняя проверка</Label>
-                            <Input
+                            <DatePicker
                                 id="state-checked"
-                                type="date"
-                                max={today}
                                 value={form.data.checked_at}
-                                onChange={(event) => form.setData('checked_at', event.target.value)}
-                                aria-invalid={!!form.errors.checked_at}
+                                onChange={(value) => form.setData('checked_at', value)}
+                                toDate={new Date()}
+                                invalid={!!form.errors.checked_at}
                             />
                             <InputError message={form.errors.checked_at} />
                         </div>
 
                         <div className="grid content-start gap-2">
                             <Label htmlFor="state-next">След. инвентаризация</Label>
-                            <Input
+                            <DatePicker
                                 id="state-next"
-                                type="date"
                                 value={form.data.next_inventory_at}
-                                onChange={(event) => form.setData('next_inventory_at', event.target.value)}
-                                aria-invalid={!!form.errors.next_inventory_at}
+                                onChange={(value) => form.setData('next_inventory_at', value)}
+                                invalid={!!form.errors.next_inventory_at}
                             />
                             <InputError message={form.errors.next_inventory_at} />
                             <p className="text-muted-foreground text-[13px]">На карточке покажем месяц.</p>
@@ -746,7 +755,7 @@ function AccessoriesDialog({ unit, onClose }: { unit: Unit; onClose: () => void 
     // The dialog only opens for a category that has a list at all.
     const held = unit.accessories ?? [];
     const [items, setItems] = useState<string[]>(held.length > 0 ? held : ['']);
-    const form = useForm<{ accessories: string[] }>({ accessories: held });
+    const form = useClearingForm<{ accessories: string[] }>({ accessories: held });
 
     const change = (index: number, value: string) => setItems(items.map((item, at) => (at === index ? value : item)));
 
@@ -820,7 +829,7 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
 
     const [photos, setPhotos] = useState<File[]>([]);
 
-    const form = useForm({
+    const form = useClearingForm({
         kind: repair?.kind ?? '',
         started_at: repair?.started_at ?? today,
         // Only "Завершить" fills the date in, because that is what it is for.
@@ -860,14 +869,13 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
                     {finishing ? (
                         <div className="grid content-start gap-2">
                             <Label htmlFor="repair-ended">Дата окончания</Label>
-                            <Input
+                            <DatePicker
                                 id="repair-ended"
-                                type="date"
-                                min={form.data.started_at || undefined}
-                                max={today}
                                 value={form.data.ended_at}
-                                onChange={(event) => form.setData('ended_at', event.target.value)}
-                                aria-invalid={!!form.errors.ended_at}
+                                onChange={(value) => form.setData('ended_at', value)}
+                                fromDate={form.data.started_at ? parseISO(form.data.started_at) : undefined}
+                                toDate={new Date()}
+                                invalid={!!form.errors.ended_at}
                             />
                             <InputError message={form.errors.ended_at} />
                             <p className="text-muted-foreground text-[13px]">Единица уйдёт с вкладки «На обслуживании».</p>
@@ -875,8 +883,11 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
                     ) : (
                         <>
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="repair-kind">Тип работ</Label>
+                                <Label htmlFor="repair-kind" required>
+                                    Тип работ
+                                </Label>
                                 <Input
+                                    aria-required
                                     id="repair-kind"
                                     value={form.data.kind}
                                     onChange={(event) => form.setData('kind', event.target.value)}
@@ -906,27 +917,28 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
                              */}
                             <div className="grid gap-4 sm:grid-cols-2">
                                 <div className="grid content-start gap-2">
-                                    <Label htmlFor="repair-started">Дата начала</Label>
-                                    <Input
+                                    <Label htmlFor="repair-started" required>
+                                        Дата начала
+                                    </Label>
+                                    <DatePicker
+                                        required
                                         id="repair-started"
-                                        type="date"
-                                        max={today}
                                         value={form.data.started_at}
-                                        onChange={(event) => form.setData('started_at', event.target.value)}
-                                        aria-invalid={!!form.errors.started_at}
+                                        onChange={(value) => form.setData('started_at', value)}
+                                        toDate={new Date()}
+                                        invalid={!!form.errors.started_at}
                                     />
                                     <InputError message={form.errors.started_at} />
                                 </div>
 
                                 <div className="grid content-start gap-2">
                                     <Label htmlFor="repair-ended">Дата окончания</Label>
-                                    <Input
+                                    <DatePicker
                                         id="repair-ended"
-                                        type="date"
-                                        min={form.data.started_at || undefined}
                                         value={form.data.ended_at}
-                                        onChange={(event) => form.setData('ended_at', event.target.value)}
-                                        aria-invalid={!!form.errors.ended_at}
+                                        onChange={(value) => form.setData('ended_at', value)}
+                                        fromDate={form.data.started_at ? parseISO(form.data.started_at) : undefined}
+                                        invalid={!!form.errors.ended_at}
                                     />
                                     <InputError message={form.errors.ended_at} />
                                     <p className="text-muted-foreground text-[13px]">Пусто — работы ещё идут, и единица числится на обслуживании.</p>
@@ -1228,7 +1240,7 @@ export default function EquipmentShow({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={called} />
 
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
+            <PageContent>
                 {/* Aligned along the bottom, so the title, the actions and the arrows sit on one line. */}
                 {/* On a phone the name wraps to several lines, so the chip sits by its top instead,
                     and the arrows shrink to two chevrons in the top right corner. */}
@@ -1696,7 +1708,7 @@ export default function EquipmentShow({
                         />
                     </div>
                 )}
-            </div>
+            </PageContent>
 
             {/* The dialog names the unit in a sentence, so it is handed the words. */}
             {asking && (

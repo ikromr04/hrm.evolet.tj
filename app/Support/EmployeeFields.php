@@ -3,7 +3,6 @@
 namespace App\Support;
 
 use App\Models\User;
-use Illuminate\Support\Facades\Auth;
 
 /**
  * What a card says about a person, block by block and line by line, and who may
@@ -41,7 +40,7 @@ final class EmployeeFields
      * @var array<string, array{string, bool}>
      */
     public const GROUPS = [
-        'main' => ['Основные данные', true],
+        'main' => ['Основное', true],
         'passport' => ['Паспорт', false],
         'contacts' => ['Контакты', true],
         'family' => ['Семья', false],
@@ -78,12 +77,11 @@ final class EmployeeFields
         'roles' => ['main', 'Роль'],
         'positions' => ['main', 'Должность'],
         'departments' => ['main', 'Отдел'],
-        // The company's own number for a person, the kind of work they were
-        // taken on for and the place they work from. All three sit on the
-        // account, so a card reads them without opening its private side.
+        // The company's own number for a person and the kind of work they were
+        // taken on for. Both sit on the account, so a card reads them without
+        // opening its private side.
         'employee_number' => ['main', 'Номер сотрудника'],
         'employment_type' => ['main', 'Тип занятости'],
-        'branch' => ['main', 'Филиал'],
 
         'passport_number' => ['passport', 'Серия и номер'],
         'passport_issued_at' => ['passport', 'Дата выдачи'],
@@ -295,10 +293,15 @@ final class EmployeeFields
     {
         $scope = self::scopeFor($viewer, $employee);
 
-        return array_values(array_filter(
+        // Filed for the length of the request, because the pages ask this once
+        // per row and the answer cannot vary between rows: it turns on the
+        // viewer and on whether the card is their own, both of which are in the
+        // key, and on nothing about the colleague beyond that. A list of fifty
+        // used to pay fifty catalogue walks for two distinct answers.
+        return AccessMemo::of($viewer, "employees.visible.{$scope}", fn () => array_values(array_filter(
             self::keys(),
             fn (string $field) => in_array($field, self::ALWAYS_VISIBLE, true) || $viewer->can(self::permission($field, $scope)),
-        ));
+        )));
     }
 
     /**
@@ -306,72 +309,33 @@ final class EmployeeFields
      * nobody retypes what they cannot see — so this is never wider than what
      * visibleTo() gives, own card included.
      *
+     * This is asked of a card that exists. Putting a colleague on the books is
+     * not asked here at all: whoever may add somebody fills in the whole card
+     * they are adding, whatever lines they may change on anybody already on
+     * file, and «employees.create» is the whole of that answer — one request,
+     * one right, in StoreEmployeeRequest. There used to be a window after the
+     * save in which the creator still held every line, because the form saved
+     * block by block and needed the card's own routes to do it; the form sends
+     * the card in one request now, and a right handed out for a stretch nothing
+     * happens in is a right to get wrong.
+     *
      * @return list<string>
      */
     public static function editableBy(User $viewer, ?User $employee = null): array
     {
-        // Whoever is putting a colleague on the books fills the whole card in,
-        // whatever lines they may change on anybody else's: the right to add
-        // somebody is the right to their entire card, for as long as the adding
-        // lasts. After that the card is edited like any other.
-        if (self::isBeingCreatedBy($viewer, $employee)) {
-            return self::keys();
-        }
-
         $scope = self::scopeFor($viewer, $employee);
-        $visible = self::visibleTo($viewer, $employee);
 
-        return array_values(array_filter(
-            self::keys(),
-            fn (string $field) => in_array($field, $visible, true) && $viewer->can(self::editPermission($field, $scope)),
-        ));
-    }
+        // Filed like the reading above, and for the same reason: the block gates
+        // in AppServiceProvider ask this once per block of a card, and the forms
+        // ask it again on the way in.
+        return AccessMemo::of($viewer, "employees.editable.{$scope}", function () use ($viewer, $employee, $scope) {
+            $visible = self::visibleTo($viewer, $employee);
 
-    /**
-     * Where the colleagues somebody is adding right now are remembered: the ids
-     * in their own session, so the window belongs to that person and that sign-in
-     * and needs nothing in the database.
-     */
-    public const CREATING = 'employees.creating';
-
-    /**
-     * The colleague just put on the books by whoever is signed in: the wizard
-     * goes on to fill the rest of the card in, step by step, through the same
-     * forms the card uses, and each of those asks editableBy().
-     *
-     * One at a time: «Сохранить и добавить ещё» never opens the card it leaves
-     * behind, so starting the next colleague is what closes the last one.
-     */
-    public static function startCreating(User $employee): void
-    {
-        session()->put(self::CREATING, [$employee->id]);
-    }
-
-    /**
-     * The adding is over: the card is opened as a card, and from now on it is
-     * edited under the ordinary rights to its lines.
-     */
-    public static function finishCreating(User $employee): void
-    {
-        $left = array_values(array_diff((array) session()->get(self::CREATING, []), [$employee->id]));
-
-        $left === [] ? session()->forget(self::CREATING) : session()->put(self::CREATING, $left);
-    }
-
-    /**
-     * Whether this viewer is in the middle of adding that colleague. Asked only of
-     * whoever is signed in — the session is theirs, and somebody else's rights are
-     * not read from it — and only while they still hold the right to add anybody,
-     * so taking the right away closes the window too.
-     */
-    public static function isBeingCreatedBy(User $viewer, ?User $employee): bool
-    {
-        if ($employee === null || $viewer->is($employee) || Auth::id() !== $viewer->getKey()) {
-            return false;
-        }
-
-        return in_array($employee->id, (array) session()->get(self::CREATING, []), true)
-            && $viewer->can('employees.create');
+            return array_values(array_filter(
+                self::keys(),
+                fn (string $field) => in_array($field, $visible, true) && $viewer->can(self::editPermission($field, $scope)),
+            ));
+        });
     }
 
     /**
@@ -380,14 +344,11 @@ final class EmployeeFields
      */
     public static function anyPrivateVisibleTo(User $viewer, ?User $employee = null): bool
     {
-        $scope = self::scopeFor($viewer, $employee);
-
-        foreach (self::PRIVATE_FIELDS as $field) {
-            if ($viewer->can(self::permission($field, $scope))) {
-                return true;
-            }
-        }
-
-        return false;
+        // Asked of the set above rather than of the rights again. It is the same
+        // question — every private field is a chosen line, so none of them is in
+        // ALWAYS_VISIBLE and visibleTo() decides each by the very permission this
+        // used to ask for — and asking it this way costs nothing: the staff list
+        // asks it once per row, and the answer is already filed.
+        return array_intersect(self::PRIVATE_FIELDS, self::visibleTo($viewer, $employee)) !== [];
     }
 }

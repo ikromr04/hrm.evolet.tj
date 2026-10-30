@@ -77,7 +77,6 @@ class User extends Authenticatable
         // noughts; see numberOf() below for the one a card starts with.
         'employee_number',
         'employment_type_id',
-        'branch_id',
         'avatar',
         'avatar_original',
         'sex',
@@ -189,13 +188,6 @@ class User extends Authenticatable
         return $this->belongsTo(EmploymentType::class);
     }
 
-    /**
-     * The place they work from: one entry of the directory, or none.
-     */
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
-    }
 
     /**
      * Private data (passport, address, contacts). Only load it for viewers

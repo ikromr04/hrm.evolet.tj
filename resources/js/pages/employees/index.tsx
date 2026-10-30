@@ -17,6 +17,8 @@ import { DepartmentLink } from '@/components/department-name';
 import { EmployeeActions, type EmploymentStatus } from '@/components/employee-actions';
 import { LanguageBadges } from '@/components/language-badges';
 import { MobileFab } from '@/components/mobile-fab';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { Phones } from '@/components/phones';
@@ -799,8 +801,8 @@ export default function Employees({
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Сотрудники" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-4 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Сотрудники</h1>
+            <PageContent className="md:min-h-0">
+                <PageTitle>Сотрудники</PageTitle>
 
                 {/* On a phone this is one line — the search and the button behind
                 which sorting and filters wait — with the lists as chips under it. */}
@@ -969,7 +971,7 @@ export default function Employees({
                         </>
                     }
                 />
-            </div>
+            </PageContent>
 
             {canCreate && <MobileFab href={route('employees.create')} label="Добавить сотрудника" />}
         </AppLayout>

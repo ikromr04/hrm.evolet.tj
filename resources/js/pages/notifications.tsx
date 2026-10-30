@@ -1,4 +1,6 @@
 import { ComingSoon } from '@/components/coming-soon';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types';
 import { Head } from '@inertiajs/react';
@@ -17,11 +19,11 @@ export default function Notifications() {
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Уведомления" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Уведомления</h1>
+            <PageContent>
+                <PageTitle>Уведомления</PageTitle>
 
                 <ComingSoon what="Уведомления" />
-            </div>
+            </PageContent>
         </AppLayout>
     );
 }

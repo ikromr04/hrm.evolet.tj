@@ -83,7 +83,7 @@ class DirectoriesTest extends TestCase
         );
         // Nor are the departments: the list is read beside the chart it draws,
         // under the same right it has always had.
-        $this->get('/departments')->assertInertia(fn (Assert $page) => $page->component('directories/departments'));
+        $this->get('/departments')->assertInertia(fn (Assert $page) => $page->component('departments/index'));
     }
 
     public function test_roles_get_a_generated_key_that_survives_renaming()

@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
+import { Head } from '@inertiajs/react';
 import { Eye, EyeOff, LoaderCircle } from 'lucide-react';
 import { FormEventHandler, useState } from 'react';
 
@@ -33,7 +34,7 @@ interface LoginProps {
 
 export default function Login({ status, canResetPassword }: LoginProps) {
     const [showPassword, setShowPassword] = useState(false);
-    const { data, setData, post, processing, errors, reset, setError, clearErrors } = useForm<LoginForm>({
+    const { data, setData, post, processing, errors, reset, setError, clearErrors } = useClearingForm<LoginForm>({
         email: '',
         password: '',
         remember: false,
@@ -70,7 +71,9 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                 <div className="flex flex-col gap-2">
                     {/* The label turns with the field: a form answered wrong says so
                         in the line that names what was wrong, not only under it. */}
-                    <Label htmlFor="email">Электронная почта</Label>
+                    <Label htmlFor="email" required>
+                        Электронная почта
+                    </Label>
                     <Input
                         id="email"
                         type="email"
@@ -89,7 +92,9 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                 </div>
 
                 <div className="flex flex-col gap-2">
-                    <Label htmlFor="password">Пароль</Label>
+                    <Label htmlFor="password" required>
+                        Пароль
+                    </Label>
                     <div className="relative">
                         <Input
                             id="password"

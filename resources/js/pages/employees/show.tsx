@@ -7,6 +7,7 @@ import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equ
 import InputError from '@/components/input-error';
 import { LevelBadge } from '@/components/language-badges';
 import { MultiSelect } from '@/components/multi-select';
+import { PageContent } from '@/components/page-content';
 import { PaperBandRow } from '@/components/paper-band';
 import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
@@ -27,10 +28,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import {
-    age,
     formatDate,
     formatPhone,
     languageLevels,
@@ -47,7 +48,7 @@ import {
 import { eventLabel, eventTone, type EventChanges, type EventKind, type NameLookup } from '@/lib/equipment';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     Camera,
@@ -155,7 +156,6 @@ interface Employee {
     employee_number?: string | null;
     /** The kind of work they were taken on for, and the place they work from. */
     employment_type?: string | null;
-    branch?: string | null;
     /** Null when the viewer may not see this person's private data. */
     private: ProfilePrivate | null;
 }
@@ -263,7 +263,6 @@ interface EditOptions extends PlacementOptions {
     units: Unit[];
     /** The two short lists a card points at one entry of, by name. */
     employment_types: string[];
-    branches: string[];
     /** Access roles, chosen by name. */
     roles: { name: string; title: string }[];
     languages: { id: number; name: string }[];
@@ -425,7 +424,7 @@ const wrappingBadge = 'h-auto min-h-[22px] max-w-full py-0.5 whitespace-normal';
 
 /** The "Контакты" card in a form; the server normalises the phones to E.164. */
 function ContactsDialog({ employee, details, onClose }: { employee: Employee; details: ProfilePrivate; onClose: () => void }) {
-    const form = useForm({
+    const form = useClearingForm({
         email: employee.email,
         phone: details.phone ?? '',
         sos_phone: details.sos_phone ?? '',
@@ -454,8 +453,13 @@ function ContactsDialog({ employee, details, onClose }: { employee: Employee; de
                     <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
                         {canEdit('email') && (
                             <div className="grid content-start gap-2 sm:col-span-2">
-                                <Label htmlFor="contacts-email">Электронная почта</Label>
+                                {/* The address is how the person signs in, so whoever may
+                                    change it may not clear it. */}
+                                <Label htmlFor="contacts-email" required>
+                                    Электронная почта
+                                </Label>
                                 <Input
+                                    aria-required
                                     id="contacts-email"
                                     type="email"
                                     autoComplete="off"
@@ -683,11 +687,9 @@ function KpiSection() {
  * so the tab can be read and agreed on before there is anything behind it.
  */
 const SHEET = {
-    office: 'Evolet · Отдел кадров',
-    number: '00418',
     filled: 94,
-    filledAt: '2026-10-12',
     signedAt: '2026-10-12',
+    acceptedAt: '2026-10-12',
     name: [
         ['Фамилия', 'Рахимова'],
         ['Имя', 'Нигина'],
@@ -746,15 +748,22 @@ const SHEET = {
     ],
 };
 
-/** One numbered part of the sheet: the number, the heading, and what it holds. */
+/**
+ * One numbered part of the sheet: its name, and everything said under the name.
+ *
+ * The body is indented by exactly the width of the figure in front of the name
+ * plus the gap after it, so the name of the part and its answers stand on one
+ * line down the page and the numbers read as a column of their own.
+ */
 function SheetPart({ number, title, className, children }: { number: string; title: string; className?: string; children: ReactNode }) {
     return (
-        <section className={cn('flex flex-col gap-4 p-6 max-md:p-4', className)}>
-            <h3 className="flex items-baseline gap-2.5 text-base font-semibold">
-                <span className="text-brand-strong font-mono text-sm font-medium dark:text-[#C5E27A]">{number}</span>
+        <section className={cn('flex min-w-0 flex-col gap-2', className)}>
+            <h3 className="flex items-baseline gap-1 text-[15px] font-semibold">
+                <span className="text-brand-strong w-4 shrink-0 font-mono text-sm font-medium tabular-nums dark:text-[#C5E27A]">{number}</span>
                 {title}
             </h3>
-            {children}
+
+            <div className="min-w-0 pl-5">{children}</div>
         </section>
     );
 }
@@ -844,106 +853,105 @@ function SheetTab() {
                     <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6">
                         <span className="text-muted-foreground text-[13px]">Заполнение</span>
 
-                        <span className="bg-muted block h-1.5 w-[18rem] shrink-0 overflow-hidden rounded-full">
-                            <span className="bg-brand block h-full rounded-full" style={{ width: `${SHEET.filled}%` }} />
-                        </span>
+                        {/* The same bar the KPI block reads its indicators with,
+                            down to the figure beside it: two places on one card
+                            showing how far something has got have no business
+                            looking like two different things. */}
+                        <Progress value={SHEET.filled} aria-label={`Заполнение: ${SHEET.filled}%`} className="h-1.5 w-[140px] shrink-0" />
 
-                        <span className="text-sm font-semibold tabular-nums">{SHEET.filled}%</span>
+                        <span className="text-sm font-medium tabular-nums">{SHEET.filled}%</span>
 
+                        {/* Signed by the one it is about, and taken by the office
+                            that keeps it: two marks rather than one, because a
+                            sheet signed and not yet accepted is an ordinary state
+                            of it and the band has to be able to show just the one. */}
                         <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[13px]">
                             <Check className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]" />
                             Подписан сотрудником · {formatDate(SHEET.signedAt)}
                         </span>
+
+                        <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[13px]">
+                            <Check className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]" />
+                            Принято · {formatDate(SHEET.acceptedAt)}
+                        </span>
                     </PaperBandRow>
 
-                    <div className="flex items-start justify-between gap-6">
-                        <div className="flex min-w-0 flex-col gap-1.5">
-                            <span className="text-muted-foreground text-xs font-medium">{SHEET.office}</span>
-                            <span className="text-sm tabular-nums">
-                                Табельный № {SHEET.number} · Дата заполнения {formatDate(SHEET.filledAt)}
-                            </span>
+                    {/* The whole paper is one card: the band over it and the
+                        sheet under it, pulled out to the card's own edges so
+                        the rule under every part runs the width of it, the way
+                        the band's rule does. */}
+                    {/* The parts carry no padding of their own, so the card's is
+                        what insets them — which also keeps them in line with the
+                        band above, whose text starts at the same place. */}
+                    <div className="flex min-w-0 flex-col gap-6">
+                        <SheetPart number="01" title="Фамилия, имя, отчество">
+                            <SheetFacts rows={SHEET.name} />
+                        </SheetPart>
+
+                        <SheetPart number="02" title="Общие сведения">
+                            <SheetFacts rows={SHEET.general} />
+                        </SheetPart>
+
+                        <SheetPart number="03" title="Образование">
+                            <SheetTable head={['Учебное заведение', 'Специальность, квалификация', 'Годы', 'Документ']} rows={SHEET.educations} />
+                        </SheetPart>
+
+                        {/* Two short answers share a line rather than taking one each. */}
+                        <div className="grid lg:grid-cols-2">
+                            <SheetPart number="04" title="Учёная степень, звание">
+                                <p className="text-sm font-medium">{SHEET.degree}</p>
+                            </SheetPart>
+                            <SheetPart number="05" title="Знание иностранных языков">
+                                <p className="text-sm font-medium">{SHEET.languages}</p>
+                            </SheetPart>
                         </div>
-                        {/* Where the photograph is pasted on the printed sheet. */}
-                        <div
-                            role="img"
-                            aria-label="Место для фото 3 × 4"
-                            className="bg-muted/40 text-muted-foreground flex h-[120px] w-[90px] shrink-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed text-center text-xs"
-                        >
-                            <Camera className="size-4" />
-                            Фото
-                            <br />3 × 4
-                        </div>
+
+                        <SheetPart number="06" title="Трудовая деятельность">
+                            <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={SHEET.jobs} />
+                        </SheetPart>
+
+                        <SheetPart number="07" title="Государственные награды, поощрения">
+                            <p className="text-sm font-medium">{SHEET.awards}</p>
+                        </SheetPart>
+
+                        <SheetPart number="08" title="Семейное положение и состав семьи">
+                            <SheetFacts rows={[['Семейное положение', SHEET.marital]]} />
+                            <SheetTable head={['Родство', 'Фамилия, имя, отчество', 'Год рождения', 'Работа, учёба']} rows={SHEET.family} />
+                        </SheetPart>
+
+                        <SheetPart number="09" title="Паспортные данные">
+                            <SheetFacts rows={SHEET.passport} columns={4} />
+                        </SheetPart>
+
+                        <SheetPart number="10" title="Адрес и контакты">
+                            <SheetFacts rows={SHEET.contacts} />
+                        </SheetPart>
+
+                        <SheetPart number="11" title="Отношение к воинской обязанности">
+                            <p className="text-sm font-medium">{SHEET.service}</p>
+                        </SheetPart>
+
+                        <section aria-label="Подписи" className="grid gap-4 sm:grid-cols-2">
+                            {SHEET.signatures.map((signature) => (
+                                <div key={signature.name} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-4">
+                                    <p className="text-muted-foreground text-sm">{signature.note}</p>
+                                    <div className="flex flex-wrap items-end justify-between gap-4">
+                                        <div className="flex items-center gap-2.5">
+                                            <span className="bg-brand/15 text-brand-strong flex size-7 shrink-0 items-center justify-center rounded-full dark:text-[#C5E27A]">
+                                                <Check className="size-3.5" />
+                                            </span>
+                                            <span className="flex flex-col">
+                                                <span className="text-sm font-medium">{signature.name}</span>
+                                                <span className="text-muted-foreground text-xs">{signature.role}</span>
+                                            </span>
+                                        </div>
+                                        <span className="text-muted-foreground text-sm tabular-nums">{formatDate(signature.at)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </section>
                     </div>
                 </Section>
-
-                <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0">
-                    <SheetPart number="01" title="Фамилия, имя, отчество">
-                        <SheetFacts rows={SHEET.name} />
-                    </SheetPart>
-
-                    <SheetPart number="02" title="Общие сведения" className="border-t">
-                        <SheetFacts rows={SHEET.general} />
-                    </SheetPart>
-
-                    <SheetPart number="03" title="Образование" className="border-t">
-                        <SheetTable head={['Учебное заведение', 'Специальность, квалификация', 'Годы', 'Документ']} rows={SHEET.educations} />
-                    </SheetPart>
-
-                    {/* Two short answers share a line rather than taking one each. */}
-                    <div className="grid border-t lg:grid-cols-2">
-                        <SheetPart number="04" title="Учёная степень, звание">
-                            <p className="text-sm font-medium">{SHEET.degree}</p>
-                        </SheetPart>
-                        <SheetPart number="05" title="Знание иностранных языков" className="max-lg:border-t lg:border-l">
-                            <p className="text-sm font-medium">{SHEET.languages}</p>
-                        </SheetPart>
-                    </div>
-
-                    <SheetPart number="06" title="Трудовая деятельность" className="border-t">
-                        <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={SHEET.jobs} />
-                    </SheetPart>
-
-                    <SheetPart number="07" title="Государственные награды, поощрения" className="border-t">
-                        <p className="text-sm font-medium">{SHEET.awards}</p>
-                    </SheetPart>
-
-                    <SheetPart number="08" title="Семейное положение и состав семьи" className="border-t">
-                        <SheetFacts rows={[['Семейное положение', SHEET.marital]]} />
-                        <SheetTable head={['Родство', 'Фамилия, имя, отчество', 'Год рождения', 'Работа, учёба']} rows={SHEET.family} />
-                    </SheetPart>
-
-                    <SheetPart number="09" title="Паспортные данные" className="border-t">
-                        <SheetFacts rows={SHEET.passport} columns={4} />
-                    </SheetPart>
-
-                    <SheetPart number="10" title="Адрес и контакты" className="border-t">
-                        <SheetFacts rows={SHEET.contacts} />
-                    </SheetPart>
-
-                    <SheetPart number="11" title="Отношение к воинской обязанности" className="border-t">
-                        <p className="text-sm font-medium">{SHEET.service}</p>
-                    </SheetPart>
-
-                    <section aria-label="Подписи" className="grid gap-4 border-t p-6 max-md:p-4 sm:grid-cols-2">
-                        {SHEET.signatures.map((signature) => (
-                            <div key={signature.name} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-4">
-                                <p className="text-muted-foreground text-sm">{signature.note}</p>
-                                <div className="flex flex-wrap items-end justify-between gap-4">
-                                    <div className="flex items-center gap-2.5">
-                                        <span className="bg-brand/15 text-brand-strong flex size-7 shrink-0 items-center justify-center rounded-full dark:text-[#C5E27A]">
-                                            <Check className="size-3.5" />
-                                        </span>
-                                        <span className="flex flex-col">
-                                            <span className="text-sm font-medium">{signature.name}</span>
-                                            <span className="text-muted-foreground text-xs">{signature.role}</span>
-                                        </span>
-                                    </div>
-                                    <span className="text-muted-foreground text-sm tabular-nums">{formatDate(signature.at)}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </section>
-                </Card>
             </div>
 
             <aside className={pane}>
@@ -1507,18 +1515,17 @@ function MainDialog({
     // somebody in a department the save is not allowed to write.
     const places = canEdit('positions') && canEdit('departments');
 
-    const form = useForm({
+    const form = useClearingForm({
         placements: assigned.placements,
         employee_number: employee.employee_number ?? '',
         employment_type: employee.employment_type ?? '',
-        branch: employee.branch ?? '',
-        birth_date: details?.birth_date ?? '',
+        hired_at: details?.hired_at ?? '',
     });
 
     // The card is edited in several windows and they share its lines out, so a
     // line this one did not show is one it does not send — and the server, in
     // turn, leaves alone whatever it was not sent.
-    const dates = canEdit('birth_date') && details !== null;
+    const hire = canEdit('hired_at') && details !== null;
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
@@ -1526,8 +1533,7 @@ function MainDialog({
             ...(places ? { placements: data.placements } : {}),
             ...(canEdit('employee_number') ? { employee_number: data.employee_number } : {}),
             ...(canEdit('employment_type') ? { employment_type: data.employment_type } : {}),
-            ...(canEdit('branch') ? { branch: data.branch } : {}),
-            ...(dates ? { birth_date: data.birth_date } : {}),
+            ...(hire ? { hired_at: data.hired_at } : {}),
         }));
         form.put(route('employees.personal', employee.id), { preserveScroll: true, onSuccess: onClose });
     };
@@ -1634,16 +1640,12 @@ function MainDialog({
                                 <Label htmlFor="main-number">Номер сотрудника</Label>
                                 <Input
                                     id="main-number"
-                                    type="number"
-                                    inputMode="numeric"
-                                    min={0}
-                                    step={1}
                                     value={form.data.employee_number}
                                     onChange={(e) => form.setData('employee_number', e.target.value)}
                                     aria-invalid={!!form.errors.employee_number}
                                 />
                                 <InputError message={form.errors.employee_number} />
-                                <p className="text-muted-foreground text-[13px]">Не меньше пяти цифр; можно оставить пустым.</p>
+                                <p className="text-muted-foreground text-[13px]">Можно оставить пустым.</p>
                             </div>
                         )}
 
@@ -1664,23 +1666,6 @@ function MainDialog({
                             </div>
                         )}
 
-                        {canEdit('branch') && (
-                            <div className="grid content-start gap-2">
-                                <Label htmlFor="main-branch">Филиал</Label>
-                                <SearchableSelect
-                                    id="main-branch"
-                                    options={named(options.branches, form.data.branch)}
-                                    value={form.data.branch}
-                                    onChange={(value) => form.setData('branch', value)}
-                                    onCreate={(value) => form.setData('branch', value)}
-                                    placeholder="Выберите или впишите"
-                                    searchPlaceholder="Филиал"
-                                    invalid={!!form.errors.branch}
-                                />
-                                <InputError message={form.errors.branch} />
-                            </div>
-                        )}
-
                         {/* Nothing keeps it yet, so it says the same word every
                             card says and cannot be answered differently. */}
                         <div className="grid content-start gap-2">
@@ -1688,68 +1673,21 @@ function MainDialog({
                             <Input id="main-probation" readOnly value="Пройден" className="bg-muted/40" />
                         </div>
 
-                        {dates && (
+                        {hire && (
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="main-birth-date">Дата рождения</Label>
-                                {/* Nobody is born tomorrow. */}
+                                <Label htmlFor="main-hired-at">Начало работы</Label>
+                                {/* Nobody starts work in the future. */}
                                 <DatePicker
-                                    id="main-birth-date"
-                                    value={form.data.birth_date}
-                                    onChange={(value) => form.setData('birth_date', value)}
+                                    id="main-hired-at"
+                                    value={form.data.hired_at}
+                                    onChange={(value) => form.setData('hired_at', value)}
                                     toDate={new Date()}
-                                    invalid={!!form.errors.birth_date}
+                                    invalid={!!form.errors.hired_at}
                                 />
-                                <InputError message={form.errors.birth_date} />
+                                <InputError message={form.errors.hired_at} />
+                                <p className="text-muted-foreground text-[13px]">Стаж считается от неё.</p>
                             </div>
                         )}
-                    </div>
-
-                    <DialogFooter className="gap-2">
-                        <Button type="button" variant="outline" onClick={onClose}>
-                            Отмена
-                        </Button>
-                        <Button type="submit" disabled={form.processing}>
-                            {form.processing && <LoaderCircle className="animate-spin" />}
-                            Сохранить
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-/** The hire date on its own; tenure follows from it and is not stored. */
-function EmploymentDialog({ employee, details, onClose }: { employee: Employee; details: ProfilePrivate; onClose: () => void }) {
-    const form = useForm({ hired_at: details.hired_at ?? '' });
-
-    const submit: FormEventHandler = (event) => {
-        event.preventDefault();
-        form.put(route('employees.employment', employee.id), { preserveScroll: true, onSuccess: onClose });
-    };
-
-    return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-sm">
-                {/* noValidate: see PersonalDialog — the server's rules are the real ones. */}
-                <form onSubmit={submit} noValidate className="flex flex-col gap-5">
-                    <DialogHeader>
-                        <DialogTitle>Начало работы</DialogTitle>
-                        <DialogDescription className="sr-only">Измените дату и сохраните.</DialogDescription>
-                    </DialogHeader>
-
-                    <div className="grid content-start gap-2">
-                        <Label htmlFor="employment-hired-at">Дата приёма</Label>
-                        <Input
-                            id="employment-hired-at"
-                            type="date"
-                            max={new Date().toISOString().slice(0, 10)}
-                            value={form.data.hired_at}
-                            onChange={(e) => form.setData('hired_at', e.target.value)}
-                            aria-invalid={!!form.errors.hired_at}
-                        />
-                        <InputError message={form.errors.hired_at} />
-                        <p className="text-muted-foreground text-[13px]">Стаж считается от неё.</p>
                     </div>
 
                     <DialogFooter className="gap-2">
@@ -1770,7 +1708,7 @@ function EmploymentDialog({ employee, details, onClose }: { employee: Employee; 
 /** The "Знание языков" card in a form: a level per language, each language once. */
 function LanguagesDialog({ employee, options, onClose }: { employee: Employee; options: EditOptions; onClose: () => void }) {
     // A row holds the language's id, or "new:<name>" for one typed in that is not on the list yet.
-    const form = useForm({
+    const form = useClearingForm({
         languages: (employee.languages ?? []).map((language) => ({ id: String(language.id), level: language.level })),
     });
     const [created, setCreated] = useState<string[]>([]);
@@ -2072,12 +2010,11 @@ const EditableFields = createContext<string[] | null>(null);
 const BLOCK_FIELDS = {
     // «Основное»: where somebody stands, the number they are filed under, the
     // terms they work on and when they were born.
-    personal: ['positions', 'departments', 'employee_number', 'employment_type', 'branch', 'birth_date'],
+    personal: ['positions', 'departments', 'employee_number', 'employment_type', 'hired_at'],
     passport: ['passport_number', 'passport_issued_at', 'passport_issued_by'],
     contacts: ['email', 'phone', 'sos_phone'],
     family: ['marital_status', 'spouse', 'children'],
     languages: ['languages'],
-    employment: ['hired_at'],
     education: ['educations'],
     experience: ['work_experiences'],
     equipment: ['equipment'],
@@ -2290,7 +2227,7 @@ function IssueEquipmentDialog({
     const can = useCan();
     const today = new Date().toISOString().slice(0, 10);
     // Handed over today unless somebody says otherwise, as the intake wizard has it.
-    const form = useForm({ equipment: [] as number[], issued_at: today });
+    const form = useClearingForm({ equipment: [] as number[], issued_at: today });
     const canCreate = can('equipment.create');
     /** Which of the two ways is open; the window starts on the balance sheet. */
     const [entering, setEntering] = useState(false);
@@ -2359,13 +2296,12 @@ function IssueEquipmentDialog({
 
                             <div className="grid content-start gap-2">
                                 <Label htmlFor="issue-date">Дата выдачи</Label>
-                                <Input
+                                <DatePicker
                                     id="issue-date"
-                                    type="date"
-                                    max={today}
                                     value={form.data.issued_at}
-                                    onChange={(e) => form.setData('issued_at', e.target.value)}
-                                    aria-invalid={!!form.errors.issued_at}
+                                    onChange={(value) => form.setData('issued_at', value)}
+                                    toDate={new Date()}
+                                    invalid={!!form.errors.issued_at}
                                 />
                                 <InputError message={form.errors.issued_at} />
                             </div>
@@ -2795,7 +2731,7 @@ export default function EmployeeProfile({
                 <Head title={shortName} />
 
                 {/* The page scrolls as a whole, header and tabs included. */}
-                <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
+                <PageContent>
                     {/* On a phone the hero is centred, like a contact card: the face,
                     the name under it, then the ways to reach the person. */}
                     <div className="flex flex-col gap-5 px-1 pt-1 max-md:relative max-md:items-center max-md:gap-3 max-md:pb-1 max-md:text-center md:flex-row md:flex-wrap md:items-end">
@@ -2973,6 +2909,19 @@ export default function EmployeeProfile({
                                         }
                                     >
                                         <Facts>
+                                            {/* What they may do in the system, as against the job they
+                                                do in the company. Next to the job because that is the
+                                                pair somebody fills in together on «Новый сотрудник». */}
+                                            <Fact label="Роль" field="roles">
+                                                {(employee.roles ?? []).length > 0 && (
+                                                    <span className="flex flex-col gap-1">
+                                                        {(employee.roles ?? []).map((title) => (
+                                                            <span key={title}>{title}</span>
+                                                        ))}
+                                                    </span>
+                                                )}
+                                            </Fact>
+
                                             <Fact label="Отдел" field="departments">
                                                 {(employee.departments ?? []).length > 0 && (
                                                     <span className="flex flex-col gap-1">
@@ -3038,19 +2987,20 @@ export default function EmployeeProfile({
                                                 {employee.employment_type}
                                             </Fact>
 
-                                            <Fact label="Филиал" field="branch">
-                                                {employee.branch}
-                                            </Fact>
-
                                             {/* Nothing keeps it yet: every card says the same word
                                                 until there is somewhere to write the answer. */}
                                             <Fact label="Испытательный срок">Пройден</Fact>
 
-                                            <Fact label="Дата рождения" field="birth_date">
-                                                {details.birth_date && (
+                                            {/* The date, and how long it has been — one line, because
+                                                the second is read off the first and not kept anywhere:
+                                                a stored length of service is wrong by a day the day
+                                                after it is written. Said the way a date of birth used
+                                                to say an age beside it. */}
+                                            <Fact label="Начало работы" field="hired_at">
+                                                {details.hired_at && (
                                                     <span className="tabular-nums">
-                                                        {formatDate(details.birth_date)}
-                                                        <span className="text-muted-foreground font-normal"> · {age(details.birth_date)}</span>
+                                                        {formatDate(details.hired_at)}
+                                                        <span className="text-muted-foreground font-normal"> · {tenure(details.hired_at)}</span>
                                                     </span>
                                                 )}
                                             </Fact>
@@ -3076,34 +3026,6 @@ export default function EmployeeProfile({
                                 </div>
 
                                 <aside className={pane}>
-                                    {/*
-                                     * A block like the ones under it: a card with its name on
-                                     * the strip and its action at the end of that strip. It
-                                     * used to stand bare at the top of this column, the only
-                                     * thing here without a frame, which read as a leftover of
-                                     * the card above rather than a block of its own.
-                                     */}
-                                    <Section
-                                        fields={['hired_at']}
-                                        title="Работа в компании"
-                                        action={
-                                            canEditBlock('employment') && (
-                                                <EditButton label="Редактировать начало работы" onClick={() => setEditing('employment')} />
-                                            )
-                                        }
-                                    >
-                                        <Fields columns={2}>
-                                            <Field label="Начало работы" field="hired_at">
-                                                {formatDate(details.hired_at)}
-                                            </Field>
-                                            <Field label="Стаж в компании" field="hired_at">
-                                                {details.hired_at && (
-                                                    <span className="text-brand-strong dark:text-[#C5E27A]">{tenure(details.hired_at)}</span>
-                                                )}
-                                            </Field>
-                                        </Fields>
-                                    </Section>
-
                                     <Section
                                         fields={['languages']}
                                         title="Знание языков"
@@ -3200,7 +3122,7 @@ export default function EmployeeProfile({
                                 </aside>
                             </div>
                         ))}
-                </div>
+                </PageContent>
 
                 {/* Not gated on the private lines: the block may be open to this
                     viewer by its public ones alone. */}
@@ -3209,8 +3131,6 @@ export default function EmployeeProfile({
                 )}
 
                 {editing === 'contacts' && details && <ContactsDialog employee={employee} details={details} onClose={() => setEditing(null)} />}
-
-                {editing === 'employment' && details && <EmploymentDialog employee={employee} details={details} onClose={() => setEditing(null)} />}
 
                 {/* Languages are public, so this one needs no private details. */}
                 {editing === 'languages' && options && <LanguagesDialog employee={employee} options={options} onClose={() => setEditing(null)} />}

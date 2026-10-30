@@ -1,4 +1,5 @@
 import { CategoryFieldInputs, FieldInput } from '@/components/category-field-inputs';
+import { DatePicker } from '@/components/date-picker';
 import InputError from '@/components/input-error';
 import { PhotoInput } from '@/components/photo-input';
 import { SearchableSelect } from '@/components/searchable-select';
@@ -8,11 +9,12 @@ import { DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { useCan } from '@/lib/access';
 import { blankValues, ownFields, roleName, type CategoryOption, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
-import { Link, useForm } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
 import { LoaderCircle, Plus } from 'lucide-react';
 import { useMemo, useRef, useState, type FormEventHandler, type ReactNode } from 'react';
 
@@ -121,16 +123,21 @@ function Field({
     error,
     className,
     children,
+    required,
 }: {
     label: string;
     htmlFor: string;
     error?: string;
     className?: string;
     children: ReactNode;
+    /** Marked where the server's rules will not take the form without it. */
+    required?: boolean;
 }) {
     return (
         <div className={cn('grid min-w-0 content-start gap-2 [&_input]:min-w-0', className)}>
-            <Label htmlFor={htmlFor}>{label}</Label>
+            <Label htmlFor={htmlFor} required={required}>
+                {label}
+            </Label>
             {children}
             <InputError message={error} />
         </div>
@@ -187,7 +194,7 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
     // in their hands, so the form does not ask until asked.
     const [describing, setDescribing] = useState(false);
 
-    const form = useForm({
+    const form = useClearingForm({
         name: '',
         equipment_type_id: '',
         inventory_number: '',
@@ -388,8 +395,9 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
 
                 {/* The category then: everything below is what it asks about,
                     down to the two a unit is named by. */}
-                <Field label="Категория" htmlFor="equipment_type_id" error={form.errors.equipment_type_id}>
+                <Field label="Категория" htmlFor="equipment_type_id" error={form.errors.equipment_type_id} required>
                     <SearchableSelect
+                        required
                         id="equipment_type_id"
                         value={form.data.equipment_type_id}
                         onChange={pickType}
@@ -415,8 +423,10 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                             </p>
                         )}
 
+                        {/* Whether either of the two is insisted on is the category's
+                            own answer, kept on the field in the directory. */}
                         {title && (
-                            <Field label={roleName(asked, 'title')} htmlFor="name" error={form.errors.name}>
+                            <Field label={roleName(asked, 'title')} htmlFor="name" error={form.errors.name} required={title.required}>
                                 <FieldInput
                                     field={title}
                                     id="name"
@@ -429,7 +439,12 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                         )}
 
                         {number && (
-                            <Field label={roleName(asked, 'inventory')} htmlFor="inventory_number" error={form.errors.inventory_number}>
+                            <Field
+                                label={roleName(asked, 'inventory')}
+                                htmlFor="inventory_number"
+                                error={form.errors.inventory_number}
+                                required={number.required}
+                            >
                                 <FieldInput
                                     field={number}
                                     inputRef={inventory}
@@ -504,23 +519,21 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                                 {/* Two dates in the space of one field: a date box needs no more. */}
                                 <div className={half[layout]}>
                                     <Field label="Последняя проверка" htmlFor="checked_at" error={form.errors.checked_at}>
-                                        <Input
+                                        <DatePicker
                                             id="checked_at"
-                                            type="date"
-                                            max={today}
                                             value={form.data.checked_at}
-                                            onChange={(event) => form.setData('checked_at', event.target.value)}
-                                            aria-invalid={!!form.errors.checked_at}
+                                            onChange={(value) => form.setData('checked_at', value)}
+                                            toDate={new Date()}
+                                            invalid={!!form.errors.checked_at}
                                         />
                                     </Field>
 
                                     <Field label="След. инвентаризация" htmlFor="next_inventory_at" error={form.errors.next_inventory_at}>
-                                        <Input
+                                        <DatePicker
                                             id="next_inventory_at"
-                                            type="date"
                                             value={form.data.next_inventory_at}
-                                            onChange={(event) => form.setData('next_inventory_at', event.target.value)}
-                                            aria-invalid={!!form.errors.next_inventory_at}
+                                            onChange={(value) => form.setData('next_inventory_at', value)}
+                                            invalid={!!form.errors.next_inventory_at}
                                         />
                                     </Field>
                                 </div>
@@ -623,15 +636,18 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                                 </Field>
                             )}
 
-                            <Field label="Дата выдачи" htmlFor="issued_at" error={form.errors.issued_at}>
-                                <Input
+                            {/* Asked for only while the unit is being handed over, and
+                                then it is what makes the handover a fact: the rule is
+                                "required_with" whoever receives it. */}
+                            <Field label="Дата выдачи" htmlFor="issued_at" error={form.errors.issued_at} required>
+                                <DatePicker
+                                    required
                                     id="issued_at"
-                                    type="date"
                                     className="max-w-[11.5rem]"
-                                    max={today}
                                     value={form.data.issued_at}
-                                    onChange={(event) => form.setData('issued_at', event.target.value)}
-                                    aria-invalid={!!form.errors.issued_at}
+                                    onChange={(value) => form.setData('issued_at', value)}
+                                    toDate={new Date()}
+                                    invalid={!!form.errors.issued_at}
                                 />
                             </Field>
                         </>

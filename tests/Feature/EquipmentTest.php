@@ -1246,6 +1246,42 @@ class EquipmentTest extends TestCase
     }
 
     /**
+     * The journal behind a card is read once, not once per prop that needs it.
+     *
+     * Two props are built from it — the links, which decide which units the
+     * viewer may open, and the history itself — and each used to read it for
+     * itself: two scans of the journal for this holder, two more for the
+     * entries of the units those found, and every event hydrated twice over.
+     * Counted rather than timed, the way the fleet's own reads are counted.
+     */
+    public function test_the_card_reads_the_equipment_journal_once()
+    {
+        $holder = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $admin = $this->sysadmin();
+
+        // Several units through their hands, so there is a journal worth reading.
+        foreach (range(1, 3) as $n) {
+            $unit = Equipment::factory()->ofType($this->type())->create(['name' => "Ноутбук {$n}"]);
+            $this->actingAs($admin)->post("/equipment/{$unit->id}/issue", ['holder_user_id' => $holder->id, 'issued_at' => '2026-01-10']);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($admin)->get("/employees/{$holder->id}")->assertOk();
+        $reads = collect(DB::getQueryLog())
+            ->pluck('query')
+            ->map(fn (string $query) => str_replace(['`', '"'], '', $query))
+            // The journal itself, not the photographs hanging off it.
+            ->filter(fn (string $query) => str_contains($query, 'from equipment_events'))
+            ->count();
+        DB::disableQueryLog();
+
+        // One scan for the spells this colleague held, one read of the entries
+        // inside them. It was four.
+        $this->assertSame(2, $reads, "the card read the journal {$reads} times; it should read it twice");
+    }
+
+    /**
      * A card is not a way round the fleet's own rules.
      *
      * The equipment block of a colleague's card used to be built from

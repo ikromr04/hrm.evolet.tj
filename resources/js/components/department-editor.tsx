@@ -34,12 +34,14 @@ export const departmentDirectory = {
 } as const;
 
 /**
- * «Изменить отдел» for one department: the window the list opens, opened from
- * the department's own page.
+ * «Изменить отдел», and «Новый отдел» where there is nothing to change yet: the
+ * one window both places that write a department down open.
  *
  * Nothing is re-implemented here. It is {@link DirectoryEditor} with the
  * settings of the departments list and this department as its record, so the
- * form and the save are the ones «Подразделения» has.
+ * form and the save are the ones «Подразделения» has — and «Подразделения»
+ * opens this same wrapper rather than reaching past it, so neither page spells
+ * out the address, the field or the wording a second time.
  */
 export function DepartmentEditor({
     department,
@@ -47,7 +49,12 @@ export function DepartmentEditor({
     onSaved,
     onClose,
 }: {
-    department: DepartmentRecord;
+    /**
+     * The department being changed, or `null` for one being written down for
+     * the first time — which is what «Добавить отдел» opens, and the one case
+     * where the form starts from nothing.
+     */
+    department: DepartmentRecord | null;
     /** Every department, for the placement the window offers. */
     departments: DepartmentRecord[];
     onSaved?: () => void;
@@ -57,7 +64,7 @@ export function DepartmentEditor({
 
     return (
         <DirectoryEditor
-            item={record(department)}
+            item={department && record(department)}
             items={departments.map(record)}
             field={departmentDirectory.field}
             routeName={departmentDirectory.route}

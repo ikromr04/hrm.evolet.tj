@@ -1,9 +1,10 @@
 import InputError from '@/components/input-error';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types';
 import { Transition } from '@headlessui/react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { FormEventHandler, useRef } from 'react';
 
 import HeadingSmall from '@/components/heading-small';
@@ -22,7 +23,7 @@ export default function Password() {
     const passwordInput = useRef<HTMLInputElement>(null);
     const currentPasswordInput = useRef<HTMLInputElement>(null);
 
-    const { data, setData, errors, put, reset, processing, recentlySuccessful } = useForm({
+    const { data, setData, errors, put, reset, processing, recentlySuccessful } = useClearingForm({
         current_password: '',
         password: '',
         password_confirmation: '',
@@ -63,10 +64,13 @@ export default function Password() {
                         {/* On a phone the three fields are one grouped card on the grey page. */}
                         <div className="max-md:bg-card space-y-6 max-md:space-y-4 max-md:rounded-2xl max-md:p-4">
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="current_password">Текущий пароль</Label>
+                                <Label htmlFor="current_password" required>
+                                    Текущий пароль
+                                </Label>
 
                                 <Input
                                     id="current_password"
+                                    aria-required
                                     ref={currentPasswordInput}
                                     value={data.current_password}
                                     onChange={(e) => setData('current_password', e.target.value)}
@@ -80,10 +84,13 @@ export default function Password() {
                             </div>
 
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="password">Новый пароль</Label>
+                                <Label htmlFor="password" required>
+                                    Новый пароль
+                                </Label>
 
                                 <Input
                                     id="password"
+                                    aria-required
                                     ref={passwordInput}
                                     value={data.password}
                                     onChange={(e) => setData('password', e.target.value)}
@@ -97,10 +104,13 @@ export default function Password() {
                             </div>
 
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="password_confirmation">Повторите пароль</Label>
+                                <Label htmlFor="password_confirmation" required>
+                                    Повторите пароль
+                                </Label>
 
                                 <Input
                                     id="password_confirmation"
+                                    aria-required
                                     value={data.password_confirmation}
                                     onChange={(e) => setData('password_confirmation', e.target.value)}
                                     type="password"

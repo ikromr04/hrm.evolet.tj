@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Branch;
 use App\Models\EmploymentType;
 use App\Models\User;
 use App\Models\UserDetail;
@@ -52,27 +51,40 @@ class EmployeeNumberTest extends TestCase
         $this->assertSame(5, mb_strlen($employee->fresh()->employee_number));
     }
 
-    public function test_the_number_is_at_least_five_digits_and_may_be_emptied()
+    /**
+     * What a number may be: the company's own business, down to a shape nobody
+     * here prescribes.
+     *
+     * It used to be refused unless it was five digits or more and nothing but
+     * digits. That is no longer asked: a card takes the number it is given, of
+     * whatever shape, as long as it fits the column and nobody else carries it.
+     * The two things still asked are the two that are not about taste — a
+     * number two cards share names neither of them, and a box left empty is no
+     * number rather than a number of none.
+     */
+    public function test_a_number_is_taken_as_given_but_must_be_the_only_one()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         $this->actingAs($admin);
 
-        $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => '1234']))
-            ->assertSessionHasErrors('employee_number');
-        $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => 'А0001']))
-            ->assertSessionHasErrors('employee_number');
+        // Short, and written with a letter in it: both stand.
+        foreach (['1234', 'А0001', '004217'] as $number) {
+            $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => $number]))
+                ->assertSessionHasNoErrors();
+            $this->assertSame($number, $employee->fresh()->employee_number);
+        }
 
-        $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => '004217']))
-            ->assertSessionHasNoErrors();
-        $this->assertSame('004217', $employee->fresh()->employee_number);
+        // Longer than the column, which is the one shape still refused.
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => str_repeat('7', 21)]))
+            ->assertSessionHasErrors('employee_number');
 
         // No two cards carry the same one.
         $other = User::factory()->has(UserDetail::factory(), 'details')->create();
         $this->put("/employees/{$other->id}/personal", $this->payload(['employee_number' => '004217']))
             ->assertSessionHasErrors('employee_number');
 
-        // A box left empty is no number at all rather than five digits of none.
+        // A box left empty is no number at all.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['employee_number' => ' ']))
             ->assertSessionHasNoErrors();
         $this->assertNull($employee->fresh()->employee_number);
@@ -95,46 +107,52 @@ class EmployeeNumberTest extends TestCase
         $this->assertSame('таджичка', $employee->details->nationality);
     }
 
-    public function test_the_kind_of_work_and_the_branch_are_one_entry_each()
+    /**
+     * The kind of work: one entry of a list, named rather than numbered.
+     *
+     * It used to share this test with the branch somebody worked from. That
+     * list is gone — the company does not file its people by where they sit —
+     * and the kind of work is now the only line of a card that points at a
+     * list this way, so everything the pair proved between them is proved here
+     * of the one that is left.
+     */
+    public function test_the_kind_of_work_is_one_entry_of_its_list()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         $full = EmploymentType::create(['name' => 'Полная занятость']);
-        $office = Branch::create(['name' => 'Душанбе']);
         $this->actingAs($admin);
 
         $this->put("/employees/{$employee->id}/personal", $this->payload([
             'employment_type' => 'полная занятость',
-            'branch' => 'Душанбе',
         ]))->assertSessionHasNoErrors();
 
         // Matched without regard to case: the entry on the list, not a second one.
         $this->assertSame([$full->id], EmploymentType::pluck('id')->all());
-
         $this->assertSame('Полная занятость', $employee->fresh()->employmentType->name);
-        $this->assertSame('Душанбе', $employee->fresh()->branch->name);
 
-        // The card reads them back by name.
+        // The card reads it back by name.
         $this->get("/employees/{$employee->id}")->assertInertia(fn (AssertableInertia $page) => $page
             ->where('employee.employment_type', 'Полная занятость')
-            ->where('employee.branch', 'Душанбе')
             ->where('employee.employee_number', User::numberOf($employee->id))
         );
 
-        // An entry that leaves the directory leaves the card standing.
-        $office->delete();
-        $this->assertNull($employee->fresh()->branch_id);
-
-        // A kind of work the list has not heard of is written into it here,
-        // the way a country typed into the citizenships is.
+        // One the list has not heard of is written into it here, the way a
+        // country typed into the citizenships is.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['employment_type' => 'Подработка']))
             ->assertSessionHasNoErrors();
         $this->assertSame('Подработка', $employee->fresh()->employmentType->name);
         $this->assertTrue(EmploymentType::where('name', 'Подработка')->exists());
 
-        // And an empty box is no entry at all.
-        $this->put("/employees/{$employee->id}/personal", $this->payload(['branch' => '']))
+        // An empty box is no entry at all.
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['employment_type' => '']))
             ->assertSessionHasNoErrors();
-        $this->assertNull($employee->fresh()->branch_id);
+        $this->assertNull($employee->fresh()->employment_type_id);
+
+        // And an entry that leaves the directory leaves the card standing, with
+        // that one line empty.
+        $employee->update(['employment_type_id' => $full->id]);
+        $full->delete();
+        $this->assertNull($employee->fresh()->employment_type_id);
     }
 }

@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
+import { Head } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
@@ -22,7 +23,7 @@ type ResetPasswordForm = {
 };
 
 export default function ResetPassword({ token, email }: ResetPasswordProps) {
-    const { data, setData, post, processing, errors, reset } = useForm<ResetPasswordForm>({
+    const { data, setData, post, processing, errors, reset } = useClearingForm<ResetPasswordForm>({
         token: token,
         email: email,
         password: '',
@@ -57,7 +58,9 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                 </div>
 
                 <div className="grid content-start gap-2">
-                    <Label htmlFor="password">Новый пароль</Label>
+                    <Label htmlFor="password" required>
+                        Новый пароль
+                    </Label>
                     <Input
                         id="password"
                         type="password"
@@ -73,7 +76,9 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                 </div>
 
                 <div className="grid content-start gap-2">
-                    <Label htmlFor="password_confirmation">Повторите пароль</Label>
+                    <Label htmlFor="password_confirmation" required>
+                        Повторите пароль
+                    </Label>
                     <Input
                         id="password_confirmation"
                         type="password"

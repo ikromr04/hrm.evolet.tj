@@ -40,7 +40,6 @@ class DirectoryRightsTest extends TestCase
         'roles' => ['/directories/roles', ['title' => 'Кладовщик']],
         'languages' => ['/directories/languages', ['name' => 'Немецкий']],
         'employment_types' => ['/directories/employment_types', ['name' => 'Подработка']],
-        'branches' => ['/directories/branches', ['name' => 'Худжанд']],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
     ];
 
@@ -54,7 +53,6 @@ class DirectoryRightsTest extends TestCase
         'languages' => '/directories/languages',
         'citizenships' => '/directories/citizenships',
         'employment_types' => '/directories/employment_types',
-        'branches' => '/directories/branches',
         'equipment' => '/directories/equipment',
         'access' => '/directories/access',
     ];

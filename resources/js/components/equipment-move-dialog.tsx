@@ -1,3 +1,4 @@
+import { DatePicker } from '@/components/date-picker';
 import InputError from '@/components/input-error';
 import { PhotoInput } from '@/components/photo-input';
 import { SearchableSelect } from '@/components/searchable-select';
@@ -6,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { LoaderCircle } from 'lucide-react';
 import { useState, type FormEventHandler } from 'react';
 
@@ -88,7 +89,7 @@ export function EquipmentMoveDialog({
     const [taker, setTaker] = useState<Taker>('person');
     const toDepartment = taker === 'department';
 
-    const form = useForm({
+    const form = useClearingForm({
         holder_user_id: '',
         holder_department_id: '',
         issued_at: today,
@@ -147,7 +148,12 @@ export function EquipmentMoveDialog({
                                 nobody has been given yet. The rest of the form is
                                 the same move either way. */}
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="move-holder">Кому</Label>
+                                {/* One of the two answers is demanded — each carries
+                                    "required_without" the other — and the box on show
+                                    is the one being asked, so the star stands either way. */}
+                                <Label htmlFor="move-holder" required>
+                                    Кому
+                                </Label>
                                 <ToggleGroup
                                     type="single"
                                     variant="outline"
@@ -176,6 +182,7 @@ export function EquipmentMoveDialog({
                                 </ToggleGroup>
                                 {toDepartment ? (
                                     <SearchableSelect
+                                        required
                                         id="move-holder"
                                         value={form.data.holder_department_id}
                                         onChange={(value) => form.setData('holder_department_id', value)}
@@ -194,6 +201,7 @@ export function EquipmentMoveDialog({
                                     />
                                 ) : (
                                     <SearchableSelect
+                                        required
                                         id="move-holder"
                                         value={form.data.holder_user_id}
                                         onChange={(value) => form.setData('holder_user_id', value)}
@@ -226,14 +234,16 @@ export function EquipmentMoveDialog({
                             </div>
 
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="move-issued">Дата выдачи</Label>
-                                <Input
+                                <Label htmlFor="move-issued" required>
+                                    Дата выдачи
+                                </Label>
+                                <DatePicker
+                                    required
                                     id="move-issued"
-                                    type="date"
-                                    max={today}
                                     value={form.data.issued_at}
-                                    onChange={(event) => form.setData('issued_at', event.target.value)}
-                                    aria-invalid={!!form.errors.issued_at}
+                                    onChange={(value) => form.setData('issued_at', value)}
+                                    toDate={new Date()}
+                                    invalid={!!form.errors.issued_at}
                                 />
                                 <InputError message={form.errors.issued_at} />
                             </div>
@@ -256,14 +266,16 @@ export function EquipmentMoveDialog({
                             </div>
 
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="move-returned">Дата возврата</Label>
-                                <Input
+                                <Label htmlFor="move-returned" required>
+                                    Дата возврата
+                                </Label>
+                                <DatePicker
+                                    required
                                     id="move-returned"
-                                    type="date"
-                                    max={today}
                                     value={form.data.returned_at}
-                                    onChange={(event) => form.setData('returned_at', event.target.value)}
-                                    aria-invalid={!!form.errors.returned_at}
+                                    onChange={(value) => form.setData('returned_at', value)}
+                                    toDate={new Date()}
+                                    invalid={!!form.errors.returned_at}
                                 />
                                 <InputError message={form.errors.returned_at} />
                                 <p className="text-muted-foreground text-[13px]">Ляжет в карточку как день последней проверки.</p>
@@ -287,14 +299,16 @@ export function EquipmentMoveDialog({
                             </div>
 
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="move-written-off">Дата списания</Label>
-                                <Input
+                                <Label htmlFor="move-written-off" required>
+                                    Дата списания
+                                </Label>
+                                <DatePicker
+                                    required
                                     id="move-written-off"
-                                    type="date"
-                                    max={today}
                                     value={form.data.written_off_at}
-                                    onChange={(event) => form.setData('written_off_at', event.target.value)}
-                                    aria-invalid={!!form.errors.written_off_at}
+                                    onChange={(value) => form.setData('written_off_at', value)}
+                                    toDate={new Date()}
+                                    invalid={!!form.errors.written_off_at}
                                 />
                                 <InputError message={form.errors.written_off_at} />
                                 <p className="text-muted-foreground text-[13px]">Списанную единицу больше нельзя выдать.</p>

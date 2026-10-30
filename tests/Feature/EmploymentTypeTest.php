@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Branch;
 use App\Models\EmploymentType;
 use App\Models\User;
 use Database\Seeders\RoleSeeder;
@@ -53,29 +52,5 @@ class EmploymentTypeTest extends TestCase
 
         $this->delete("/directories/employment_types/{$full->id}")->assertSessionHasNoErrors();
         $this->assertSame(0, EmploymentType::whereKey($full->id)->count());
-    }
-
-    public function test_only_admins_manage_the_branches_directory()
-    {
-        $office = Branch::create(['name' => 'Душанбе']);
-        User::factory()->create(['branch_id' => $office->id]);
-
-        $this->actingAs($this->colleague())->get('/directories/branches')->assertForbidden();
-        $this->actingAs($this->colleague())->post('/directories/branches', ['name' => 'Худжанд'])->assertForbidden();
-
-        $this->actingAs($this->admin);
-        $this->get('/directories/branches')->assertInertia(fn (Assert $page) => $page
-            ->component('directories/branches')
-            ->where('items.0.name', 'Душанбе')
-            ->where('items.0.users_count', 1)
-        );
-
-        $this->post('/directories/branches', ['name' => 'Худжанд'])->assertSessionHasNoErrors();
-        $this->post('/directories/branches', ['name' => 'Худжанд'])->assertSessionHasErrors('name');
-        $this->put("/directories/branches/{$office->id}", ['name' => 'Душанбе, центральный'])->assertSessionHasNoErrors();
-        $this->assertSame('Душанбе, центральный', $office->fresh()->name);
-
-        $this->delete("/directories/branches/{$office->id}")->assertSessionHasNoErrors();
-        $this->assertSame(0, Branch::whereKey($office->id)->count());
     }
 }

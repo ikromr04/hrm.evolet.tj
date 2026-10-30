@@ -15,6 +15,8 @@ import {
 } from '@/components/data-table';
 import { DepartmentLink } from '@/components/department-name';
 import { MobileFab } from '@/components/mobile-fab';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { PositionEditor } from '@/components/position-editor';
 import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
@@ -664,8 +666,8 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Должности" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Должности</h1>
+            <PageContent className="md:min-h-0">
+                <PageTitle>Должности</PageTitle>
 
                 {/*
                  * The phone's own line: there the table is a list of cards with no
@@ -788,7 +790,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                 {/* What the list adds up to — what it is showing, so narrowing it
                 narrows the tally with it. */}
                 <p className="text-muted-foreground shrink-0 text-[13px] max-md:hidden">{summary}</p>
-            </div>
+            </PageContent>
 
             {canEdit && <MobileFab onClick={() => setEditing('new')} label="Добавить должность" />}
             {editing && (

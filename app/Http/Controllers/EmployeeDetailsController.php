@@ -5,18 +5,17 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateContactsRequest;
 use App\Http\Requests\UpdateFamilyRequest;
 use App\Http\Requests\UpdatePersonalDataRequest;
-use App\Models\Branch;
 use App\Models\Citizenship;
 use App\Models\EmploymentType;
-use App\Models\Language;
 use App\Models\User;
+use App\Support\AccessMemo;
+use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use App\Support\Placements;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 /**
  * Edits one block of the profile at a time, the way the page shows it: each
@@ -29,7 +28,7 @@ class EmployeeDetailsController extends Controller
      * somebody under and the two directories a card points at with one entry
      * each; the rest of the plain fields live on the details.
      */
-    private const ON_USER = ['surname', 'name', 'patronymic', 'sex', 'employee_number', 'employment_type_id', 'branch_id'];
+    private const ON_USER = ['surname', 'name', 'patronymic', 'sex', 'employee_number', 'employment_type_id'];
 
     /**
      * The lines a card points at one entry of, as the form names them: the
@@ -39,7 +38,6 @@ class EmployeeDetailsController extends Controller
      */
     private const NAMED = [
         'employment_type' => EmploymentType::class,
-        'branch' => Branch::class,
     ];
 
     /** What the card saves beside the details row: the roles, and where they stand. */
@@ -67,7 +65,6 @@ class EmployeeDetailsController extends Controller
         'home_address' => ['home_address'],
         'employee_number' => ['employee_number'],
         'employment_type' => ['employment_type'],
-        'branch' => ['branch'],
         'roles' => ['roles'],
         // One answer behind two lines of the card: a department, a position of
         // that department and the duties picked out of it. Changing where
@@ -82,7 +79,7 @@ class EmployeeDetailsController extends Controller
     ];
 
     /**
-     * The "Основные данные" card.
+     * The "Основное" card.
      */
     public function personal(UpdatePersonalDataRequest $request, User $employee): RedirectResponse
     {
@@ -116,6 +113,11 @@ class EmployeeDetailsController extends Controller
             // emptied by a save that was never allowed to touch it.
             if (array_key_exists('roles', $data)) {
                 $employee->syncRoles($data['roles']);
+                // This is the one save that can rewrite the rights of whoever is
+                // making it — a person may edit their own card — so whatever
+                // this request had already worked out about what they may read
+                // is dropped rather than carried past the change.
+                AccessMemo::forget();
             }
 
             // Departments the employee stays in keep their head flag, and the
@@ -134,17 +136,7 @@ class EmployeeDetailsController extends Controller
      */
     public function passport(Request $request, User $employee): RedirectResponse
     {
-        $data = $request->validate([
-            'passport_series' => ['nullable', 'string', 'max:10'],
-            'passport_number' => ['nullable', 'string', 'max:20'],
-            'passport_issued_at' => ['nullable', 'date', 'before_or_equal:today'],
-            'passport_issued_by' => ['nullable', 'string', 'max:150'],
-        ], attributes: [
-            'passport_series' => 'серия паспорта',
-            'passport_number' => 'номер паспорта',
-            'passport_issued_at' => 'дата выдачи',
-            'passport_issued_by' => 'кем выдан',
-        ]);
+        $data = $request->validate(EmployeeCard::passportRules(), attributes: EmployeeCard::passportAttributes());
 
         $employee->details()->updateOrCreate([], $data);
 
@@ -201,9 +193,7 @@ class EmployeeDetailsController extends Controller
      */
     public function employment(Request $request, User $employee): RedirectResponse
     {
-        $data = $request->validate([
-            'hired_at' => ['nullable', 'date', 'before_or_equal:today'],
-        ], attributes: ['hired_at' => 'начало работы']);
+        $data = $request->validate(EmployeeCard::employmentRules(), attributes: EmployeeCard::employmentAttributes());
 
         $employee->details()->updateOrCreate([], $data);
 
@@ -217,37 +207,13 @@ class EmployeeDetailsController extends Controller
     public function languages(Request $request, User $employee): RedirectResponse
     {
         $data = $request->validate([
+            // The card edits the list whole, so it travels even when empty: a
+            // form that forgot the field must not read as "take them away".
             'languages' => ['present', 'array'],
-            // Each language once, so the list cannot hold two levels for one.
-            'languages.*.id' => ['nullable', 'required_without:languages.*.name', 'integer', 'distinct', Rule::exists('languages', 'id')],
-            // A language missing from the list is named instead, and added to it
-            // here: whoever may fill this card in may also add the language.
-            'languages.*.name' => ['nullable', 'required_without:languages.*.id', 'string', 'max:100'],
-            'languages.*.level' => ['required', Rule::in(Language::LEVELS)],
-        ], attributes: [
-            'languages.*.id' => 'язык',
-            'languages.*.name' => 'язык',
-            'languages.*.level' => 'уровень',
-        ]);
+            ...EmployeeCard::languageRules(),
+        ], attributes: EmployeeCard::languageAttributes());
 
-        DB::transaction(function () use ($employee, $data) {
-            // Matched without regard to case, so "китайский" finds "Китайский"
-            // rather than putting a second one on the list.
-            $known = Language::query()->get(['id', 'name'])->keyBy(fn (Language $l) => mb_strtolower($l->name));
-
-            $levels = collect($data['languages'])->mapWithKeys(function (array $l) use ($known) {
-                $id = $l['id'] ?? null;
-
-                if ($id === null) {
-                    $name = trim($l['name']);
-                    $id = ($known[mb_strtolower($name)] ?? Language::create(['name' => $name]))->id;
-                }
-
-                return [$id => ['level' => $l['level']]];
-            });
-
-            $employee->languages()->sync($levels);
-        });
+        DB::transaction(fn () => EmployeeCard::saveLanguages($employee, $data['languages']));
 
         return back();
     }
@@ -268,13 +234,7 @@ class EmployeeDetailsController extends Controller
         $children = $data['children'] ?? null;
 
         if ($children !== null) {
-            // "Не указано" and "детей нет" look the same in an empty list, so the
-            // flag keeps them apart; rows on file always mean there are children.
-            $details['has_children'] = match (true) {
-                $children !== [] => true,
-                ($data['has_children'] ?? null) === false => false,
-                default => null,
-            };
+            $details['has_children'] = EmployeeCard::childrenFlag($data['has_children'] ?? null, $children);
         }
 
         DB::transaction(function () use ($employee, $details, $children) {
@@ -284,11 +244,7 @@ class EmployeeDetailsController extends Controller
 
             // Only whoever may change the children gets to replace them.
             if ($children !== null) {
-                $employee->children()->delete();
-                $employee->children()->createMany(array_map(
-                    fn (array $child) => ['full_name' => $child['full_name'], 'birth_date' => $child['birth_date'] ?? null],
-                    $children,
-                ));
+                EmployeeCard::saveChildren($employee, $children);
             }
         });
 

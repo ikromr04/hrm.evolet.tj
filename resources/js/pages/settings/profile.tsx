@@ -1,5 +1,6 @@
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { FormEventHandler } from 'react';
 
 import HeadingSmall from '@/components/heading-small';
@@ -30,7 +31,7 @@ export default function Profile({ pendingEmail, status }: { pendingEmail: string
     // Everything in the shell is behind the door, so there is somebody here.
     const user = auth.user!;
 
-    const { data, setData, patch, errors, processing } = useForm({
+    const { data, setData, patch, errors, processing } = useClearingForm({
         email: pendingEmail ?? user.email,
     });
 
@@ -54,7 +55,9 @@ export default function Profile({ pendingEmail, status }: { pendingEmail: string
                     <form noValidate onSubmit={submit} className="space-y-6 max-md:space-y-4">
                         {/* On a phone the field and the note on it are one grouped card on the grey page. */}
                         <div className="max-md:bg-card grid max-w-md content-start gap-2 max-md:max-w-none max-md:rounded-2xl max-md:p-4">
-                            <Label htmlFor="email">Электронная почта</Label>
+                            <Label htmlFor="email" required>
+                                Электронная почта
+                            </Label>
 
                             <Input
                                 id="email"

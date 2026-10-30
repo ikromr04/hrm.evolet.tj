@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
+import { Head } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
@@ -13,7 +14,7 @@ type ConfirmPasswordForm = {
 };
 
 export default function ConfirmPassword() {
-    const { data, setData, post, processing, errors, reset } = useForm<ConfirmPasswordForm>({
+    const { data, setData, post, processing, errors, reset } = useClearingForm<ConfirmPasswordForm>({
         password: '',
     });
 
@@ -30,7 +31,9 @@ export default function ConfirmPassword() {
 
             <form noValidate className="flex flex-col gap-6" onSubmit={submit}>
                 <div className="grid content-start gap-2">
-                    <Label htmlFor="password">Пароль</Label>
+                    <Label htmlFor="password" required>
+                        Пароль
+                    </Label>
                     <Input
                         id="password"
                         type="password"

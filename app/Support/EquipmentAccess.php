@@ -231,10 +231,14 @@ final class EquipmentAccess
      */
     public static function viewScopes(User $user): array
     {
-        return array_values(array_filter(
+        // Filed for the length of the request: narrowing a query asks this, and
+        // the fleet narrows a query more than once per page — the list by holder
+        // rebuilds its query four times over. The answer turns on this person
+        // alone, so there is one of it per request.
+        return AccessMemo::of($user, 'equipment.view-scopes', fn () => array_values(array_filter(
             array_keys(self::SCOPES),
             fn (string $scope) => $user->can(self::viewPermission($scope)),
-        ));
+        )));
     }
 
     /**
@@ -246,10 +250,12 @@ final class EquipmentAccess
      */
     public static function journalScopes(User $user): array
     {
-        return array_values(array_filter(
+        // Filed like the seeing above, and asked as often: every row of the
+        // journal is checked against it.
+        return AccessMemo::of($user, 'equipment.journal-scopes', fn () => array_values(array_filter(
             self::viewScopes($user),
             fn (string $scope) => $user->can(self::journalPermission($scope)),
-        ));
+        )));
     }
 
     /** Whether the section is open to them at all. */

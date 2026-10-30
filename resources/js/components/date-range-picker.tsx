@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useClosesOnPageScroll } from '@/hooks/use-closes-on-page-scroll';
 import { formatDate } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { CalendarIcon, X } from 'lucide-react';
@@ -53,6 +54,7 @@ export function DateRangePicker({
     id?: string;
 }) {
     const [open, setOpen] = useState(false);
+    const panel = useClosesOnPageScroll(open, setOpen);
     /** What has been pressed while the calendar is open, before it is asked for. */
     const [draft, setDraft] = useState<PickedRange | undefined>(undefined);
     /**
@@ -128,7 +130,7 @@ export function DateRangePicker({
                     </Button>
                 </PopoverTrigger>
 
-                <PopoverContent align="start" className="w-auto p-0">
+                <PopoverContent ref={panel} align="start" className="w-auto overflow-hidden p-0">
                     {/* The two ends over the calendar, so a press has somewhere
                         to land that can be read afterwards. */}
                     <div className="flex items-center gap-3 border-b px-3 py-2">

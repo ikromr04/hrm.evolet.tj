@@ -5,9 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { BODY, MEASURE_BLOCKS, type Addresses, type Editing } from '@/lib/document';
 import { cn } from '@/lib/utils';
-import { useForm } from '@inertiajs/react';
 import { Extension, mergeAttributes } from '@tiptap/core';
 import { Highlight } from '@tiptap/extension-highlight';
 import { TableCell, TableHeader, Table as TableNode, TableRow } from '@tiptap/extension-table';
@@ -776,7 +776,7 @@ export default function SectionForm({
     // A standard section opens with the standard text already in the box: it is
     // what somebody about to rewrite it wants in front of them. The braces stay
     // — a copy goes on reading its owner's own name through them.
-    const form = useForm<{ title: string; body: string }>({
+    const form = useClearingForm<{ title: string; body: string }>({
         title: section.title,
         body: section.body_written ?? '',
     });
@@ -823,11 +823,16 @@ export default function SectionForm({
         <form noValidate onSubmit={submit} className="flex flex-col gap-5">
             {!whole && (
                 <div className="grid content-start gap-2">
-                    <Label htmlFor="document-section-title">Заголовок</Label>
+                    {/* A section is addressed by its heading, so the server takes none
+                        without one — the body may wait, the title may not. */}
+                    <Label htmlFor="document-section-title" required>
+                        Заголовок
+                    </Label>
                     {/* A section is called «ВЗАИМОДЕЙСТВИЕ», not a sentence, so the
                         box stops where a heading does: the dialog is as wide as the
                         toolbar needs, and nothing else grows with it. */}
                     <Input
+                        aria-required
                         id="document-section-title"
                         className="max-md:h-11 sm:max-w-xl"
                         autoFocus

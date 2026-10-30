@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PermissionOverride;
 use App\Models\User;
 use App\Support\Access;
+use App\Support\AccessMemo;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -40,7 +41,11 @@ class EmployeeAccessController extends Controller
         );
 
         if ($data['allowed'] === null) {
+            // Deleted through the query rather than row by row, so the model's
+            // own hook does not see it: the filed answers are dropped here
+            // instead.
             $employee->permissionOverrides()->where('permission', $data['permission'])->delete();
+            AccessMemo::forget();
 
             return back();
         }

@@ -15,7 +15,7 @@ use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 /**
- * The "Основные данные" card of the profile is edited from its own dialog.
+ * The "Основное" card of the profile is edited from its own dialog.
  */
 class EmployeePersonalDataTest extends TestCase
 {
@@ -251,6 +251,9 @@ class EmployeePersonalDataTest extends TestCase
                     'id' => $analyst->id,
                     'name' => 'Аналитик',
                     'display_name' => 'Аналитик (Отдел продаж)',
+                    // The department behind the job, short form and full, so a list can
+                    // name it under the title rather than only in brackets.
+                    'unit' => ['name' => 'Отдел продаж', 'full_name' => 'Отдел продаж'],
                     'department_id' => $sales->id,
                 ])
                 ->where('options.duties', fn ($duties) => collect($duties)->firstWhere('id', $contracts->id) === [

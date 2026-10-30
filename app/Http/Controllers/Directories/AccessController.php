@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Directories;
 
 use App\Http\Controllers\Controller;
 use App\Support\Access;
+use App\Support\AccessMemo;
 use App\Support\Directories;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
@@ -82,6 +83,8 @@ class AccessController extends Controller
         // Only the rights this person holds themselves; see Access::writable.
         $role->syncPermissions(Access::writable($request->user(), $data['permissions'], $role->permissions->pluck('name')->all()));
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+        // And what this request had already worked out from those rights.
+        AccessMemo::forget();
 
         return back();
     }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Directories;
 
 use App\Http\Controllers\Controller;
 use App\Support\Access;
+use App\Support\AccessMemo;
 use App\Support\Directories;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
@@ -159,5 +160,9 @@ class RoleController extends Controller
     private function forgetCache(): void
     {
         app(PermissionRegistrar::class)->forgetCachedPermissions();
+        // And what this request had already worked out from those rights: a card
+        // reads its lines once per request and files the answer, so rewriting a
+        // position's rights has to drop that too.
+        AccessMemo::forget();
     }
 }

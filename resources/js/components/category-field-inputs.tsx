@@ -1,7 +1,7 @@
 import InputError from '@/components/input-error';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Label, RequiredMark } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { type CategoryField, type FieldValues } from '@/lib/equipment-fields';
 import { cn } from '@/lib/utils';
@@ -35,14 +35,16 @@ export function FieldInput({
      */
     inputRef?: Ref<HTMLInputElement>;
 }) {
+    // Whether the field is one the category insists on is the field's own
+    // business, so the control says so itself and no caller has to repeat it.
     if (field.type === 'boolean') {
-        return <Checkbox id={id} checked={value === true} onCheckedChange={(next) => onChange(next === true)} />;
+        return <Checkbox id={id} required={field.required} checked={value === true} onCheckedChange={(next) => onChange(next === true)} />;
     }
 
     if (field.type === 'select') {
         return (
             <Select value={String(value ?? '')} onValueChange={onChange}>
-                <SelectTrigger id={id} aria-invalid={invalid}>
+                <SelectTrigger id={id} aria-invalid={invalid} aria-required={field.required}>
                     <SelectValue placeholder="Не выбрано" />
                 </SelectTrigger>
                 <SelectContent>
@@ -66,6 +68,7 @@ export function FieldInput({
             onChange={(event) => onChange(event.target.value)}
             placeholder={placeholder}
             aria-invalid={invalid}
+            aria-required={field.required}
         />
     );
 }
@@ -108,13 +111,12 @@ export function CategoryFieldInputs({
                             <label htmlFor={input} className="flex items-center gap-2 pt-1 text-sm">
                                 <FieldInput field={field} id={input} value={held} onChange={(next) => onChange(id, next)} invalid={!!message} />
                                 {field.name}
-                                {field.required && <span aria-hidden>*</span>}
+                                {field.required && <RequiredMark />}
                             </label>
                         ) : (
                             <>
-                                <Label htmlFor={input}>
+                                <Label htmlFor={input} required={field.required}>
                                     {field.name}
-                                    {field.required && <span aria-hidden> *</span>}
                                 </Label>
 
                                 <FieldInput field={field} id={input} value={held} onChange={(next) => onChange(id, next)} invalid={!!message} />

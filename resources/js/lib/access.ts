@@ -48,7 +48,6 @@ export type Permission =
     | 'directories.view.languages'
     | 'directories.view.citizenships'
     | 'directories.view.employment_types'
-    | 'directories.view.branches'
     | 'directories.view.equipment'
     | 'directories.edit.roles'
     | 'directories.edit.positions'
@@ -56,7 +55,6 @@ export type Permission =
     | 'directories.edit.languages'
     | 'directories.edit.citizenships'
     | 'directories.edit.employment_types'
-    | 'directories.edit.branches'
     | 'directories.edit.equipment'
     | 'directories.view.access'
     | 'directories.edit.access';
@@ -171,7 +169,6 @@ export const directoryLists: DirectoryList[] = [
         edit: 'directories.edit.employment_types',
         add: 'Добавить тип занятости',
     },
-    { key: 'branches', title: 'Филиалы', view: 'directories.view.branches', edit: 'directories.edit.branches', add: 'Добавить филиал' },
     {
         key: 'equipment',
         title: 'Категории техники',

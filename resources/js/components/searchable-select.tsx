@@ -1,4 +1,5 @@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useClosesOnPageScroll } from '@/hooks/use-closes-on-page-scroll';
 import { cn } from '@/lib/utils';
 import { Check, ChevronDown, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -26,6 +27,8 @@ interface SearchableSelectProps {
     /** Shown when nothing matches what was typed. */
     empty?: string;
     invalid?: boolean;
+    /** The form will not do without an answer here: what the star beside the label says. */
+    required?: boolean;
     disabled?: boolean;
     className?: string;
     /**
@@ -48,11 +51,13 @@ export function SearchableSelect({
     searchPlaceholder = 'Поиск',
     empty = 'Ничего не найдено',
     invalid,
+    required,
     disabled,
     className,
     onCreate,
 }: SearchableSelectProps) {
     const [open, setOpen] = useState(false);
+    const panel = useClosesOnPageScroll(open, setOpen);
     const [query, setQuery] = useState('');
     const [highlighted, setHighlighted] = useState(0);
     const listRef = useRef<HTMLDivElement>(null);
@@ -121,19 +126,23 @@ export function SearchableSelect({
                     role="combobox"
                     aria-expanded={open}
                     aria-invalid={invalid}
+                    aria-required={required}
                     disabled={disabled}
                     className={cn(
-                        'border-input bg-background ring-offset-background focus:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+                        'border-input bg-background ring-offset-background hover:bg-accent focus-visible:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
                         'aria-invalid:border-red-600',
                         className,
                     )}
                 >
-                    <span className={cn('truncate', !chosen && 'text-placeholder')}>{chosen?.label ?? placeholder}</span>
+                    {/* An entry standing for nothing — «Не указано» — is as much an
+                        unanswered field as an empty one, so it is greyed like one
+                        rather than read as a value somebody chose. */}
+                    <span className={cn('truncate', (!chosen || chosen.value === '') && 'text-placeholder')}>{chosen?.label ?? placeholder}</span>
                     <ChevronDown className="size-4 shrink-0 opacity-50" />
                 </button>
             </PopoverTrigger>
 
-            <PopoverContent align="start" className="w-[var(--radix-popover-trigger-width)] p-0" onKeyDown={onKeyDown}>
+            <PopoverContent ref={panel} align="start" className="w-[var(--radix-popover-trigger-width)] p-0" onKeyDown={onKeyDown}>
                 {/* A search row, not a field inside a field: no border, no ring of its own. */}
                 <div className="flex h-9 items-center gap-2 border-b px-3">
                     <Search className="text-muted-foreground size-4 shrink-0" />
@@ -158,7 +167,7 @@ export function SearchableSelect({
                     )}
                 </div>
 
-                <div ref={listRef} className="scroll-soft max-h-64 overflow-y-auto p-1" role="listbox">
+                <div ref={listRef} className="scroll-soft max-h-64 overflow-y-auto overscroll-contain p-1" role="listbox">
                     {matches.length === 0 && !canCreate && <p className="text-muted-foreground px-2 py-6 text-center text-sm">{empty}</p>}
 
                     {matches.map((option, index) => (

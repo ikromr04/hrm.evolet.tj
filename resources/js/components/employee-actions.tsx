@@ -1,12 +1,14 @@
+import { DatePicker } from '@/components/date-picker';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { useCan } from '@/lib/access';
 import { cn } from '@/lib/utils';
-import { router, useForm } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
 import { format } from 'date-fns';
 import { ArrowRightLeft, Ellipsis, LoaderCircle, RotateCcw, Trash2, UserX, type LucideIcon } from 'lucide-react';
 import { Fragment, useState, type FormEventHandler } from 'react';
@@ -165,7 +167,7 @@ function SegmentedActions({ actions }: { actions: Action[] }) {
 
 function LeaveDialog({ kind, employee, name, onClose }: { kind: 'transfer' | 'fire'; employee: ActionTarget; name: string; onClose: () => void }) {
     const transfer = kind === 'transfer';
-    const form = useForm({ date: format(new Date(), 'yyyy-MM-dd'), note: '' });
+    const form = useClearingForm({ date: format(new Date(), 'yyyy-MM-dd'), note: '' });
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
@@ -185,19 +187,25 @@ function LeaveDialog({ kind, employee, name, onClose }: { kind: 'transfer' | 'fi
                     </DialogHeader>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="leave-date">{transfer ? 'Дата перевода' : 'Дата увольнения'}</Label>
-                        <Input
-                            id="leave-date"
-                            type="date"
+                        <Label htmlFor="leave-date" required>
+                            {transfer ? 'Дата перевода' : 'Дата увольнения'}
+                        </Label>
+                        <DatePicker
                             required
+                            id="leave-date"
                             value={form.data.date}
-                            onChange={(event) => form.setData('date', event.target.value)}
+                            onChange={(value) => form.setData('date', value)}
+                            invalid={!!form.errors.date}
                         />
                         <InputError message={form.errors.date} />
                     </div>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="leave-note">{transfer ? 'Куда переведён' : 'Причина (необязательно)'}</Label>
+                        {/* Where somebody went is the point of a transfer, so it is asked
+                            for; why somebody left is not the server's business to insist on. */}
+                        <Label htmlFor="leave-note" required={transfer}>
+                            {transfer ? 'Куда переведён' : 'Причина (необязательно)'}
+                        </Label>
                         <Input
                             id="leave-note"
                             autoFocus

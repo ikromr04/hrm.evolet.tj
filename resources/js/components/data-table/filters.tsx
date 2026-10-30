@@ -1,3 +1,4 @@
+import { DatePicker } from '@/components/date-picker';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -156,11 +157,11 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
         >
             <Label className="flex flex-col gap-1.5 text-xs">
                 С
-                <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="h-9" />
+                <DatePicker value={from} onChange={setFrom} className="h-9" />
             </Label>
             <Label className="flex flex-col gap-1.5 text-xs">
                 По
-                <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-9" />
+                <DatePicker value={to} onChange={setTo} className="h-9" />
             </Label>
             <Button type="submit" size="sm">
                 Применить

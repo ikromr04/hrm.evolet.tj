@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useClosesOnPageScroll } from '@/hooks/use-closes-on-page-scroll';
 import { cn } from '@/lib/utils';
 import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react';
 import { useState } from 'react';
@@ -53,6 +54,7 @@ export function MultiSelect<T extends string | number>({
     numbered?: boolean;
 }) {
     const [open, setOpen] = useState(false);
+    const panel = useClosesOnPageScroll(open, setOpen);
     const [query, setQuery] = useState('');
     // A value typed in has no option of its own, so it is shown as itself.
     const selected = creatable
@@ -62,7 +64,12 @@ export function MultiSelect<T extends string | number>({
     const typed = query.trim();
     const term = typed.toLowerCase();
     // While searching, the tree is flattened: indentation would mislead.
-    const matches = term ? options.filter((option) => option.label.toLowerCase().includes(term)) : options;
+    //
+    // The hint is searched with the label, as SearchableSelect searches it:
+    // a job is named «Аналитик (НО)» and its department is spelled out under
+    // it, so whoever knows the department rather than the abbreviation can
+    // type what they know and still find the job.
+    const matches = term ? options.filter((option) => `${option.label} ${option.hint ?? ''}`.toLocaleLowerCase().includes(term)) : options;
     // Offered only when it is something new: an existing option is picked instead.
     const canCreate = creatable && typed !== '' && ![...options, ...selected].some((option) => option.label.toLowerCase() === term);
 
@@ -122,13 +129,17 @@ export function MultiSelect<T extends string | number>({
                         role="combobox"
                         aria-expanded={open}
                         disabled={disabled}
-                        className="w-full justify-between font-normal"
+                        // px-3 rather than the button s own px-4: this stands in a
+                        // column with plain boxes and the other two pickers, all of
+                        // which set 12px, and a control inset further than its
+                        // neighbours reads as a different kind of thing.
+                        className="w-full justify-between px-3 font-normal"
                     >
-                        <span className="text-muted-foreground">{selected.length ? 'Добавить ещё…' : placeholder}</span>
+                        <span className="text-placeholder">{selected.length ? 'Добавить ещё…' : placeholder}</span>
                         <ChevronsUpDown className="text-muted-foreground" />
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
+                <PopoverContent ref={panel} align="start" className="w-(--radix-popover-trigger-width) p-0">
                     <label className="flex items-center gap-2 border-b px-3">
                         <Search className="text-muted-foreground size-4 shrink-0" />
                         <span className="sr-only">{searchPlaceholder}</span>
@@ -147,7 +158,7 @@ export function MultiSelect<T extends string | number>({
                             className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-hidden"
                         />
                     </label>
-                    <ul role="listbox" aria-multiselectable="true" className="max-h-64 overflow-y-auto p-1">
+                    <ul role="listbox" aria-multiselectable="true" className="max-h-64 overflow-y-auto overscroll-contain p-1">
                         {matches.map((option) => (
                             <li key={option.value}>
                                 <button
@@ -158,9 +169,9 @@ export function MultiSelect<T extends string | number>({
                                     className="hover:bg-accent flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm lg:py-1.5"
                                 >
                                     <Check className={cn('size-4 shrink-0', value.includes(option.value) ? 'opacity-100' : 'opacity-0')} />
-                                    <span className="truncate" style={term ? undefined : { paddingLeft: (option.depth ?? 0) * 16 }}>
-                                        {option.label}
-                                        {option.hint && <span className="text-muted-foreground ml-1.5 text-xs">{option.hint}</span>}
+                                    <span className="flex min-w-0 flex-col" style={term ? undefined : { paddingLeft: (option.depth ?? 0) * 16 }}>
+                                        <span className="break-words">{option.label}</span>
+                                        {option.hint && <span className="text-muted-foreground text-xs break-words">{option.hint}</span>}
                                     </span>
                                 </button>
                             </li>
@@ -173,7 +184,7 @@ export function MultiSelect<T extends string | number>({
                                     className="hover:bg-accent flex w-full items-center gap-2 rounded-sm px-2 py-2.5 text-left text-sm lg:py-1.5"
                                 >
                                     <Plus className="size-4 shrink-0" />
-                                    <span className="truncate">Добавить «{typed}»</span>
+                                    <span className="min-w-0 break-words">Добавить «{typed}»</span>
                                 </button>
                             </li>
                         )}

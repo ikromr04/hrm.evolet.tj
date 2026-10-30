@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
+import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, LoaderCircle, MailCheck } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
@@ -39,7 +40,7 @@ const backToLogin = (
  * than waited on.
  */
 export default function ForgotPassword({ status }: { status?: string }) {
-    const { data, setData, post, processing, errors, setError, clearErrors } = useForm<ForgotPasswordForm>({
+    const { data, setData, post, processing, errors, setError, clearErrors } = useClearingForm<ForgotPasswordForm>({
         email: '',
     });
 
@@ -116,7 +117,9 @@ export default function ForgotPassword({ status }: { status?: string }) {
                 page's own words. */}
             <form className="flex flex-col gap-5" noValidate onSubmit={submit}>
                 <div className="flex flex-col gap-2">
-                    <Label htmlFor="email">Электронная почта</Label>
+                    <Label htmlFor="email" required>
+                        Электронная почта
+                    </Label>
                     <Input
                         id="email"
                         type="email"

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
-use App\Models\Branch;
 use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\EmploymentType;
@@ -21,6 +20,7 @@ use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
 use App\Support\Access;
 use App\Support\Directories;
+use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
@@ -66,6 +66,21 @@ class EmployeeController extends Controller
 
     /** @var list<int> Units on the card being built that the viewer may open. */
     private array $openUnits = [];
+
+    /**
+     * The journal of the card being built — every entry of every unit this
+     * colleague ever held — read once for the two props that need it.
+     *
+     * Both the links and the history itself are worked out from these entries,
+     * and each used to read them for itself: two scans of the journal for the
+     * holder, two more for the entries of the units it found, and every one of
+     * those events hydrated twice. Measured at some fourteen milliseconds of
+     * SQL on a card with eleven units, and more than that again in the
+     * hydrating.
+     *
+     * @var Collection<int, EquipmentEvent>|null
+     */
+    private ?Collection $history = null;
 
     /**
      * Sorting or filtering by these reveals how colleagues compare on private
@@ -279,15 +294,16 @@ class EmployeeController extends Controller
     }
 
     /**
-     * The form for a new colleague: a page of its own rather than a dialog,
-     * because it runs over several steps and half-filled work should survive a
-     * stray key. Everything its steps offer travels with it.
+     * The form for a new colleague: the whole card on one page, a section per
+     * block, and a page of its own rather than a dialog because half-filled
+     * work should survive a stray key. Everything any of its sections offers
+     * travels with it.
      */
     public function create(Request $request): Response
     {
-        // The last step hands hardware out, which is an operation on the fleet
+        // The last section hands hardware out, which is an operation on the fleet
         // rather than a line of the card: it stays with the right to issue units,
-        // and without it the step says so instead of offering what it cannot do.
+        // and without that right the page leaves the section out altogether.
         $canIssue = $request->user()->can('equipment.issue');
 
         return Inertia::render('employees/create', [
@@ -295,27 +311,37 @@ class EmployeeController extends Controller
             'options' => [
                 'roles' => Access::offeredRoles()->get(['name', 'title']),
                 // Every position with the department it belongs to and every
-                // duty with its position: the step asks for the job and narrows
+                // duty with its position: the page asks for the job and narrows
                 // the duties under it without a round trip each time.
                 ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 'nationalities' => $this->distinctDetail('nationality'),
                 'citizenships' => $this->citizenships(),
-                // The last step hands out hardware, so what is free travels too.
+                // The kinds of work, named rather than numbered: one missing
+                // from the list is typed into the page and added to the list on
+                // the save.
+                'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
+                // The last section hands out hardware, so what is free travels too.
                 'stock' => $canIssue ? $this->freeUnits() : [],
             ],
         ]);
     }
 
     /**
-     * A new colleague on the books. The form asks for the account they sign in
-     * with and the little that files them under a role, a position and a
-     * department; the rest of the profile is filled in step by step afterwards,
-     * which is why this lands on their page rather than back on the list.
+     * A new colleague on the books, with everything that was typed about them.
+     *
+     * The page sends the whole card at once and this writes it at once: one
+     * transaction, so either the colleague is on file with all of it or nothing
+     * happened. Nothing is saved until the button is pressed — there is no
+     * half-created person to come back to — which is also why the letter with
+     * the password goes out after the transaction has closed and not before: a
+     * colleague who never made it onto the books must not be sent a way in.
      */
     public function store(StoreEmployeeRequest $request): RedirectResponse
     {
         $data = $request->validated();
+        $children = $data['children'] ?? [];
+        $languages = $data['languages'] ?? [];
 
         // Nobody types a password for somebody else: one is picked here, sent
         // to them, and never seen again — not even by whoever added them.
@@ -327,17 +353,30 @@ class EmployeeController extends Controller
         // the policy is met by construction.
         $password = Str::password(random_int(12, 16), symbols: false);
 
-        $employee = DB::transaction(function () use ($data, $password) {
+        $employee = DB::transaction(function () use ($data, $children, $languages, $password) {
             $employee = User::create([
-                ...Arr::only($data, ['surname', 'name', 'patronymic', 'sex', 'email']),
+                ...Arr::only($data, ['surname', 'name', 'patronymic', 'sex', 'email', 'employee_number']),
+                // Named on the page, numbered on the account: a kind of work the
+                // list has not heard of is added to it here, exactly as the card's
+                // own «Основное» adds one.
+                'employment_type_id' => EmploymentType::idFor($data['employment_type'] ?? null),
                 'password' => Hash::make($password),
                 'status' => 'active',
             ]);
 
-            // Everything the first step asks that is not on the user itself.
-            $employee->details()->create(Arr::only($data, [
-                'hired_at', 'birth_date', 'birth_place', 'nationality', 'home_address',
-            ]));
+            // Everything the card holds beside the account, in the one row that
+            // holds it. Grouped the way the page asks for it, section by section,
+            // because that is the order somebody looking for a field will read.
+            $employee->details()->create([
+                ...Arr::only($data, ['hired_at', 'birth_date', 'birth_place', 'nationality', 'home_address']),
+                ...Arr::only($data, ['phone', 'sos_phone', 'sos_contact']),
+                ...Arr::only($data, ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by']),
+                ...Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date']),
+                // "Детей нет" and "не указано" look the same in an empty list,
+                // so the answer is worked out rather than taken as sent — by the
+                // same call the card's own «Семья» form makes.
+                'has_children' => EmployeeCard::childrenFlag($data['has_children'] ?? null, $children),
+            ]);
             $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
 
             $employee->syncRoles($data['roles']);
@@ -346,24 +385,38 @@ class EmployeeController extends Controller
             // builds a chain at a time.
             Placements::save($employee, $data['placements']);
 
+            // A language the directory has not heard of is added to it on the
+            // way in, which is the one thing about saving them that is not a
+            // plain write — so it is the same call the card's own form makes.
+            if ($languages !== []) {
+                EmployeeCard::saveLanguages($employee, $languages);
+            }
+
+            // Nothing is on file to replace for somebody who did not exist a
+            // moment ago, so the lists below only ever go in.
+            if ($children !== []) {
+                EmployeeCard::saveChildren($employee, $children);
+            }
+
+            $employee->educations()->createMany($data['educations'] ?? []);
+            $employee->workExperiences()->createMany($data['experiences'] ?? []);
+
+            // Only what is free is handed over, as everywhere else in the fleet.
+            EmployeeCard::issueEquipment($employee, $data['equipment'] ?? [], $data['issued_at'] ?? null);
+
             return $employee;
         });
 
         $employee->notify(new AccountCreated($password));
 
-        // Whoever added them fills the rest of their card in, every line of it,
-        // through the ordinary forms of the card: those ask EmployeeFields, which
-        // reads this. It lasts until the card is opened as a card.
-        EmployeeFields::startCreating($employee);
-
-        // The wizard goes on filling the profile in, step by step, and needs
-        // to know whom it is filling in; on its own the form is done here.
+        // «Создать и добавить ещё»: the page stays where it is and empties itself
+        // for the next colleague, so it is told whom it has just filed and says
+        // so over the blank form. On its own the form is done here, and leads to
+        // the card it has just written.
         return $request->boolean('continue')
             ? back()->with('employee', [
                 'id' => $employee->id,
                 'name' => "{$employee->surname} {$employee->name}",
-                // The contacts step edits the address as well, so it needs it.
-                'email' => $employee->email,
             ])
             : to_route('employees.show', $employee);
     }
@@ -389,12 +442,6 @@ class EmployeeController extends Controller
             return to_route('profile');
         }
 
-        // Opening the card is where adding somebody ends — the wizard leads here
-        // when it is done or put off, and there is no way back into it for a
-        // person already on the books. From here on the card is edited under the
-        // ordinary rights to its lines, so it is drawn under them too.
-        EmployeeFields::finishCreating($employee);
-
         return $this->card($request, $employee, neighbours: true);
     }
 
@@ -405,7 +452,7 @@ class EmployeeController extends Controller
     {
         // The department of each position travels with it: that is what tells
         // one «Аналитик» from another on the line that prints them.
-        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'departments.heads:id,name,surname', 'languages:id,name', 'employmentType:id,name', 'branch:id,name']);
+        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'departments.heads:id,name,surname', 'languages:id,name', 'employmentType:id,name']);
         // Which fields of this card the viewer reads. Their own card is whole;
         // anybody else's is what their position and their exceptions allow.
         $visible = EmployeeFields::visibleTo($request->user(), $employee);
@@ -457,7 +504,6 @@ class EmployeeController extends Controller
                     // they were taken on for and the place they work from.
                     'employee_number' => fn () => $employee->employee_number,
                     'employment_type' => fn () => $employee->employmentType?->name,
-                    'branch' => fn () => $employee->branch?->name,
                 ]),
                 'private' => $canSeePrivate ? [
                     ...$this->privateDetails($employee, $visible),
@@ -505,7 +551,7 @@ class EmployeeController extends Controller
             'isSelf' => $request->user()->is($employee),
             // Whether the equipment section of this card may hand a unit over.
             'canIssue' => $canIssue,
-            // What there is to hand over, as the intake wizard's last step is
+            // What there is to hand over, as the «Новый сотрудник» page is
             // given it: only a viewer who may issue is told, since to anybody
             // else it is a list of the fleet they never asked for.
             'stock' => $canIssue ? $this->freeUnits() : [],
@@ -528,7 +574,7 @@ class EmployeeController extends Controller
                 'roles' => Access::offeredRoles()
                     ->orWhereIn('name', $employee->roles->pluck('name'))
                     ->get(['name', 'title']),
-                // As the intake wizard is given them: the positions, and the
+                // As the «Новый сотрудник» page is given them: the positions, and the
                 // duties of each.
                 ...Placements::options(),
                 // Every department with whoever leads it: the window fills in
@@ -539,7 +585,6 @@ class EmployeeController extends Controller
                 // than numbered, because one missing from a list is typed into
                 // the window and added on the save.
                 'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
-                'branches' => Branch::query()->orderBy('name')->pluck('name'),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
                 // Countries already on file, as suggestions for a previous job.
                 'countries' => UserWorkExperience::query()->distinct()->orderBy('country')->pluck('country'),
@@ -1210,8 +1255,9 @@ class EmployeeController extends Controller
         // the notes and the photographs are the other half.
         //
         // openUnits was worked out a moment ago, for the links, off the very
-        // same ids — so this costs nothing beyond the reading of it.
-        $events = EquipmentHistory::of($employee)->events()
+        // same entries — which is why the journal is read through history()
+        // rather than asked for again here: it is the same read.
+        $events = $this->history($employee)
             ->filter(fn (EquipmentEvent $event) => in_array($event->equipment_id, $this->openUnits, true))
             ->values();
 
@@ -1257,6 +1303,19 @@ class EmployeeController extends Controller
     }
 
     /**
+     * The journal behind this card, read once.
+     *
+     * One card, one colleague, one controller to a request — so a single slot
+     * holds it, the way openUnits above holds the ids worked out from it.
+     *
+     * @return Collection<int, EquipmentEvent>
+     */
+    private function history(User $employee): Collection
+    {
+        return $this->history ??= EquipmentHistory::of($employee)->events();
+    }
+
+    /**
      * Which of the units on this card — held now or passed through their hands —
      * the viewer may open, asked once for the lot rather than unit by unit.
      * Always true, so it can sit in the condition that builds the block.
@@ -1264,7 +1323,7 @@ class EmployeeController extends Controller
     private function openUnitsFor(User $viewer, User $employee): bool
     {
         $ids = $employee->equipment->pluck('id')
-            ->merge(EquipmentHistory::of($employee)->events()->pluck('equipment_id'))
+            ->merge($this->history($employee)->pluck('equipment_id'))
             ->filter()->unique()->values()->all();
 
         $this->openUnits = $ids === [] ? [] : Equipment::query()

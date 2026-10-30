@@ -13,6 +13,8 @@ import {
 import { DateRangePicker } from '@/components/date-range-picker';
 import { ChangeLines, EventRow } from '@/components/equipment-changes';
 import { CategoryChip } from '@/components/equipment-icon';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -286,8 +288,8 @@ export default function EquipmentJournal({ section, events, names, filters, perP
         <AppLayout breadcrumbs={place.crumbs} fitViewport>
             <Head title="Журнал операций" />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Журнал операций</h1>
+            <PageContent className="md:min-h-0">
+                <PageTitle>Журнал операций</PageTitle>
 
                 {/* On a phone one line: the quick periods as chips and the button to
                     the sheet, where an exact period is picked along with the rest. */}
@@ -418,7 +420,7 @@ export default function EquipmentJournal({ section, events, names, filters, perP
                         </>
                     }
                 />
-            </div>
+            </PageContent>
         </AppLayout>
     );
 }

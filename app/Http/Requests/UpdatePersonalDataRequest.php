@@ -5,6 +5,7 @@ namespace App\Http\Requests;
 use App\Http\Requests\Concerns\GuardsPrivilegedRoles;
 use App\Http\Requests\Concerns\ListsCitizenships;
 use App\Models\User;
+use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use App\Support\Placements;
 use Closure;
@@ -13,7 +14,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * The "Основные данные" card of the profile: the name and personal facts, plus
+ * The "Основное" card of the profile: the name and personal facts, plus
  * the roles the employee carries and where they stand in the company.
  */
 class UpdatePersonalDataRequest extends FormRequest
@@ -71,23 +72,21 @@ class UpdatePersonalDataRequest extends FormRequest
             'patronymic' => $sent(['nullable', 'string', 'max:100']),
             'sex' => $sent($line('sex', ['required', Rule::in(['male', 'female'])])),
             'birth_date' => $sent(['nullable', 'date', 'before_or_equal:today']),
+            ...collect(EmployeeCard::employmentRules())
+                ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))
+                ->all(),
             'birth_place' => $sent(['nullable', 'string', 'max:255']),
             ...collect($this->citizenshipRules())->map(fn (array $rules) => $sent($rules))->all(),
             'nationality' => $sent(['nullable', 'string', 'max:255']),
             'home_address' => $sent(['nullable', 'string', 'max:255']),
 
-            // The company's own number. It may be left empty, and it is written
-            // in at least five digits — the first of them is a nought on nearly
-            // every card, so this is a string of digits and not a number.
-            'employee_number' => $sent($line('employee_number', [
-                'nullable', 'string', 'regex:/^\d{5,}$/', 'max:20',
-                Rule::unique('users', 'employee_number')->ignore($employee),
-            ])),
-            // One entry of a list each, or none, and named rather than
-            // numbered: one missing from the list is written into it on the
-            // save, the way a country typed into the citizenships is.
-            'employment_type' => $sent($line('employment_type', ['nullable', 'string', 'max:100'])),
-            'branch' => $sent($line('branch', ['nullable', 'string', 'max:100'])),
+            // The number, the kind of work and the branch, described once in
+            // EmployeeCard and asked for here line by line, because this window
+            // shows only the lines this viewer may change. «Новый сотрудник»
+            // asks the same method for the same three.
+            ...collect(EmployeeCard::accountRules($employee))
+                ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))
+                ->all(),
 
             'roles' => $sent(['present', 'array']),
             'roles.*' => ['string', 'distinct', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
@@ -161,9 +160,8 @@ class UpdatePersonalDataRequest extends FormRequest
             'citizenship.*' => 'гражданство',
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
-            'employee_number' => 'номер сотрудника',
-            'employment_type' => 'тип занятости',
-            'branch' => 'филиал',
+            ...EmployeeCard::employmentAttributes(),
+            ...EmployeeCard::accountAttributes(),
             'roles' => 'позиция',
             ...Placements::attributes(),
         ];

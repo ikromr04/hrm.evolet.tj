@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useForm } from '@inertiajs/react';
+import { useClearingForm } from '@/hooks/use-clearing-form';
 import { LoaderCircle } from 'lucide-react';
 import { type FormEventHandler } from 'react';
 
@@ -59,7 +59,7 @@ export function PositionEditor({
     departments: DepartmentOption[];
     onClose: () => void;
 }) {
-    const form = useForm<EditorData>({
+    const form = useClearingForm<EditorData>({
         department_id: position?.department === null || position === null ? '' : String(position.department.id),
         name: position?.name ?? '',
         is_head: position?.is_head ?? false,
@@ -100,8 +100,11 @@ export function PositionEditor({
                     </DialogHeader>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="position-department">Отдел</Label>
+                        <Label htmlFor="position-department" required>
+                            Отдел
+                        </Label>
                         <SearchableSelect
+                            required
                             id="position-department"
                             className="max-md:h-11"
                             value={form.data.department_id}
@@ -126,8 +129,11 @@ export function PositionEditor({
                     </div>
 
                     <div className="grid content-start gap-2">
-                        <Label htmlFor="position-name">Название</Label>
+                        <Label htmlFor="position-name" required>
+                            Название
+                        </Label>
                         <Input
+                            aria-required
                             id="position-name"
                             className="max-md:h-11"
                             autoFocus

@@ -224,6 +224,9 @@ final class Placements
                     // position it is, since the same one may exist in two
                     // departments.
                     'display_name' => $position->display_name,
+                    // The department itself as well, so a list of jobs can name
+                    // it in full under the job rather than only in brackets.
+                    'unit' => $position->unit(),
                     'department_id' => $position->department_id,
                 ])
                 ->all(),

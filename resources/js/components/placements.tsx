@@ -29,7 +29,14 @@ export interface Placement {
  */
 export interface PlacementOptions {
     /** A position reads as «Администратор (ОАП)»: the name alone no longer says which it is. */
-    positions: { id: number; name: string; display_name: string; department_id: number | null }[];
+    positions: {
+        id: number;
+        name: string;
+        display_name: string;
+        /** The department in full, to stand under the job. Null while nobody has filed it. */
+        unit: { name: string; full_name: string } | null;
+        department_id: number | null;
+    }[];
     duties: { id: number; name: string; position_id: number }[];
 }
 

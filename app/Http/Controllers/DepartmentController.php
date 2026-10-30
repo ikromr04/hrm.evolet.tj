@@ -30,7 +30,7 @@ class DepartmentController extends Controller
         $departments = $this->tree();
         $totals = Department::staffTotals($departments);
 
-        return Inertia::render('departments/index', [
+        return Inertia::render('departments/chart', [
             'departments' => $departments->map(fn (Department $d) => $this->chartNode($d, $totals))->values(),
             'employees_count' => User::active()->count(),
         ]);

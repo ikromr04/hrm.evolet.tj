@@ -1,4 +1,5 @@
 import { PageActionsProvider } from '@/components/page-actions';
+import { PageTitle } from '@/components/page-title';
 import AppLayout from '@/layouts/app-layout';
 import { directoryLists, useCan } from '@/lib/access';
 import { cn } from '@/lib/utils';
@@ -48,7 +49,7 @@ export default function DirectoriesLayout({ title, children }: { title: string; 
                     <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:gap-2 md:px-4 md:py-4 lg:px-6">
                         {/* The section names itself once; the strip under it
                             says which of its lists is open. */}
-                        <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">Справочники</h1>
+                        <PageTitle>Справочники</PageTitle>
 
                         {/*
                          * One tab is not a choice: with a single list open the strip only

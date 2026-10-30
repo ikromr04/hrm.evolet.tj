@@ -1,4 +1,6 @@
 import { EquipmentForm, type EquipmentFormProps } from '@/components/equipment-form';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { Card } from '@/components/ui/card';
 import AppLayout from '@/layouts/app-layout';
 import { INVENTORY_PLACES, type InventoryPlace } from '@/lib/inventory';
@@ -55,13 +57,13 @@ export default function CreateEquipment({ options, section, sections, forEmploye
              * form says in its own words who the unit goes to, and it carries
              * «Отмена» at the foot beside «Сохранить», where the choice is made.
              */}
-            <div className="flex flex-1 flex-col gap-5 p-3 max-md:gap-3 md:gap-6 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">{INVENTORY_PLACES[place].add.title}</h1>
+            <PageContent>
+                <PageTitle>{INVENTORY_PLACES[place].add.title}</PageTitle>
 
                 <Card className="w-full rounded-xl p-4 max-md:rounded-2xl max-md:border-0 max-md:p-4! max-md:shadow-none sm:p-6">
                     <EquipmentForm options={{ ...options, sections }} section={section} forEmployee={forEmployee} layout="page" />
                 </Card>
-            </div>
+            </PageContent>
         </AppLayout>
     );
 }

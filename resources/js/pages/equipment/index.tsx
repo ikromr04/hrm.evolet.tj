@@ -17,6 +17,8 @@ import {
 import { CategoryChip } from '@/components/equipment-icon';
 import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
 import { MobileFab } from '@/components/mobile-fab';
+import { PageContent } from '@/components/page-content';
+import { PageTitle } from '@/components/page-title';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
@@ -1184,8 +1186,8 @@ export default function EquipmentIndex({
         <AppLayout breadcrumbs={place.crumbs} fitViewport>
             <Head title={place.title} />
 
-            <div className="flex flex-1 flex-col gap-4 p-3 max-md:gap-3 md:min-h-0 md:px-4 md:py-6 lg:px-6">
-                <h1 className="text-xl leading-7 font-semibold tracking-[-0.01em] max-md:hidden">{place.title}</h1>
+            <PageContent className="md:min-h-0">
+                <PageTitle>{place.title}</PageTitle>
 
                 {/* The lists, the box to look through them, and at the end of the line what
                     acts on the page. On a phone: the search and the sorting-and-filters
@@ -1475,7 +1477,7 @@ export default function EquipmentIndex({
                         footer={footer(equipment)}
                     />
                 )}
-            </div>
+            </PageContent>
 
             {can.create && <MobileFab href={route('equipment.create')} label="Добавить оборудование" />}
             {asking && (

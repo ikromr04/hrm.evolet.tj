@@ -3,14 +3,17 @@
 namespace Tests\Feature;
 
 use App\Models\Department;
+use App\Models\EmploymentType;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
 use App\Models\Language;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
+use App\Models\UserChild;
+use App\Models\UserEducation;
+use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
-use App\Support\EmployeeFields;
 use App\Support\Placements;
 use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PositionSeeder;
@@ -25,10 +28,15 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * Putting a new colleague on the books, from the form that opens as a page of
- * its own. Its first step creates the account they sign in with and files them
- * under a role, a position and a department; the steps after it fill the rest
- * of the profile in and may each be skipped.
+ * Putting a new colleague on the books, from the page that asks for the whole
+ * card at once: who they are, how to reach them, their papers and their family,
+ * where they studied, where they worked and what hardware they are handed.
+ *
+ * It all travels in one request and is written in one transaction, so the two
+ * things worth pinning hardest are that everything typed arrives — and that a
+ * refusal in the last section of the page leaves nobody behind in the first.
+ * Only the account section is demanded; the rest may be left empty and written
+ * on the card later.
  */
 class EmployeeCreateTest extends TestCase
 {
@@ -61,6 +69,59 @@ class EmployeeCreateTest extends TestCase
             'placements' => [],
             ...$overrides,
         ];
+    }
+
+    /**
+     * The same card with every other section of the page filled in too, which
+     * is what the one request carries when somebody fills the page out whole.
+     *
+     * The language is named rather than numbered on purpose: a language the
+     * directory has not heard of is added to it on the way in, and that is the
+     * one thing about saving this section which is not a plain write.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function wholeCard(array $overrides = []): array
+    {
+        return $this->payload([
+            /* Контакты и языки */
+            'phone' => '901112233',
+            'sos_phone' => '902223344',
+            'sos_contact' => 'Мама',
+            'languages' => [['name' => 'Английский', 'level' => Language::LEVELS[0]]],
+
+            /* Паспорт и семья */
+            'passport_series' => 'A',
+            'passport_number' => '1234567',
+            'passport_issued_at' => '2020-01-01',
+            'passport_issued_by' => 'ОВД',
+            'marital_status' => 'married',
+            'spouse_name' => 'Азимов Рустам',
+            'spouse_birth_date' => '1988-02-02',
+            'has_children' => true,
+            'children' => [['full_name' => 'Азимова Сабина', 'birth_date' => '2015-05-05']],
+
+            /* Образование */
+            'educations' => [
+                ['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2008, 'graduated_year' => 2012],
+            ],
+
+            /* Трудовая деятельность */
+            'experiences' => [
+                [
+                    'organization' => 'ООО «Ориён»',
+                    'position' => 'Аналитик',
+                    'country' => 'Таджикистан',
+                    'started_month' => 3,
+                    'started_year' => 2013,
+                    'ended_month' => 8,
+                    'ended_year' => 2020,
+                ],
+            ],
+
+            ...$overrides,
+        ]);
     }
 
     /**
@@ -136,6 +197,178 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame([$duty->id], $employee->duties->pluck('id')->all());
 
         Notification::assertSentTo($employee, AccountCreated::class);
+    }
+
+    /**
+     * The company's own number for somebody, and the kind of work they were
+     * taken on for.
+     *
+     * Both sit on the account rather than on the details beside it, and the kind
+     * of work is named rather than numbered: one the directory has not heard of
+     * is written into the directory on the way in, so a card can be filled in
+     * without a trip to «Справочники» first.
+     */
+    public function test_the_number_and_the_kind_of_work_land_on_the_account()
+    {
+        Notification::fake();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'employee_number' => '00418',
+            'employment_type' => 'Полная занятость',
+        ]))->assertSessionHasNoErrors();
+
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+
+        // Kept as typed: the nought in front is the company's numbering and not
+        // an accident, which a number would have eaten.
+        $this->assertSame('00418', $employee->employee_number);
+        $this->assertSame('Полная занятость', $employee->employmentType->name);
+        $this->assertSame(['Полная занятость'], EmploymentType::query()->pluck('name')->all());
+    }
+
+    /**
+     * The number is the one line of a card no two people may share.
+     *
+     * Refused before anything is written, like every other refusal on this page:
+     * the whole card is one request, so a number somebody else carries leaves no
+     * half-made colleague behind.
+     */
+    public function test_a_number_somebody_else_carries_is_refused()
+    {
+        Notification::fake();
+        User::factory()->create(['employee_number' => '00418']);
+
+        $this->actingAs($this->sysadmin())
+            ->post('/employees', $this->payload(['employee_number' => '00418']))
+            ->assertSessionHasErrors('employee_number');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    public function test_the_whole_card_travels_in_one_request()
+    {
+        Notification::fake();
+        $this->seed(EquipmentTypeSeeder::class);
+        [$department, $position, $duty] = $this->chain();
+        $laptop = Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->create();
+
+        $response = $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'roles' => ['specialist'],
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [$duty->id]]],
+            'equipment' => [$laptop->id],
+            'issued_at' => '2026-03-02',
+        ]));
+
+        $response->assertSessionHasNoErrors();
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+        $response->assertRedirect("/employees/{$employee->id}");
+
+        // Основное.
+        $this->assertSame('Азимова', $employee->surname);
+        $this->assertSame('female', $employee->sex);
+        $this->assertSame('2026-03-02', $employee->details->hired_at->toDateString());
+        $this->assertSame('г. Худжанд', $employee->details->birth_place);
+        $this->assertTrue($employee->hasRole('specialist'));
+        $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
+        $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
+        $this->assertSame([$duty->id], $employee->duties->pluck('id')->all());
+
+        // Контакты и языки. The phone was typed as nine local digits and is on
+        // file in E.164, as it would be from the card's own form.
+        $this->assertSame('+992901112233', $employee->details->phone);
+        $this->assertSame('Мама', $employee->details->sos_contact);
+        // The language was named, so it is on the directory now as well.
+        $this->assertSame(['Английский'], $employee->languages->pluck('name')->all());
+        $this->assertNotNull(Language::firstWhere('name', 'Английский'));
+
+        // Паспорт и семья.
+        $this->assertSame('1234567', $employee->details->passport_number);
+        $this->assertSame('ОВД', $employee->details->passport_issued_by);
+        $this->assertSame('married', $employee->details->marital_status);
+        $this->assertSame('Азимов Рустам', $employee->details->spouse_name);
+        $this->assertTrue($employee->details->has_children);
+        $this->assertSame(['Азимова Сабина'], $employee->children->pluck('full_name')->all());
+
+        // Образование и трудовая деятельность.
+        $this->assertSame(['ТНУ'], $employee->educations->pluck('institution')->all());
+        $this->assertSame(['ООО «Ориён»'], $employee->workExperiences->pluck('organization')->all());
+
+        // Оборудование: the workplace is put together in the same request.
+        $this->assertSame($employee->id, $laptop->refresh()->holder_user_id);
+        $this->assertSame('issued', $laptop->status);
+        $this->assertSame('2026-03-02', $laptop->issued_at->toDateString());
+
+        // One colleague, one letter, one password.
+        Notification::assertSentToTimes($employee, AccountCreated::class, 1);
+    }
+
+    public function test_a_refusal_in_a_late_section_leaves_no_colleague_behind()
+    {
+        Notification::fake();
+        $this->seed(EquipmentTypeSeeder::class);
+        [, $position] = $this->chain();
+        $laptop = Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->create();
+
+        // Everything about this colleague is in order except the last job they
+        // held, which they left three years before they joined it. That is the
+        // fifth section of six, and the account is the first.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'placements' => [['position_id' => $position->id, 'duty_ids' => []]],
+            'equipment' => [$laptop->id],
+            'experiences' => [
+                [
+                    'organization' => 'ООО «Ориён»',
+                    'position' => 'Аналитик',
+                    'country' => 'Таджикистан',
+                    'started_month' => 3,
+                    'started_year' => 2021,
+                    'ended_month' => 8,
+                    'ended_year' => 2018,
+                ],
+            ],
+        ]))->assertSessionHasErrors('experiences.0.ended_year');
+
+        // Nothing of the card was written: not the account, not a row of any of
+        // its lists, and the laptop is still in the store. This is the whole
+        // point of the one transaction — the wizard used to leave a colleague on
+        // the books from its first step, with the letter already sent.
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+        $this->assertSame(0, UserEducation::count());
+        $this->assertSame(0, UserWorkExperience::count());
+        $this->assertSame(0, UserChild::count());
+        $this->assertSame('stock', $laptop->refresh()->status);
+        Notification::assertNothingSent();
+    }
+
+    public function test_every_section_says_what_is_wrong_under_its_own_field()
+    {
+        // Nine screens of boxes and one request: a refusal has to name the box
+        // it belongs to, row and all, or the page has nothing to show it under.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'surname' => '',
+            'phone' => 'не телефон',
+            'passport_issued_at' => now()->addWeek()->toDateString(),
+            'languages' => [['name' => 'Английский', 'level' => 'сносно']],
+            'children' => [['full_name' => '', 'birth_date' => '2015-05-05']],
+            'educations' => [
+                ['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2010],
+                // A diploma cannot predate enrolment, and the faculty is missing.
+                ['institution' => 'РТСУ', 'specialty' => 'Право', 'started_year' => 2015, 'graduated_year' => 2012],
+            ],
+        ]))
+            ->assertSessionHasErrors([
+                'surname',
+                'phone',
+                'passport_issued_at',
+                'languages.0.level',
+                'children.0.full_name',
+                'educations.1.faculty',
+                'educations.1.graduated_year',
+            ])
+            // And says nothing about what was right, the good row included.
+            ->assertSessionDoesntHaveErrors(['name', 'sos_phone', 'educations.0.institution', 'experiences.0.ended_year']);
+
+        $this->assertSame(1, User::count());
     }
 
     public function test_a_placement_without_a_position_is_refused()
@@ -306,16 +539,16 @@ class EmployeeCreateTest extends TestCase
         ];
     }
 
-    public function test_the_wizard_keeps_the_new_colleague_on_the_list_to_carry_on()
+    public function test_create_and_add_another_stays_on_the_page()
     {
         Notification::fake();
 
-        // The first step of the wizard asks to continue: it stays where it is
-        // and is handed whom it has just created, to fill the rest in.
+        // «Создать и добавить ещё» asks to carry on: the page stays where it is
+        // and is handed whom it has just filed, to say so over the blank form.
         $this->actingAs($this->sysadmin())
-            ->from('/employees')
+            ->from('/employees/create')
             ->post('/employees', $this->payload(['continue' => true]))
-            ->assertRedirect('/employees')
+            ->assertRedirect('/employees/create')
             ->assertSessionHas('employee', fn (array $employee) => $employee['name'] === 'Азимова Нилуфар');
     }
 
@@ -377,24 +610,6 @@ class EmployeeCreateTest extends TestCase
         return User::factory()->create()->assignRole($role);
     }
 
-    /**
-     * Puts a colleague on the books the way the wizard's first step does.
-     *
-     * @param  array<string, mixed>  $overrides
-     */
-    private function startWizard(User $creator, array $overrides = []): User
-    {
-        Notification::fake();
-
-        $this->actingAs($creator)
-            ->from('/employees/create')
-            ->post('/employees', $this->payload(['continue' => true, ...$overrides]))
-            ->assertSessionHasNoErrors()
-            ->assertRedirect('/employees/create');
-
-        return User::firstWhere('email', $overrides['email'] ?? 'nilufar@evolet.tj');
-    }
-
     public function test_adding_a_colleague_is_a_right_of_its_own()
     {
         // Lines of a card to change are not the right to add anybody.
@@ -421,15 +636,18 @@ class EmployeeCreateTest extends TestCase
 
     public function test_whoever_adds_a_colleague_fills_the_whole_card_in()
     {
+        Notification::fake();
+
         // Not one line of anybody's card is theirs to change, and still the whole
-        // card of the person they are adding is.
+        // card of the person they are adding is: the right to add somebody is the
+        // right to everything the page asks about them, and the page asks in a
+        // single request, so that right is the whole of the answer.
         $creator = $this->withRights('employees.create');
         [$department, $position, $duty] = $this->chain();
-        $language = Language::create(['name' => 'Английский']);
 
-        // The first step offers everything it asks for, the one position nobody
-        // is handed excepted. The three fields of a placement are narrowed one by
-        // the next in the browser, so the whole of each list travels with it.
+        // The page offers everything it asks for, the one position nobody is
+        // handed excepted. The duties are narrowed by the job in the browser, so
+        // the whole of each list travels with it.
         $this->actingAs($creator)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->contains('specialist') && ! collect($roles)->pluck('name')->contains('sysadmin'))
             ->has('options.positions', Position::count())
@@ -438,60 +656,24 @@ class EmployeeCreateTest extends TestCase
                 'id' => $position->id,
                 'name' => 'Аналитик',
                 'display_name' => 'Аналитик (Отдел разработки)',
+                // The department behind the job, short form and full, so a list can
+                // name it under the title rather than only in brackets.
+                'unit' => ['name' => 'Отдел разработки', 'full_name' => 'Отдел разработки'],
                 'department_id' => $department->id,
             ])
         );
 
-        $employee = $this->startWizard($creator, [
+        $this->actingAs($creator)->post('/employees', $this->wholeCard([
             'roles' => ['specialist'],
-            'placements' => [
-                ['position_id' => $position->id, 'duty_ids' => [$duty->id]],
-            ],
-        ]);
+            'placements' => [['position_id' => $position->id, 'duty_ids' => [$duty->id]]],
+        ]))->assertSessionHasNoErrors();
 
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
         $this->assertTrue($employee->hasRole('specialist'));
-        $this->assertSame([$employee->id], session(EmployeeFields::CREATING));
-
-        // Stepping back to the first step corrects what it filed.
-        $this->actingAs($creator)->put("/employees/{$employee->id}/personal", [
-            ...$this->payload([
-                'surname' => 'Азимова-Каримова',
-                'roles' => ['translator'],
-                // The job stays and the duty picked out of it goes.
-                'placements' => [['position_id' => $position->id, 'duty_ids' => []]],
-            ]),
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->put("/employees/{$employee->id}/employment", ['hired_at' => '2026-04-01'])->assertSessionHasNoErrors();
-
-        $this->actingAs($creator)->put("/employees/{$employee->id}/contacts", [
-            'email' => 'nilufar.a@evolet.tj', 'phone' => '901112233', 'sos_phone' => '902223344', 'sos_contact' => 'Мама',
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->put("/employees/{$employee->id}/languages", [
-            'languages' => [['id' => $language->id, 'level' => Language::LEVELS[0]]],
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->put("/employees/{$employee->id}/passport", [
-            'passport_series' => 'A', 'passport_number' => '1234567', 'passport_issued_at' => '2020-01-01', 'passport_issued_by' => 'ОВД',
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->put("/employees/{$employee->id}/family", [
-            'marital_status' => 'married', 'spouse_name' => 'Азимов Рустам', 'spouse_birth_date' => '1988-02-02',
-            'has_children' => true, 'children' => [['full_name' => 'Азимова Сабина', 'birth_date' => '2015-05-05']],
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->post("/employees/{$employee->id}/educations/many", [
-            'records' => [['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2008, 'graduated_year' => 2012]],
-        ])->assertSessionHasNoErrors();
-        $this->actingAs($creator)->post("/employees/{$employee->id}/experiences/many", [
-            'records' => [['organization' => 'ООО «Ориён»', 'position' => 'Аналитик', 'country' => 'Таджикистан', 'started_month' => 3, 'started_year' => 2013, 'ended_month' => 8, 'ended_year' => 2020]],
-        ])->assertSessionHasNoErrors();
-
-        $employee->refresh();
-        $this->assertSame('Азимова-Каримова', $employee->surname);
-        $this->assertTrue($employee->hasRole('translator'));
         $this->assertSame([$position->id], $employee->positions->pluck('id')->all());
-        $this->assertSame([], $employee->duties->pluck('id')->all());
+        $this->assertSame([$duty->id], $employee->duties->pluck('id')->all());
         // The department was never written here: it comes with the job.
         $this->assertSame([$department->id], $employee->departments->pluck('id')->all());
-        $this->assertSame('2026-04-01', $employee->details->hired_at->toDateString());
-        $this->assertSame('nilufar.a@evolet.tj', $employee->email);
         $this->assertSame('+992901112233', $employee->details->phone);
         $this->assertCount(1, $employee->languages);
         $this->assertSame('1234567', $employee->details->passport_number);
@@ -499,70 +681,65 @@ class EmployeeCreateTest extends TestCase
         $this->assertCount(1, $employee->children);
         $this->assertCount(1, $employee->educations);
         $this->assertCount(1, $employee->workExperiences);
+
+        // And that is where it ends. The colleague is on the books now, and their
+        // card is edited under the ordinary rights to its lines — which this
+        // creator holds none of, their own doing a moment ago notwithstanding.
+        $this->actingAs($creator)->put("/employees/{$employee->id}/passport", ['passport_number' => '7654321'])->assertForbidden();
+        $this->assertSame('1234567', $employee->details()->first()->passport_number);
     }
 
-    public function test_the_whole_card_is_only_the_one_being_added()
+    public function test_a_creator_may_not_touch_anybody_already_on_the_books()
     {
+        Notification::fake();
         $creator = $this->withRights('employees.create');
         $existing = User::factory()->create();
-        $this->startWizard($creator);
+
+        $this->actingAs($creator)->post('/employees', $this->payload())->assertSessionHasNoErrors();
 
         // Somebody already on the books is edited under the rights to their lines,
-        // and this creator has none.
+        // and this creator has none — adding one colleague opens nobody else's card.
         $this->actingAs($creator)->put("/employees/{$existing->id}/passport", ['passport_number' => '7654321'])->assertForbidden();
         $this->actingAs($creator)->put("/employees/{$existing->id}/personal", $this->payload(['email' => $existing->email]))->assertForbidden();
         $this->actingAs($creator)->post("/employees/{$existing->id}/educations/many", ['records' => []])->assertForbidden();
     }
 
-    public function test_adding_ends_once_the_card_is_opened()
-    {
-        $creator = $this->withRights('employees.create');
-        $employee = $this->startWizard($creator);
-
-        $this->actingAs($creator)->put("/employees/{$employee->id}/passport", ['passport_number' => '1234567'])->assertSessionHasNoErrors();
-
-        // «Закончить позже» and «Готово» both lead to the card; from there on it
-        // is edited under the ordinary rights to its lines.
-        $this->actingAs($creator)->get("/employees/{$employee->id}")->assertOk();
-        $this->assertNull(session(EmployeeFields::CREATING));
-
-        $this->actingAs($creator)->put("/employees/{$employee->id}/passport", ['passport_number' => '7654321'])->assertForbidden();
-        $this->assertSame('1234567', $employee->details()->first()->passport_number);
-    }
-
-    public function test_losing_the_right_closes_the_card_being_added()
-    {
-        $creator = $this->withRights('employees.create');
-        $employee = $this->startWizard($creator);
-
-        $creator->roles()->first()->revokePermissionTo('employees.create');
-
-        $this->actingAs($creator->fresh())->put("/employees/{$employee->id}/passport", ['passport_number' => '1234567'])->assertForbidden();
-    }
-
     public function test_handing_hardware_out_still_takes_the_right_to_issue_it()
     {
+        Notification::fake();
         $this->seed(EquipmentTypeSeeder::class);
         $laptop = Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->create();
 
-        // Without it the last step offers nothing and the save is refused.
+        // Handing a unit over is not a line of the card but an operation on the
+        // fleet, so it keeps the fleet's own right. Without it the page leaves the
+        // section out, and a card that carries units anyway is refused whole —
+        // the colleague is not created either.
         $creator = $this->withRights('employees.create');
         $this->actingAs($creator)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('canIssue', false)
             ->where('options.stock', [])
         );
-        $employee = $this->startWizard($creator);
-        $this->actingAs($creator)->post("/employees/{$employee->id}/equipment", ['equipment' => [$laptop->id]])->assertForbidden();
+        $this->actingAs($creator)->post('/employees', $this->payload(['equipment' => [$laptop->id]]))->assertForbidden();
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
         $this->assertSame('stock', $laptop->refresh()->status);
 
-        // With it, the workplace is put together in the same go.
+        // The rest of the card is still theirs to file: the right they are missing
+        // is about the fleet and nothing else.
+        $this->actingAs($creator)->post('/employees', $this->payload())->assertSessionHasNoErrors();
+        $this->assertNotNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+
+        // With it, the workplace is put together in the same request.
         $keeper = $this->withRights('employees.create', 'equipment.issue');
         $this->actingAs($keeper)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('canIssue', true)
             ->has('options.stock', 1)
         );
-        $other = $this->startWizard($keeper, ['email' => 'second@evolet.tj']);
-        $this->actingAs($keeper)->post("/employees/{$other->id}/equipment", ['equipment' => [$laptop->id]])->assertSessionHasNoErrors();
+        $this->actingAs($keeper)->post('/employees', $this->payload([
+            'email' => 'second@evolet.tj',
+            'equipment' => [$laptop->id],
+        ]))->assertSessionHasNoErrors();
+
+        $other = User::firstWhere('email', 'second@evolet.tj');
         $this->assertSame($other->id, $laptop->refresh()->holder_user_id);
     }
 }
