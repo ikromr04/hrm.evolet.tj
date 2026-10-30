@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Equipment;
 use App\Models\Language;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -378,10 +379,39 @@ final class EmployeeCard
             "{$prefix}institution" => ['required', 'string', 'max:200'],
             "{$prefix}faculty" => ['required', 'string', 'max:150'],
             "{$prefix}specialty" => ['required', 'string', 'max:150'],
+            // What the diploma made of them. Asked for like the speciality
+            // beside it: a record of study that does not say what it led to
+            // answers half the question. The column stays nullable because
+            // the rows entered before it existed have nothing in it, and a
+            // record is only made to name one when it is next written.
+            "{$prefix}qualification" => ['required', 'string', 'max:150'],
             $started => ['required', 'integer', 'min:1950', 'max:'.date('Y')],
             // Empty while still studying; a diploma cannot predate enrolment.
-            "{$prefix}graduated_year" => ['nullable', 'integer', "gte:{$started}", 'max:'.(date('Y') + 10)],
-            "{$prefix}diploma_number" => ['nullable', 'string', 'max:50'],
+            //
+            // And required once a document is attached, which is the whole of
+            // what ties the two together: a scan of a diploma is proof that
+            // the studying ended, so a record cannot carry one and still say
+            // it is going on. Said on the year rather than on the file because
+            // the year is the answer that is missing.
+            "{$prefix}graduated_year" => [
+                'nullable',
+                "required_with:{$prefix}document",
+                'integer',
+                "gte:{$started}",
+                // This year at the latest, not ten ahead of it. The year used to
+                // be a place to write down when somebody expected to finish; it
+                // says that the studying ended now, which is what brings the
+                // document out and what the document is proof of. Somebody who
+                // has not finished leaves it empty, which is what empty means.
+                'max:'.date('Y'),
+            ],
+            // The diploma itself. Ten megabytes is a scanned page with room to
+            // spare; the formats are the three a scanner or a telephone gives.
+            "{$prefix}document" => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            // And what to call it. Asked for rather than read off the file,
+            // because «scan_0007.pdf» is what a scanner called it and the card
+            // shows this name as the thing one presses to open the document.
+            "{$prefix}document_name" => ['nullable', "required_with:{$prefix}document", 'string', 'max:255'],
         ];
     }
 
@@ -394,10 +424,51 @@ final class EmployeeCard
             "{$prefix}institution" => 'учебное заведение',
             "{$prefix}faculty" => 'факультет',
             "{$prefix}specialty" => 'специальность',
+            "{$prefix}qualification" => 'квалификация',
             "{$prefix}started_year" => 'год поступления',
             "{$prefix}graduated_year" => 'год окончания',
-            "{$prefix}diploma_number" => 'номер диплома',
+            "{$prefix}document" => 'документ',
+            "{$prefix}document_name" => 'название документа',
         ];
+    }
+
+    /**
+     * Put a place of study on file, with the document it may carry.
+     *
+     * The file is the one part of a record that is not a column: it goes to the
+     * private disk and the row keeps where it went. Which is why the three
+     * places that save a record — the whole card of a new colleague, a record
+     * added to a card, a record corrected — all come through here rather than
+     * writing the columns themselves.
+     *
+     * What the document is called is not here: it is a column, typed like any
+     * other, and goes in with the rest of the record.
+     *
+     * @param  array<string, mixed>  $record  as validated, the file included
+     * @return array<string, mixed> the columns to write
+     */
+    public static function educationRow(User $employee, array $record): array
+    {
+        $file = $record['document'] ?? null;
+        unset($record['document']);
+
+        if ($file instanceof UploadedFile) {
+            $record['document_path'] = DocumentStore::keep($file, $employee->id);
+        }
+
+        return $record;
+    }
+
+    /**
+     * Several of them, for a list filed in one go.
+     *
+     * @param  list<array<string, mixed>>  $records
+     */
+    public static function saveEducations(User $employee, array $records): void
+    {
+        foreach ($records as $record) {
+            $employee->educations()->create(self::educationRow($employee, $record));
+        }
     }
 
     /* ------------------------------------------------- трудовая деятельность */

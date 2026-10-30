@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\UserEducation;
+use App\Support\DocumentStore;
 use App\Support\EmployeeCard;
+use App\Support\EmployeeFields;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
  * One place of study at a time. The other private blocks are saved whole, but
@@ -19,7 +22,7 @@ class EmployeeEducationController extends Controller
 {
     public function store(Request $request, User $employee): RedirectResponse
     {
-        $employee->educations()->create($this->validated($request));
+        $employee->educations()->create(EmployeeCard::educationRow($employee, $this->validated($request)));
 
         return back();
     }
@@ -35,17 +38,61 @@ class EmployeeEducationController extends Controller
             ...EmployeeCard::educationRules('records.*.'),
         ], attributes: EmployeeCard::educationAttributes('records.*.'));
 
-        $employee->educations()->createMany($data['records']);
+        EmployeeCard::saveEducations($employee, $data['records']);
 
         return back();
     }
 
+    /**
+     * A record corrected.
+     *
+     * A document sent with the correction replaces the one on file, and the
+     * one on file is then taken off the disk — after the row has been
+     * written, so a save that fails leaves the record with the diploma it
+     * still points at. A correction that sends no document leaves the
+     * document alone: the field is absent from the form of a record whose
+     * studies are still going on, and absent is not «take it away».
+     */
     public function update(Request $request, User $employee, UserEducation $education): RedirectResponse
     {
         $this->belongsTo($employee, $education);
-        $education->update($this->validated($request));
+
+        $was = $education->document_path;
+        $education->update(EmployeeCard::educationRow($employee, $this->validated($request)));
+
+        if ($education->document_path !== $was) {
+            DocumentStore::forget($was);
+        }
 
         return back();
+    }
+
+    /**
+     * The diploma itself, handed to somebody who may read this card's record
+     * of where its owner studied.
+     *
+     * Asked the way the page that lists the records asks it, so the answer
+     * here is the answer that decided whether to show the record at all. The
+     * route carries no gate of its own on purpose: the gates beside it are
+     * about changing a record, and reading one is a different question — the
+     * same one the photograph of a face is read under.
+     */
+    public function document(Request $request, User $employee, UserEducation $education): BinaryFileResponse
+    {
+        $this->belongsTo($employee, $education);
+
+        abort_unless(in_array('educations', EmployeeFields::visibleTo($request->user(), $employee), true), 403);
+
+        // The record is the whole index of what may be read here: nothing is
+        // assembled out of what somebody typed, so there is no path to climb
+        // out of, and a document since replaced stops being answered the
+        // moment the row stops naming it.
+        abort_if($education->document_path === null, 404);
+
+        // Or the row outlived the file, which somebody removed by hand.
+        abort_unless(DocumentStore::disk()->exists($education->document_path), 404);
+
+        return DocumentStore::answer($request, $education->document_path, $education->document_name);
     }
 
     public function destroy(User $employee, UserEducation $education): RedirectResponse

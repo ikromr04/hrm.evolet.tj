@@ -18,7 +18,7 @@ import { languageLevelLabels, languageLevels, sexLabels, type LanguageLevel, typ
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { LoaderCircle, Plus, Trash2, UserPlus } from 'lucide-react';
+import { LoaderCircle, Paperclip, Plus, Trash2, UserPlus, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /** The departments, the positions of each and the duties of each position come with the page. */
@@ -29,6 +29,8 @@ interface Options extends PlacementOptions {
     citizenships: string[];
     /** Named rather than numbered: one missing from the list is typed in and added on the save. */
     employment_types: string[];
+    /** The usual qualifications and the ones already on file; a record may name another. */
+    qualifications: string[];
     /** Hardware free to hand out; empty for whoever may not issue it. */
     stock: { id: number; name: string; inventory_number: string }[];
 }
@@ -48,13 +50,15 @@ const sections = [
     // Empty on purpose for now: the part is kept so the page has a place for
     // what belongs at the top of a card, and so the numbering below does not
     // shift a second time when it is filled.
-    { title: 'Основное', note: 'Чем занят', fields: ['roles', 'placements', 'employee_number', 'employment_type', 'hired_at'] },
+    { title: 'Основное', note: 'Чем занят', fields: ['roles', 'placements', 'employee_number', 'employment_type', 'hired_at', 'email'] },
     { title: 'ФИО', note: 'Как зовут', fields: ['surname', 'name', 'patronymic'] },
     {
-        title: 'Личные данные',
+        title: 'Общие сведения',
         note: 'Кто это',
-        fields: ['email', 'sex', 'birth_date', 'birth_place', 'citizenship', 'nationality', 'home_address'],
+        fields: ['sex', 'birth_date', 'birth_place', 'nationality', 'citizenship'],
     },
+    { title: 'Личные данные', note: 'Где живёт', fields: ['home_address'] },
+    { title: 'Образование', note: 'Где учился', fields: ['educations'] },
     { title: 'Контакты и языки', note: 'Как связаться, чем владеет', fields: ['phone', 'sos_phone', 'sos_contact', 'languages'] },
     {
         title: 'Паспорт и семья',
@@ -71,7 +75,6 @@ const sections = [
             'children',
         ],
     },
-    { title: 'Образование', note: 'Где учился', fields: ['educations'] },
     { title: 'Трудовая деятельность', note: 'Где работал раньше', fields: ['experiences'] },
     { title: 'Оборудование', note: 'Что выдаём на руки', fields: ['equipment', 'issued_at'] },
 ] as const;
@@ -82,11 +85,19 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 /**
+ * A list to pick one entry from or to type into, where leaving it unanswered is
+ * not one of the answers: everything offered, and whatever was written in that
+ * the list has not heard of.
+ */
+const offered = (list: string[], value: string) =>
+    [...new Set([...list, ...(value === '' ? [] : [value])])].sort((a, b) => a.localeCompare(b, 'ru')).map((name) => ({ value: name, label: name }));
+
+/**
  * A list a card points at one entry of: nothing chosen, everything on file, and
  * whatever was typed in that the list has not heard of yet.
  */
 const named = (list: string[], value: string) => [
-    { value: '', label: 'Не указано' },
+    { value: '', label: 'Не выбрано' },
     ...[...new Set([...list, ...(value === '' ? [] : [value])])]
         .sort((a, b) => a.localeCompare(b, 'ru'))
         .map((name) => ({ value: name, label: name })),
@@ -104,6 +115,7 @@ function Field({
     children,
     className,
     required,
+    hint,
 }: {
     label: string;
     error?: string;
@@ -111,12 +123,21 @@ function Field({
     className?: string;
     /** Marked where the server's rules will not take the form without it. */
     required?: boolean;
+    /**
+     * Standing advice about the field — what an empty box will mean, what the
+     * address is for. Given here rather than written under the control,
+     * because where it stands is not this page's choice to make twice: a
+     * refusal is read before advice is, so it goes above it, and a field that
+     * put the two the other way about would read as advice that was ignored.
+     */
+    hint?: ReactNode;
 }) {
     return (
         <div className={cn('grid content-start gap-2', className)}>
             <Label required={required}>{label}</Label>
             {children}
             <InputError message={error} />
+            {hint !== undefined && <p className="text-muted-foreground text-[13px]">{hint}</p>}
         </div>
     );
 }
@@ -177,7 +198,10 @@ function Records<T>({
             {items.length === 0 && <p className="text-muted-foreground text-sm">{empty}</p>}
 
             {items.map((item, index) => (
-                <div key={index} className="rounded-lg border p-4 pt-3">
+                // 24px round the record and 16px above it: the strip at the top
+                // carries «Запись 1» and the button that removes it, and a strip
+                // of small type needs less room over it than a field does.
+                <div key={index} className="rounded-lg border p-6 pt-4">
                     <div className="mb-3 flex items-center justify-between">
                         <span className="text-muted-foreground text-[13px] font-medium">Запись {index + 1}</span>
                         <Button
@@ -209,12 +233,85 @@ type Education = {
     institution: string;
     faculty: string;
     specialty: string;
+    qualification: string;
     started_year: string;
     graduated_year: string;
-    diploma_number: string;
+    document: File | null;
+    document_name: string;
 };
 
-const blankEducation: Education = { institution: '', faculty: '', specialty: '', started_year: '', graduated_year: '', diploma_number: '' };
+/**
+ * The one document a record may carry: a diploma, scanned or photographed.
+ *
+ * A button rather than a bare file input, for the reason the photograph's own
+ * picker is one — a native input shows the path of the file and the word
+ * «Browse», neither of which is in Russian or says what is wanted. The input
+ * itself is still there, hidden, because it is what opens the file dialog and
+ * what makes the keyboard reach this control at all.
+ */
+function DocumentInput({ value, onChange, invalid }: { value: File | null; onChange: (file: File | null) => void; invalid?: boolean }) {
+    const picker = useRef<HTMLInputElement>(null);
+
+    return (
+        <div className="flex min-w-0 items-center gap-2">
+            <input
+                ref={picker}
+                type="file"
+                hidden
+                accept="application/pdf,image/jpeg,image/png"
+                onChange={(event) => {
+                    onChange(event.target.files?.[0] ?? null);
+                    // Cleared, so that choosing the same file twice in a row is
+                    // still a change the browser reports.
+                    event.target.value = '';
+                }}
+            />
+
+            <Button type="button" variant="outline" aria-invalid={invalid} className="shrink-0 font-normal" onClick={() => picker.current?.click()}>
+                <Paperclip />
+                {value ? 'Заменить' : 'Выбрать файл'}
+            </Button>
+
+            {value ? (
+                <>
+                    <span className="min-w-0 truncate text-sm" title={value.name}>
+                        {value.name}
+                    </span>
+                    <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label="Убрать файл" onClick={() => onChange(null)}>
+                        <X />
+                    </Button>
+                </>
+            ) : (
+                <span className="text-placeholder text-sm">Файл не выбран</span>
+            )}
+        </div>
+    );
+}
+/**
+ * The years a place of study may be dated to, newest first: a card being filled
+ * in now is far likelier to name the last few years than the fifties, and a list
+ * of eighty years is read from the end one scrolls to first.
+ *
+ * The ends are the server's own, from EmployeeCard: nothing before 1950 and
+ * nothing after this year. Neither date is a plan — a year of enrolment that
+ * has not happened is not a fact, and a year of graduation says the studying
+ * ended, which is why the box is left empty while it has not.
+ */
+const years = () => {
+    const last = new Date().getFullYear();
+
+    return Array.from({ length: last - 1950 + 1 }, (_, i) => String(last - i));
+};
+const blankEducation: Education = {
+    institution: '',
+    faculty: '',
+    specialty: '',
+    qualification: '',
+    started_year: '',
+    graduated_year: '',
+    document: null,
+    document_name: '',
+};
 
 type Job = {
     organization: string;
@@ -286,6 +383,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         // Empty rather than today: the day somebody started is a fact to be
         // typed, and a date already in the box reads as one that was.
         hired_at: '',
+        email: '',
         // Where they stand, a chain at a time. Nobody is placed anywhere until
         // somebody says so, so the list starts empty.
         placements: [] as Placement[],
@@ -294,13 +392,14 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         surname: '',
         name: '',
         patronymic: '',
-        sex: 'male' as Sex,
+        // Nothing to begin with rather than «мужской»: a card nobody answered
+        // must not read as a card that said «man».
+        sex: '' as '' | Sex,
         birth_date: '',
         birth_place: '',
         citizenship: [] as string[],
         nationality: '',
         home_address: '',
-        email: '',
 
         /* Контакты и языки */
         phone: '',
@@ -574,6 +673,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                             <Input
                                                 value={data.employee_number}
                                                 onChange={(event) => setData('employee_number', event.target.value)}
+                                                placeholder="00418"
                                                 aria-invalid={!!errors.employee_number}
                                             />
                                         </Field>
@@ -597,6 +697,22 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 onChange={(value) => setData('hired_at', value)}
                                                 toDate={new Date()}
                                                 invalid={!!errors.hired_at}
+                                            />
+                                        </Field>
+
+                                        <Field
+                                            label="Электронная почта"
+                                            error={errors.email}
+                                            required
+                                            hint="С этим адресом сотрудник входит в систему."
+                                        >
+                                            <Input
+                                                type="email"
+                                                value={data.email}
+                                                onChange={(event) => setData('email', event.target.value)}
+                                                placeholder="name@evolet.co.uk"
+                                                aria-invalid={!!errors.email}
+                                                aria-required
                                             />
                                         </Field>
                                     </FormGrid>
@@ -631,94 +747,229 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                 </Section>
 
                                 <Section index={2} title={sections[2].title} hold={hold}>
-                                    <div className="flex flex-col gap-4">
-                                        <FormGrid>
-                                            <Field label="E-mail" error={errors.email} required>
-                                                <Input
-                                                    type="email"
-                                                    value={data.email}
-                                                    onChange={(event) => setData('email', event.target.value)}
-                                                    placeholder="name@evolet.tj"
-                                                    aria-invalid={!!errors.email}
-                                                    aria-required
-                                                />
-                                                <p className="text-muted-foreground text-[13px]">С этим адресом сотрудник входит в систему.</p>
-                                            </Field>
-                                            <Field label="Пол" error={errors.sex} required>
-                                                <SearchableSelect
-                                                    value={data.sex}
-                                                    onChange={(value) => setData('sex', value as Sex)}
-                                                    options={[
-                                                        { value: 'male', label: sexLabels.male },
-                                                        { value: 'female', label: sexLabels.female },
-                                                    ]}
-                                                    invalid={!!errors.sex}
-                                                    required
-                                                />
-                                            </Field>
-                                            <Field label="Дата рождения" error={errors.birth_date}>
-                                                <DatePicker
-                                                    value={data.birth_date}
-                                                    onChange={(value) => setData('birth_date', value)}
-                                                    toDate={new Date()}
-                                                    invalid={!!errors.birth_date}
-                                                />
-                                            </Field>
-                                        </FormGrid>
+                                    <FormGrid>
+                                        <Field label="Пол" error={errors.sex}>
+                                            {/* A closed box says what is true of the field, not what to do
+                                                about it: the shape of the control already invites a choice,
+                                                and what a reader of a half-filled page is looking for is
+                                                which lines are still unanswered. Same word as the row in the
+                                                list that sets it, so choosing that row changes nothing. */}
+                                            <SearchableSelect
+                                                value={data.sex}
+                                                onChange={(value) => setData('sex', value as '' | Sex)}
+                                                options={[
+                                                    // The entry standing for nothing, so an answer given by
+                                                    // mistake can be taken back.
+                                                    { value: '', label: 'Не выбрано' },
+                                                    { value: 'male', label: sexLabels.male },
+                                                    { value: 'female', label: sexLabels.female },
+                                                ]}
+                                                invalid={!!errors.sex}
+                                            />
+                                        </Field>
+                                        <Field label="Дата рождения" error={errors.birth_date}>
+                                            <DatePicker
+                                                value={data.birth_date}
+                                                onChange={(value) => setData('birth_date', value)}
+                                                toDate={new Date()}
+                                                invalid={!!errors.birth_date}
+                                            />
+                                        </Field>
+                                        <Field label="Место рождения" error={errors.birth_place}>
+                                            <Input
+                                                value={data.birth_place}
+                                                onChange={(event) => setData('birth_place', event.target.value)}
+                                                placeholder="г. Душанбе"
+                                                aria-invalid={!!errors.birth_place}
+                                            />
+                                        </Field>
+                                        <Field label="Национальность" error={errors.nationality}>
+                                            <Input
+                                                list="nationalities"
+                                                value={data.nationality}
+                                                onChange={(event) => setData('nationality', event.target.value)}
+                                                aria-invalid={!!errors.nationality}
+                                            />
+                                            <datalist id="nationalities">
+                                                {options.nationalities.map((value) => (
+                                                    <option key={value} value={value} />
+                                                ))}
+                                            </datalist>
+                                        </Field>
+                                        <Field
+                                            label="Гражданство"
+                                            // A wrong country is reported on its own line ("citizenship.1").
+                                            error={at(errors, 'citizenship')}
+                                        >
+                                            <MultiSelect
+                                                creatable
+                                                options={options.citizenships.map((value) => ({ value, label: value }))}
+                                                value={data.citizenship}
+                                                onChange={(value) => setData('citizenship', value)}
+                                                placeholder="Выберите или впишите страну"
+                                                searchPlaceholder="Страна"
+                                            />
+                                        </Field>
+                                    </FormGrid>
+                                </Section>
 
-                                        <FormGrid>
-                                            <Field label="Место рождения" error={errors.birth_place}>
-                                                <Input
-                                                    value={data.birth_place}
-                                                    onChange={(event) => setData('birth_place', event.target.value)}
-                                                    placeholder="г. Душанбе"
-                                                    aria-invalid={!!errors.birth_place}
-                                                />
-                                            </Field>
-                                            <Field
-                                                label="Гражданство"
-                                                // A wrong country is reported on its own line ("citizenship.1").
-                                                error={at(errors, 'citizenship')}
-                                            >
-                                                <MultiSelect
-                                                    creatable
-                                                    options={options.citizenships.map((value) => ({ value, label: value }))}
-                                                    value={data.citizenship}
-                                                    onChange={(value) => setData('citizenship', value)}
-                                                    placeholder="Выберите или впишите страну"
-                                                    searchPlaceholder="Страна"
-                                                />
-                                            </Field>
-                                            <Field label="Национальность" error={errors.nationality}>
-                                                <Input
-                                                    list="nationalities"
-                                                    value={data.nationality}
-                                                    onChange={(event) => setData('nationality', event.target.value)}
-                                                    aria-invalid={!!errors.nationality}
-                                                />
-                                                <datalist id="nationalities">
-                                                    {options.nationalities.map((value) => (
-                                                        <option key={value} value={value} />
-                                                    ))}
-                                                </datalist>
-                                            </Field>
-                                        </FormGrid>
+                                <Section index={4} title={sections[4].title} hold={hold}>
+                                    <Records
+                                        items={data.educations}
+                                        empty="Если сведений нет, оставьте раздел пустым."
+                                        addLabel="Добавить образование"
+                                        onAdd={() => setData('educations', [...data.educations, { ...blankEducation }])}
+                                        onRemove={(index) =>
+                                            setData(
+                                                'educations',
+                                                data.educations.filter((_, position) => position !== index),
+                                            )
+                                        }
+                                    >
+                                        {(record, index) => (
+                                            /* The section may be left empty altogether, but a record added to
+                                           it is answered in full: all of it but the diploma and the year
+                                           it ended with. */
+                                            <FormGrid>
+                                                <Field label="Учебное заведение" error={at(errors, `educations.${index}.institution`)} required>
+                                                    <Input
+                                                        aria-required
+                                                        value={record.institution}
+                                                        onChange={(event) => setEducation(index, { institution: event.target.value })}
+                                                        aria-invalid={!!at(errors, `educations.${index}.institution`)}
+                                                    />
+                                                </Field>
+                                                <Field label="Факультет" error={at(errors, `educations.${index}.faculty`)} required>
+                                                    <Input
+                                                        aria-required
+                                                        value={record.faculty}
+                                                        onChange={(event) => setEducation(index, { faculty: event.target.value })}
+                                                        aria-invalid={!!at(errors, `educations.${index}.faculty`)}
+                                                    />
+                                                </Field>
+                                                <Field label="Специальность" error={at(errors, `educations.${index}.specialty`)} required>
+                                                    <Input
+                                                        aria-required
+                                                        value={record.specialty}
+                                                        onChange={(event) => setEducation(index, { specialty: event.target.value })}
+                                                        aria-invalid={!!at(errors, `educations.${index}.specialty`)}
+                                                    />
+                                                </Field>
+                                                <Field label="Квалификация" error={at(errors, `educations.${index}.qualification`)} required>
+                                                    {/* Offered rather than imposed, like the kind of work on the
+                                                        first part of the page: a diploma may name something no
+                                                        list has heard of, so what is typed is taken as it is. No
+                                                        entry standing for nothing, though — this one is asked for. */}
+                                                    <SearchableSelect
+                                                        options={offered(options.qualifications, record.qualification)}
+                                                        value={record.qualification}
+                                                        onChange={(value) => setEducation(index, { qualification: value })}
+                                                        onCreate={(value) => setEducation(index, { qualification: value })}
+                                                        placeholder="Выберите или впишите"
+                                                        searchPlaceholder="Квалификация"
+                                                        invalid={!!at(errors, `educations.${index}.qualification`)}
+                                                        required
+                                                    />
+                                                </Field>
+                                                <Field label="Год поступления" error={at(errors, `educations.${index}.started_year`)} required>
+                                                    <SearchableSelect
+                                                        value={record.started_year}
+                                                        onChange={(value) => setEducation(index, { started_year: value })}
+                                                        options={years().map((year) => ({ value: year, label: year }))}
+                                                        searchPlaceholder="Год"
+                                                        invalid={!!at(errors, `educations.${index}.started_year`)}
+                                                        required
+                                                    />
+                                                </Field>
+                                                <Field
+                                                    label="Год окончания"
+                                                    error={at(errors, `educations.${index}.graduated_year`)}
+                                                    hint="Пусто — ещё учится."
+                                                >
+                                                    <SearchableSelect
+                                                        value={record.graduated_year}
+                                                        onChange={(value) => setEducation(index, { graduated_year: value })}
+                                                        options={[
+                                                            // The entry standing for «still studying», so a year
+                                                            // chosen by mistake can be taken back.
+                                                            { value: '', label: 'Не выбрано' },
+                                                            ...years().map((year) => ({ value: year, label: year })),
+                                                        ]}
+                                                        searchPlaceholder="Год"
+                                                        invalid={!!at(errors, `educations.${index}.graduated_year`)}
+                                                    />
+                                                </Field>
 
-                                        <FormGrid>
-                                            {/* An address runs long, so it takes a row of its own. */}
+                                                {/* A year of graduation says the studying ended, and a
+                                                    document is the proof of it — so the field is not there
+                                                    to be filled in until there is something it could prove.
+                                                    Taking the year back takes the file with it, because the
+                                                    server refuses a document from somebody still studying
+                                                    and a file left behind in the form would be refused
+                                                    without ever having been shown. */}
+                                                {record.graduated_year !== '' && (
+                                                    <>
+                                                        <Field
+                                                            label="Название документа"
+                                                            error={at(errors, `educations.${index}.document_name`)}
+                                                            required={record.document !== null}
+                                                        >
+                                                            <Input
+                                                                value={record.document_name}
+                                                                onChange={(event) => setEducation(index, { document_name: event.target.value })}
+                                                                placeholder="Диплом бакалавра"
+                                                                aria-invalid={!!at(errors, `educations.${index}.document_name`)}
+                                                            />
+                                                        </Field>
 
-                                            <Field label="Домашний адрес" error={errors.home_address} className="md:@min-[22rem]:col-span-2">
-                                                <Input
-                                                    value={data.home_address}
-                                                    onChange={(event) => setData('home_address', event.target.value)}
-                                                    aria-invalid={!!errors.home_address}
-                                                />
-                                            </Field>
-                                        </FormGrid>
-                                    </div>
+                                                        <Field
+                                                            label="Документ"
+                                                            error={at(errors, `educations.${index}.document`)}
+                                                            hint="PDF или снимок, до 10 МБ."
+                                                        >
+                                                            <DocumentInput
+                                                                value={record.document}
+                                                                onChange={(file) =>
+                                                                    setEducation(index, {
+                                                                        document: file,
+                                                                        // A name to start from, so the common case is
+                                                                        // typed once rather than twice — the file's own
+                                                                        // name without the extension, which is a worse
+                                                                        // title than a person would write and a better
+                                                                        // one than an empty box. Only where nothing has
+                                                                        // been written: a title already there is the
+                                                                        // answer, and replacing the file is not a reason
+                                                                        // to throw it away.
+                                                                        ...(file !== null && record.document_name.trim() === ''
+                                                                            ? { document_name: file.name.replace(/\.[^.]+$/, '') }
+                                                                            : {}),
+                                                                    })
+                                                                }
+                                                                invalid={!!at(errors, `educations.${index}.document`)}
+                                                            />
+                                                        </Field>
+                                                    </>
+                                                )}
+                                            </FormGrid>
+                                        )}
+                                    </Records>
                                 </Section>
 
                                 <Section index={3} title={sections[3].title} hold={hold}>
+                                    <FormGrid>
+                                        {/* An address runs long, so it takes a row of its own. */}
+
+                                        <Field label="Домашний адрес" error={errors.home_address} className="@min-[46rem]:col-span-2">
+                                            <Input
+                                                value={data.home_address}
+                                                onChange={(event) => setData('home_address', event.target.value)}
+                                                aria-invalid={!!errors.home_address}
+                                            />
+                                        </Field>
+                                    </FormGrid>
+                                </Section>
+
+                                <Section index={5} title={sections[5].title} hold={hold}>
                                     <FormGrid>
                                         <Field label="Телефон" error={errors.phone}>
                                             <Input
@@ -837,7 +1088,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     </div>
                                 </Section>
 
-                                <Section index={4} title={sections[4].title} hold={hold}>
+                                <Section index={6} title={sections[6].title} hold={hold}>
                                     <FormGrid>
                                         <div className="grid grid-cols-2 gap-3">
                                             <Field label="Серия паспорта" error={errors.passport_series}>
@@ -883,7 +1134,6 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                     { value: 'single', label: 'Не женат / не замужем' },
                                                     { value: 'married', label: 'Женат / замужем' },
                                                 ]}
-                                                placeholder="Не указано"
                                                 invalid={!!errors.marital_status}
                                             />
                                         </Field>
@@ -896,7 +1146,6 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                     { value: 'yes', label: 'Есть' },
                                                     { value: 'no', label: 'Нет' },
                                                 ]}
-                                                placeholder="Не указано"
                                             />
                                         </Field>
                                     </FormGrid>
@@ -998,94 +1247,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     )}
                                 </Section>
 
-                                <Section index={5} title={sections[5].title} hold={hold}>
-                                    <Records
-                                        items={data.educations}
-                                        empty="Если сведений нет, оставьте раздел пустым."
-                                        addLabel="Добавить образование"
-                                        onAdd={() => setData('educations', [...data.educations, { ...blankEducation }])}
-                                        onRemove={(index) =>
-                                            setData(
-                                                'educations',
-                                                data.educations.filter((_, position) => position !== index),
-                                            )
-                                        }
-                                    >
-                                        {(record, index) => (
-                                            /* The section may be left empty altogether, but a record added to
-                                           it is answered in full: all of it but the diploma and the year
-                                           it ended with. */
-                                            <FormGrid>
-                                                <Field
-                                                    label="Учебное заведение"
-                                                    className="md:@min-[22rem]:col-span-2"
-                                                    error={at(errors, `educations.${index}.institution`)}
-                                                    required
-                                                >
-                                                    <Input
-                                                        aria-required
-                                                        value={record.institution}
-                                                        onChange={(event) => setEducation(index, { institution: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.institution`)}
-                                                    />
-                                                </Field>
-                                                <Field label="Специальность" error={at(errors, `educations.${index}.specialty`)} required>
-                                                    <Input
-                                                        aria-required
-                                                        value={record.specialty}
-                                                        onChange={(event) => setEducation(index, { specialty: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.specialty`)}
-                                                    />
-                                                </Field>
-                                                <Field
-                                                    label="Факультет"
-                                                    className="md:@min-[22rem]:col-span-2"
-                                                    error={at(errors, `educations.${index}.faculty`)}
-                                                    required
-                                                >
-                                                    <Input
-                                                        aria-required
-                                                        value={record.faculty}
-                                                        onChange={(event) => setEducation(index, { faculty: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.faculty`)}
-                                                    />
-                                                </Field>
-                                                <Field label="Номер диплома" error={at(errors, `educations.${index}.diploma_number`)}>
-                                                    <Input
-                                                        value={record.diploma_number}
-                                                        onChange={(event) => setEducation(index, { diploma_number: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.diploma_number`)}
-                                                    />
-                                                </Field>
-                                                <Field label="Год поступления" error={at(errors, `educations.${index}.started_year`)} required>
-                                                    <Input
-                                                        aria-required
-                                                        type="number"
-                                                        inputMode="numeric"
-                                                        min={1950}
-                                                        placeholder="2015"
-                                                        value={record.started_year}
-                                                        onChange={(event) => setEducation(index, { started_year: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.started_year`)}
-                                                    />
-                                                </Field>
-                                                <Field label="Год окончания" error={at(errors, `educations.${index}.graduated_year`)}>
-                                                    <Input
-                                                        type="number"
-                                                        inputMode="numeric"
-                                                        min={1950}
-                                                        placeholder="Пусто — ещё учится"
-                                                        value={record.graduated_year}
-                                                        onChange={(event) => setEducation(index, { graduated_year: event.target.value })}
-                                                        aria-invalid={!!at(errors, `educations.${index}.graduated_year`)}
-                                                    />
-                                                </Field>
-                                            </FormGrid>
-                                        )}
-                                    </Records>
-                                </Section>
-
-                                <Section index={6} title={sections[6].title} hold={hold}>
+                                <Section index={7} title={sections[7].title} hold={hold}>
                                     <Records
                                         items={data.experiences}
                                         empty="Если сведений нет, оставьте раздел пустым."
@@ -1146,7 +1308,11 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                         }
                                                     />
                                                 </Field>
-                                                <Field label="Дата ухода" error={at(errors, `experiences.${index}.ended_year`)}>
+                                                <Field
+                                                    label="Дата ухода"
+                                                    error={at(errors, `experiences.${index}.ended_year`)}
+                                                    hint="Пусто — работает там до сих пор."
+                                                >
                                                     <Input
                                                         type="month"
                                                         max={thisMonth}
@@ -1157,7 +1323,6 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                             !!at(errors, `experiences.${index}.ended_year`)
                                                         }
                                                     />
-                                                    <p className="text-muted-foreground text-[13px]">Пусто — работает там до сих пор.</p>
                                                 </Field>
                                             </FormGrid>
                                         )}
@@ -1165,9 +1330,14 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                 </Section>
 
                                 {canIssue && (
-                                    <Section index={7} title={sections[7].title} hold={hold}>
+                                    <Section index={8} title={sections[8].title} hold={hold}>
                                         <FormGrid>
-                                            <Field label="Что выдаём" className="md:@min-[22rem]:col-span-2" error={at(errors, 'equipment')}>
+                                            <Field
+                                                label="Что выдаём"
+                                                className="@min-[46rem]:col-span-2"
+                                                error={at(errors, 'equipment')}
+                                                hint="Только то, что свободно и никому не выдано."
+                                            >
                                                 <MultiSelect
                                                     options={options.stock.map((unit) => ({
                                                         value: unit.id,
@@ -1175,10 +1345,8 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                     }))}
                                                     value={data.equipment}
                                                     onChange={(value) => setData('equipment', value)}
-                                                    placeholder="Ничего не выбрано"
                                                     searchPlaceholder="Поиск по названию или номеру"
                                                 />
-                                                <p className="text-muted-foreground text-[13px]">Только то, что свободно и никому не выдано.</p>
                                             </Field>
 
                                             <Field label="Дата выдачи" error={errors.issued_at}>

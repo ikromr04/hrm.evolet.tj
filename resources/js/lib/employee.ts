@@ -76,10 +76,17 @@ export interface Education {
     institution: string;
     faculty: string;
     specialty: string;
+    /** What the diploma made of them; null while they are still studying. */
+    qualification: string | null;
     started_year: number;
     /** Null while still studying. */
     graduated_year: number | null;
-    diploma_number: string | null;
+    /**
+     * The diploma, where one was attached: what it was called and where to ask
+     * for it. A path on the disk is never sent — the address answers only
+     * somebody who may read this card.
+     */
+    document: { name: string | null; url: string } | null;
 }
 
 /** A previous job, known to the month; private. */

@@ -54,8 +54,22 @@ class EmployeeRecordListsTest extends TestCase
         $this->actingAs($this->sysadmin())
             ->post("/employees/{$employee->id}/educations/many", [
                 'records' => [
-                    ['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2010, 'graduated_year' => 2014],
-                    ['institution' => 'РТСУ', 'faculty' => 'Юридический', 'specialty' => 'Право', 'started_year' => 2015, 'graduated_year' => 2019],
+                    [
+                        'institution' => 'ТНУ',
+                        'faculty' => 'Экономический',
+                        'specialty' => 'Финансы',
+                        'qualification' => 'бакалавр',
+                        'started_year' => 2010,
+                        'graduated_year' => 2014,
+                    ],
+                    [
+                        'institution' => 'РТСУ',
+                        'faculty' => 'Юридический',
+                        'specialty' => 'Право',
+                        'qualification' => 'магистр',
+                        'started_year' => 2015,
+                        'graduated_year' => 2019,
+                    ],
                 ],
             ])
             ->assertSessionHasNoErrors();

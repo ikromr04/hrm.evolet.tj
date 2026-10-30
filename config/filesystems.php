@@ -50,6 +50,18 @@ return [
             'throw' => false,
         ],
 
+        // The documents a card points at: a diploma scanned and kept beside the
+        // record of where somebody studied. Private for the same reason the
+        // photographs are, and more so — a diploma carries a name, a date of
+        // birth and a registry number, and a file under the web root is read by
+        // whoever holds its address without anybody being asked. Read through
+        // /employees/{id}/educations/{id}/document, which asks first.
+        'documents' => [
+            'driver' => 'local',
+            'root' => storage_path('app/documents'),
+            'throw' => false,
+        ],
+
         // Where photographs used to be kept, back when a URL was all it took to
         // read one. Still configured because the files are still there until
         // `hrm:photos-private` has been run on a server, and the serving code

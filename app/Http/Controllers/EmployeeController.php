@@ -321,6 +321,9 @@ class EmployeeController extends Controller
                 // from the list is typed into the page and added to the list on
                 // the save.
                 'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
+                // What diplomas have made of people here, to offer rather than to
+                // impose: a diploma may name something no list has heard of.
+                'qualifications' => $this->qualifications(),
                 // The last section hands out hardware, so what is free travels too.
                 'stock' => $canIssue ? $this->freeUnits() : [],
             ],
@@ -398,7 +401,10 @@ class EmployeeController extends Controller
                 EmployeeCard::saveChildren($employee, $children);
             }
 
-            $employee->educations()->createMany($data['educations'] ?? []);
+            // Each record may carry a diploma, which is a file rather than a
+            // column, so the records go through EmployeeCard the way the
+            // languages and the children do.
+            EmployeeCard::saveEducations($employee, $data['educations'] ?? []);
             $employee->workExperiences()->createMany($data['experiences'] ?? []);
 
             // Only what is free is handed over, as everywhere else in the fleet.
@@ -1361,9 +1367,16 @@ class EmployeeController extends Controller
             'institution' => $education->institution,
             'faculty' => $education->faculty,
             'specialty' => $education->specialty,
+            'qualification' => $education->qualification,
             'started_year' => $education->started_year,
             'graduated_year' => $education->graduated_year,
-            'diploma_number' => $education->diploma_number,
+            // The document as a way to ask for it rather than as a path: where the
+            // file lies is nobody's business outside this application, and the
+            // address answers only somebody who may read this card.
+            'document' => $education->document_path === null ? null : [
+                'name' => $education->document_name,
+                'url' => route('employees.educations.document', [$education->user_id, $education->id]),
+            ],
         ];
     }
 
@@ -1373,6 +1386,38 @@ class EmployeeController extends Controller
     private function distinctDetail(string $column): array
     {
         return UserDetail::query()->whereNotNull($column)->distinct()->orderBy($column)->pluck($column)->all();
+    }
+
+    /**
+     * The qualifications a record may name: the usual half-dozen, and whatever
+     * anybody has written in beside them.
+     *
+     * Not a directory, because this is not a list the company keeps — a
+     * diploma says what it says. The ones already on file are offered so that
+     * the same word is not spelled two ways across a hundred cards, and the
+     * usual ones are there so the list is not empty on a fresh database.
+     *
+     * @return list<string>
+     */
+    private function qualifications(): array
+    {
+        $usual = ['бакалавр', 'магистр', 'специалист', 'инженер', 'аспирант', 'кандидат наук'];
+
+        $named = UserEducation::query()
+            ->whereNotNull('qualification')
+            ->distinct()
+            ->pluck('qualification')
+            ->all();
+
+        return collect([...$usual, ...$named])
+            ->map(fn (string $name) => trim($name))
+            ->filter()
+            // Without regard to case, so «Бакалавр» typed once does not stand
+            // beside «бакалавр» for ever after.
+            ->unique(fn (string $name) => mb_strtolower($name))
+            ->sort(fn (string $a, string $b) => strcoll($a, $b))
+            ->values()
+            ->all();
     }
 
     /**

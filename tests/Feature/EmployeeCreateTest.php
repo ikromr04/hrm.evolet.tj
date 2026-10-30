@@ -104,7 +104,14 @@ class EmployeeCreateTest extends TestCase
 
             /* Образование */
             'educations' => [
-                ['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2008, 'graduated_year' => 2012],
+                [
+                    'institution' => 'ТНУ',
+                    'faculty' => 'Экономический',
+                    'specialty' => 'Финансы',
+                    'qualification' => 'бакалавр',
+                    'started_year' => 2008,
+                    'graduated_year' => 2012,
+                ],
             ],
 
             /* Трудовая деятельность */

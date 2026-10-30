@@ -38,9 +38,9 @@ class UserEducationFactory extends Factory
             'institution' => $institution,
             'faculty' => $faculty,
             'specialty' => fake()->randomElement($specialties),
+            'qualification' => fake()->randomElement(['бакалавр', 'бакалавр', 'магистр', 'специалист', 'инженер']),
             'started_year' => $started,
             'graduated_year' => $started + fake()->randomElement([4, 4, 5, 5, 6]),
-            'diploma_number' => fake()->boolean(70) ? fake()->bothify('?? ######') : null,
         ];
     }
 

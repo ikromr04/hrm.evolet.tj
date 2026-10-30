@@ -223,6 +223,12 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
         Route::delete('educations/{education}', [EmployeeEducationController::class, 'destroy'])->name('educations.destroy');
     });
 
+    // The diploma on a record, outside the group above: those gates are about
+    // changing a record, and reading one is the other question — asked in the
+    // controller against the very line of the card that decides whether the
+    // records show at all, exactly as a photograph is.
+    Route::get('educations/{education}/document', [EmployeeEducationController::class, 'document'])->name('educations.document');
+
     Route::middleware('can:employees.edit.block.experience,employee')->group(function () {
         Route::post('experiences', [EmployeeWorkExperienceController::class, 'store'])->name('experiences.store');
         Route::post('experiences/many', [EmployeeWorkExperienceController::class, 'storeMany'])->name('experiences.many');
