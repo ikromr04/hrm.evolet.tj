@@ -17,7 +17,13 @@ const SelectTrigger = React.forwardRef<
     <SelectPrimitive.Trigger
         ref={ref}
         className={cn(
-            'flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-placeholder focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+            // The same box as the list that can be searched (SearchableSelect),
+            // because they are the same thing to whoever uses them: a field that
+            // opens a list. Hence the hover, and hence focus-visible rather than
+            // focus — closing the list hands the focus back to this button, and
+            // a ring drawn then would appear under the mouse of somebody who
+            // never asked to be shown where the keyboard is.
+            'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-colors placeholder:text-placeholder hover:bg-accent data-[state=open]:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-red-600 [&>span]:line-clamp-1',
             className,
         )}
         {...props}

@@ -143,7 +143,7 @@ export function SearchableSelect({
                     aria-required={required}
                     disabled={disabled}
                     className={cn(
-                        'border-input bg-background ring-offset-background hover:bg-accent focus-visible:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+                        'border-input bg-background ring-offset-background hover:bg-accent data-[state=open]:bg-accent focus-visible:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
                         'aria-invalid:border-red-600',
                         className,
                     )}
