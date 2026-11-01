@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AddSecurityHeaders;
+use App\Http\Middleware\EnsureSiteIsOpen;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -19,11 +20,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        // Deciding on access belongs to the system administrator, and that is a
-        // role rather than a right: an administrator holds every right there is
-        // and still may not hand them out. So those routes name the role.
-        $middleware->alias(['role' => RoleMiddleware::class]);
-
         // On shared hosting HTTPS usually ends at a proxy in front of PHP, and
         // what reaches us is plain HTTP with a header saying how it was asked
         // for. Without believing that header the application takes itself for an
@@ -42,6 +38,10 @@ return Application::configure(basePath: dirname(__DIR__))
             AddSecurityHeaders::class,
             EnsureUserIsActive::class,
             HandleInertiaRequests::class,
+            // After the page is set up to be composed, because the screen it
+            // answers with is a page of the application like any other: the two
+            // roles the site is not open to yet get that one, whatever they ask.
+            EnsureSiteIsOpen::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
     })

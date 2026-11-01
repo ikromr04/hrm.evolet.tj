@@ -103,8 +103,10 @@ class StoreEmployeeRequest extends FormRequest
 
             ...EmployeeCard::employmentRules(),
 
-            'roles' => ['present', 'array'],
-            'roles.*' => ['string', 'distinct', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
+            // One role, because there are four of them and they are an order
+            // rather than a set: a person is personnel, or a head, or neither.
+            'roles' => ['present', 'array', 'max:1'],
+            'roles.*' => ['string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
 
             // Where they stand in the company: a position, the department that
             // comes with it and the duties picked out of it, as many such chains
@@ -185,7 +187,7 @@ class StoreEmployeeRequest extends FormRequest
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
             'email' => 'электронная почта',
-            'roles' => 'позиция',
+            'roles' => 'роль',
             ...EmployeeCard::accountAttributes(),
             ...EmployeeCard::employmentAttributes(),
             ...Placements::attributes(),

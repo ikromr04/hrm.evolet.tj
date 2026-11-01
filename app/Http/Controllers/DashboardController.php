@@ -27,8 +27,8 @@ class DashboardController extends Controller
      *
      * The figures here are everybody's numbers, and nobody is given them by a
      * right: until the modules behind them exist and can be opened line by line
-     * like the rest, the page belongs to the system administrator. Everybody else
-     * starts at their own card.
+     * like the rest, the page belongs to the two roles that hold everything.
+     * Everybody else starts at their own card.
      *
      * Every figure is counted from what the system keeps. Leave, requests,
      * recruitment and payroll have no module yet, so the page says nothing
@@ -36,7 +36,7 @@ class DashboardController extends Controller
      */
     public function __invoke(Request $request): Response|RedirectResponse
     {
-        if (! $request->user()->hasRole(Access::SOLE_ROLE)) {
+        if (! Access::everything($request->user())) {
             return to_route('profile');
         }
 

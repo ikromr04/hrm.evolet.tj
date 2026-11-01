@@ -5,10 +5,10 @@ import { useCallback } from 'react';
 /**
  * Who may do what.
  *
- * Rights travel with a position and can be given to, or taken from, one person
- * on their card. The list below mirrors App\Support\Access, which is where
- * rights are actually declared; keeping the keys here as a type means a page
- * that asks for a right that no longer exists stops compiling.
+ * Rights travel with the role a person holds. The list below mirrors
+ * App\Support\Access, which is where rights are actually declared; keeping the
+ * keys here as a type means a page that asks for a right that no longer exists
+ * stops compiling.
  */
 export type Permission =
     | 'employees.view'
@@ -42,36 +42,18 @@ export type Permission =
     | 'equipment.write_off'
     | 'equipment.service'
     | 'equipment.delete'
-    | 'directories.view.roles'
     | 'directories.view.positions'
     | 'directories.view.departments'
     | 'directories.view.languages'
     | 'directories.view.citizenships'
     | 'directories.view.employment_types'
     | 'directories.view.equipment'
-    | 'directories.edit.roles'
     | 'directories.edit.positions'
     | 'directories.edit.departments'
     | 'directories.edit.languages'
     | 'directories.edit.citizenships'
     | 'directories.edit.employment_types'
-    | 'directories.edit.equipment'
-    | 'directories.view.access'
-    | 'directories.edit.access';
-
-/** A right as the server describes it: what it is called and what it opens. */
-export interface AccessRight {
-    key: string;
-    title: string;
-    hint: string;
-}
-
-/** The rights of one section, the way the access table groups them. */
-export interface AccessSection {
-    key: string;
-    title: string;
-    rights: AccessRight[];
-}
+    | 'directories.edit.equipment';
 
 /** Whether the viewer holds a right, as the shared props report it. */
 export function useCan(): (permission: Permission) => boolean {
@@ -140,8 +122,8 @@ export interface DirectoryList {
     view: Permission;
     /** The right to write in it, which is what «Добавить …» asks for. */
     edit: Permission;
-    /** One row of it, as the button that adds one names it — null for a list that is a table of ticks rather than a list of rows. */
-    add: string | null;
+    /** One row of it, as the button that adds one names it. */
+    add: string;
 }
 
 /**
@@ -150,7 +132,6 @@ export interface DirectoryList {
  * from this array agrees with where "Справочники" takes them.
  */
 export const directoryLists: DirectoryList[] = [
-    { key: 'roles', title: 'Роли доступа', view: 'directories.view.roles', edit: 'directories.edit.roles', add: 'Добавить роль доступа' },
     // "Отделы" left the same way the job titles did: the departments are read
     // beside the chart they are drawn into, under "Структура компании", and the
     // right that opens them is still directories.view.departments.
@@ -176,9 +157,6 @@ export const directoryLists: DirectoryList[] = [
         edit: 'directories.edit.equipment',
         add: 'Добавить категорию техники',
     },
-    // Who may do what: a list of the section like the others, last because it is
-    // read after one knows what there is to hand out.
-    { key: 'access', title: 'Доступы', view: 'directories.view.access', edit: 'directories.edit.access', add: null },
 ];
 
 /** Whether at least one list is open, which is what opens the section itself. */

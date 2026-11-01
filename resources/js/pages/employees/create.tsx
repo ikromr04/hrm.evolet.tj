@@ -44,6 +44,20 @@ interface Options extends PlacementOptions {
 }
 
 /**
+ * The two roles a job decides between.
+ *
+ * There are four roles in all, and the other two are nobody's to pick here: the
+ * system administrator is handed to no card, and «HR-специалист» is a deliberate
+ * choice the system administrator makes and never a consequence of a job title.
+ * These two follow from the position — whoever leads a department is a head —
+ * which is why the page fills the field in rather than leaving it blank for
+ * somebody to answer a second time.
+ */
+const head = 'head';
+
+const specialist = 'specialist';
+
+/**
  * The parts of the card, in the order the page lays them out, each with the
  * fields the server may name an error on.
  *
@@ -396,7 +410,9 @@ export default function CreateEmployee({ options }: { options: Options }) {
 
     const form = useClearingForm({
         /* Основное */
-        roles: [] as string[],
+        // A card is never filed with no role at all, so the form opens on the one
+        // most of them get and the job may change it before anybody looks.
+        roles: [specialist] as string[],
         employee_number: '',
         employment_type: '',
         // Empty rather than today: the day somebody started is a fact to be
@@ -685,6 +701,30 @@ export default function CreateEmployee({ options }: { options: Options }) {
      * form under «Нет» would travel with the card unseen and be refused on a
      * field nobody can see any more.
      */
+    /**
+     * The role, which the job answers until somebody answers it themselves.
+     *
+     * Whoever leads a department is a head and everybody else is a specialist, so
+     * picking the job fills the field in and there is nothing to say twice. Once
+     * the field has been touched it is left alone: that is the whole reason it is
+     * a field and not a line of the card that reads itself off the position.
+     */
+    const roleChosen = useRef(false);
+
+    const setRole = (value: string) => {
+        roleChosen.current = true;
+
+        setData('roles', value === '' ? [] : [value]);
+    };
+
+    const fillRoleFrom = (positions: number[]) => {
+        if (roleChosen.current) return;
+
+        const leads = positions.some((id) => options.positions.some((post) => post.id === id && post.is_head));
+
+        setData('roles', [leads ? head : specialist]);
+    };
+
     const setDegree = (value: string) => {
         setData('degree', value);
 
@@ -788,10 +828,11 @@ export default function CreateEmployee({ options }: { options: Options }) {
                                 <Section index={0} title={sections[0].title} hold={hold}>
                                     <FormGrid>
                                         <Field label="Роль" error={at(errors, 'roles')}>
-                                            <MultiSelect
+                                            <SearchableSelect
                                                 options={options.roles.map((role) => ({ value: role.name, label: role.title }))}
-                                                value={data.roles}
-                                                onChange={(value) => setData('roles', value)}
+                                                value={data.roles[0] ?? ''}
+                                                onChange={setRole}
+                                                invalid={!!at(errors, 'roles')}
                                             />
                                         </Field>
 
@@ -812,18 +853,18 @@ export default function CreateEmployee({ options }: { options: Options }) {
                                                 value={data.placements
                                                     .map((placement) => placement.position_id)
                                                     .filter((id): id is number => id !== null)}
-                                                onChange={(chosen) =>
-                                                    setData(
-                                                        'placements',
-                                                        chosen.map((id) => {
-                                                            // A job already chosen keeps whatever
-                                                            // duties were picked out of it on the card.
-                                                            const held = data.placements.find((placement) => placement.position_id === id);
+                                                onChange={(chosen) => {
+                                                    const placements = chosen.map((id) => {
+                                                        // A job already chosen keeps whatever
+                                                        // duties were picked out of it on the card.
+                                                        const held = data.placements.find((placement) => placement.position_id === id);
 
-                                                            return held ?? { position_id: id, duty_ids: [] };
-                                                        }),
-                                                    )
-                                                }
+                                                        return held ?? { position_id: id, duty_ids: [] };
+                                                    });
+
+                                                    setData('placements', placements);
+                                                    fillRoleFrom(chosen);
+                                                }}
                                             />
                                         </Field>
 

@@ -188,7 +188,7 @@ class EmployeeDirectoryTest extends TestCase
     {
         $design = Department::create(['name' => 'Отдел Дизайна', 'abbreviation' => 'ОД']);
         $target = $this->giveTitles(User::factory()->create(['surname' => 'Назарова', 'name' => 'Дилноза', 'sex' => 'female']), 'Графический дизайнер');
-        $target->assignRole('kpg');
+        $target->assignRole('head');
         $target->departments()->attach($design);
         $this->giveTitles(User::factory()->create(['surname' => 'Шарипов', 'name' => 'Алишер', 'sex' => 'male']), 'Переводчик');
         $this->actingAs($this->colleague(['surname' => 'Бобоев', 'sex' => 'male']));
@@ -199,7 +199,7 @@ class EmployeeDirectoryTest extends TestCase
         $finds('Графический');       // position
         $finds('Дизайна');           // department (SQLite in tests only folds ASCII case)
         $finds('ОД');                // the short name the department column prints
-        $finds('КПГ');               // role
+        $finds('Руководител');       // role
         $finds('Дилноза Назарова');  // several words across fields
         $finds('женский');           // sex
 
@@ -439,30 +439,40 @@ class EmployeeDirectoryTest extends TestCase
 
     public function test_roles_are_shown_as_a_separate_position_column()
     {
-        $user = $this->giveTitles(User::factory()->create(), 'Переводчик');
-        $user->assignRole(['translator', 'analyst']);
-        User::factory()->create()->assignRole('intern');
-        $this->actingAs($user);
+        // The viewer holds no role at all: a head or a specialist is shown the
+        // site that is not open to them yet instead of any list.
+        $viewer = $this->colleague(['surname' => 'Бобоев']);
+        $head = User::factory()->create(['surname' => 'Азимов'])->assignRole('head');
+        $specialist = User::factory()->create(['surname' => 'Юсупов'])->assignRole('specialist');
+        $this->actingAs($viewer);
 
         $this->get('/employees')
             ->assertInertia(fn (Assert $page) => $page
-                // Every seeded position but the system administrator, which is
-                // offered in no picker: there is only ever one of them.
-                ->has('options.roles', 24)
-                ->where('options.roles', fn ($roles) => ! collect($roles)->contains('name', 'sysadmin'))
-                ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $user->id)['roles'] === ['Аналитик', 'Переводчик'])
+                // The three roles a list may be narrowed by: all there are but
+                // the system administrator, which is in no picker at all since
+                // there is only ever one of them. Widest first, the way the
+                // catalogue names them rather than the way the alphabet would.
+                ->has('options.roles', 3)
+                ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->all() === ['hr', 'head', 'specialist'])
+                // A person holds one role, so the column prints the one title.
+                ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $head->id)['roles'] === ['Руководитель'])
             );
 
-        $this->get('/employees?role[]=analyst')
+        $this->get('/employees?role[]=head')
             ->assertInertia(fn (Assert $page) => $page
                 ->has('employees.data', 1)
-                ->where('employees.data.0.id', $user->id)
-                ->where('filters.role', ['analyst'])
+                ->where('employees.data.0.id', $head->id)
+                ->where('filters.role', ['head'])
             );
 
-        // Аналитик < Стажер
+        // Руководитель < Специалист — sorted by the title the column prints,
+        // and the viewer holding no role sorts first.
         $this->get('/employees?sort=role')
-            ->assertInertia(fn (Assert $page) => $page->where('employees.data.0.id', $user->id));
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('employees.data.0.id', $viewer->id)
+                ->where('employees.data.1.id', $head->id)
+                ->where('employees.data.2.id', $specialist->id)
+            );
 
         $this->get('/employees?role[]=wizard')->assertSessionHasErrors('role.0');
     }

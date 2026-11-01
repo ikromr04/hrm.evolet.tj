@@ -18,7 +18,6 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Notifications\Notification;
 use Spatie\Permission\Contracts\Permission;
-use Spatie\Permission\Contracts\Permission as PermissionContract;
 use Spatie\Permission\Exceptions\PermissionDoesNotExist;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -288,39 +287,16 @@ class User extends Authenticatable
     }
 
     /**
-     * Rights given to, or taken from, this person in particular, whatever their
-     * positions carry.
-     */
-    public function permissionOverrides(): HasMany
-    {
-        return $this->hasMany(PermissionOverride::class);
-    }
-
-    /**
-     * A personal exception beats the positions, both ways.
+     * One answer to "may this person do that".
      *
      * Every check in the application ends up here — the gate, the "can:"
-     * middleware and Spatie's own hook all ask the model — so there is one
-     * answer to "may this person do that", and it is this one.
+     * middleware and Spatie's own hook all ask the model — so an unknown right
+     * is answered in one place rather than in each of them.
      *
      * @param  string|int|Permission|\BackedEnum  $permission
      */
     public function hasPermissionTo($permission, ?string $guardName = null): bool
     {
-        $key = match (true) {
-            is_string($permission) => $permission,
-            $permission instanceof PermissionContract => $permission->name,
-            default => null,
-        };
-
-        if ($key !== null) {
-            $own = $this->permissionOverrides->firstWhere('permission', $key);
-
-            if ($own !== null) {
-                return $own->allowed;
-            }
-        }
-
         try {
             return $this->hasPermissionViaPositions($permission, $guardName);
         } catch (PermissionDoesNotExist) {

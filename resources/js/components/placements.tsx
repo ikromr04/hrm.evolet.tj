@@ -36,6 +36,8 @@ export interface PlacementOptions {
         /** The department in full, to stand under the job. Null while nobody has filed it. */
         unit: { name: string; full_name: string } | null;
         department_id: number | null;
+        /** Whether the job leads its department, which is what fills «Роль» in. */
+        is_head: boolean;
     }[];
     duties: { id: number; name: string; position_id: number }[];
 }

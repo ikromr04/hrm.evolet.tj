@@ -12,6 +12,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
+/**
+ * The company at a glance, for the two roles that see the company.
+ *
+ * The figures are everybody's numbers and nobody is given them by a right, so
+ * until the modules behind them can be opened line by line like the rest the
+ * page belongs to whoever holds everything — the system administrator and
+ * personnel. Everybody else starts at their own card.
+ */
 class DashboardTest extends TestCase
 {
     use RefreshDatabase;
@@ -23,9 +31,9 @@ class DashboardTest extends TestCase
 
     public function test_everybody_else_starts_at_their_own_card()
     {
-        // The figures here are the whole company's and nobody is given them by a
-        // right, so until there is something to open line by line the page is the
-        // one account's and everybody else lands on their profile.
+        // A card with no role on it at all, which is the point: a head or a
+        // specialist would be answered by the page for the site that is not open
+        // to them yet instead of being sent anywhere.
         $this->actingAs(User::factory()->create());
         $this->get('/')->assertRedirect('/profile');
     }
@@ -95,6 +103,27 @@ class DashboardTest extends TestCase
                 ->where('events.0.unit.id', $latest->equipment_id)
                 ->missing('stats')
                 ->missing('pendingRequests')
+            );
+    }
+
+    public function test_personnel_reach_the_same_page()
+    {
+        // Not the system administrator's alone any more: the page asks whether
+        // somebody holds everything, and an HR specialist does. What it counts is
+        // the test above's business — this one is about who is let in.
+        $this->seed(RoleSeeder::class);
+        $hr = User::factory()->create()->assignRole('hr');
+        User::factory()->count(2)->create();
+
+        $this->actingAs($hr)
+            ->get('/')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('dashboard')
+                ->where('staff.active', 3)
+                ->has('equipment')
+                ->has('departments')
+                ->has('events')
             );
     }
 

@@ -264,7 +264,9 @@ class EmployeeController extends Controller
             'visibleFields' => $visible,
             'sortable' => $sortable,
             'options' => [
-                'roles' => Access::offeredRoles()->get(['name', 'title']),
+                // Every role a person here can hold, as something to narrow the
+                // list by. Reading, not handing out, so the whole set.
+                'roles' => Access::listedRoles()->get(['name', 'title']),
                 // With the department each belongs to: the same name may now be
                 // filed in two of them, and a filter offering «Аналитик» twice
                 // over would be asking somebody to guess which is which.
@@ -321,7 +323,7 @@ class EmployeeController extends Controller
         return Inertia::render('employees/create', [
             'canIssue' => $canIssue,
             'options' => [
-                'roles' => Access::offeredRoles()->get(['name', 'title']),
+                'roles' => Access::offeredRoles($request->user())->get(['name', 'title']),
                 // Every position with the department it belongs to and every
                 // duty with its position: the page asks for the job and narrows
                 // the duties under it without a round trip each time.
@@ -414,11 +416,15 @@ class EmployeeController extends Controller
             ]);
             $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
 
-            $employee->syncRoles($data['roles']);
             // Where they stand: the departments, the positions held in each and
             // the duties picked out of those, all from the one list the form
             // builds a chain at a time.
             Placements::save($employee, $data['placements']);
+
+            // The role: the one the form named, or — when it named none — the one
+            // the positions just saved imply. Nobody is left holding no role at
+            // all, since a role is what decides whether the site opens.
+            $employee->syncRoles([$data['roles'][0] ?? Access::derive($employee)]);
 
             // A language the directory has not heard of is added to it on the
             // way in, which is the one thing about saving them that is not a
@@ -620,10 +626,10 @@ class EmployeeController extends Controller
             // asks about travel with it — and only for somebody who may both
             // enter a unit and hand it over.
             'equipmentTypes' => $canIssue && $request->user()->can('equipment.create') ? EquipmentType::formOptions() : [],
-            // Why the positions of this card are not this viewer's to change, if
-            // they are not: the form shows the sentence beside the locked field
-            // instead of letting somebody find out by saving.
-            'rolesLocked' => Access::rolesLockedReason($request->user(), $employee),
+            // Why the role on this card is not anybody's to change, if it is not:
+            // the form shows the sentence beside the locked field instead of
+            // letting somebody find out by saving.
+            'rolesLocked' => Access::rolesLockedReason($employee),
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
                 // other cards say is offered only to a reader of that line, and
@@ -634,7 +640,7 @@ class EmployeeController extends Controller
                 // single system administrator is offered to nobody, and their own
                 // card must still show the role it holds rather than lose it on
                 // the next save.
-                'roles' => Access::offeredRoles()
+                'roles' => Access::offeredRoles($request->user())
                     ->orWhereIn('name', $employee->roles->pluck('name'))
                     ->get(['name', 'title']),
                 // As the «Новый сотрудник» page is given them: the positions, and the
@@ -662,34 +668,7 @@ class EmployeeController extends Controller
                 // it. A department with no position is one of these too.
                 'placements' => Placements::of($employee),
             ] : null,
-            // What this colleague may do, and why. Only a system administrator
-            // is shown it, because only they can change any of it.
-            'access' => Directories::canEdit($request->user(), 'access') ? $this->access($employee) : null,
         ]);
-    }
-
-    /**
-     * Every right, what the colleague's positions give them, and the exceptions
-     * made for this person in particular.
-     *
-     * @return array{everything: bool, sections: list<array<string, mixed>>, rights: list<array{key: string, position: bool, override: bool|null}>}
-     */
-    private function access(User $employee): array
-    {
-        $viaPositions = $employee->getPermissionsViaRoles()->pluck('name')->all();
-        $overrides = $employee->permissionOverrides->pluck('allowed', 'permission');
-
-        return [
-            // The one account passes every check through Gate::before, so the
-            // rights below would only be telling half the story.
-            'everything' => $employee->hasRole(Access::SOLE_ROLE),
-            'sections' => Access::tree(),
-            'rights' => collect(Access::keys())->map(fn (string $key) => [
-                'key' => $key,
-                'position' => in_array($key, $viaPositions, true),
-                'override' => $overrides[$key] ?? null,
-            ])->all(),
-        ];
     }
 
     /**

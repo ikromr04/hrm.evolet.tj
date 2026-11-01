@@ -431,8 +431,8 @@ class DepartmentPagesTest extends TestCase
 
     /**
      * "Отделы" left "Справочники" the way "Должности" did: the tab is gone and
-     * the old address answers nothing, while the two rights behind the list stay
-     * exactly as the production access table has them keyed.
+     * the old address answers nothing, while the two rights behind the list keep
+     * the names the company's own database has already granted them under.
      */
     public function test_the_reference_lists_no_longer_offer_the_departments_but_the_rights_stay()
     {
@@ -444,7 +444,7 @@ class DepartmentPagesTest extends TestCase
         $this->assertNotContains('departments', Directories::visibleTo($sysadmin));
         $this->assertNotContains('departments', Directories::editableBy($sysadmin));
         $this->actingAs($sysadmin)->get('/directories/departments')->assertNotFound();
-        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/roles');
+        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/languages');
 
         // The section is shut for somebody who may read nothing but the
         // departments — that list is elsewhere now and answers for itself.
@@ -452,15 +452,11 @@ class DepartmentPagesTest extends TestCase
         $this->actingAs($reader)->get('/directories')->assertForbidden();
         $this->actingAs($reader)->get('/departments')->assertOk();
 
-        // The two rights are still the two rights, and the access table still
-        // offers both: the production table is keyed by these very strings.
+        // The two rights are still the two rights, and still in the catalogue:
+        // the rows already granted in the company's database name these very
+        // strings, so dropping either would take away what they were granted.
         $this->assertContains('directories.view.departments', Directories::permissions());
         $this->assertContains('directories.edit.departments', Directories::permissions());
         $this->assertArrayHasKey('departments', Directories::LISTS);
-
-        $props = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
-
-        $this->assertContains('directories.view.departments', array_column($props['directoryLists'], 'key'));
-        $this->assertContains('directories.edit.departments', array_column($props['directoryEdits'], 'key'));
     }
 }

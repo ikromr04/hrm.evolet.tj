@@ -250,40 +250,6 @@ final class EmployeeFields
         return array_keys(array_filter(self::FIELDS, fn (array $field) => $field[0] === $group));
     }
 
-    /**
-     * The catalogue as a dialog reads it: the blocks in order, each with its
-     * lines and the two rights behind them. Built per scope, so a dialog need
-     * never know whose card it is choosing for.
-     *
-     * @return list<array{key: string, title: string, expandable: bool, fields: list<array{key: string, title: string, permission: string, editPermission: string}>}>
-     */
-    public static function tree(string $scope = self::OTHERS): array
-    {
-        $tree = [];
-
-        foreach (self::GROUPS as $group => [$title, $expandable]) {
-            $fields = [];
-
-            foreach (self::FIELDS as $key => [$in, $label]) {
-                if ($in === $group) {
-                    $fields[] = [
-                        'key' => $key,
-                        'title' => $label,
-                        // Never closed: the dialog shows the box ticked and untouchable
-                        // rather than pretending there is a choice.
-                        'always' => in_array($key, self::ALWAYS_VISIBLE, true),
-                        'permission' => self::permission($key, $scope),
-                        'editPermission' => self::editPermission($key, $scope),
-                    ];
-                }
-            }
-
-            $tree[] = ['key' => $group, 'title' => $title, 'expandable' => $expandable, 'fields' => $fields];
-        }
-
-        return $tree;
-    }
-
     /** Whose card this is, from the point of view of whoever is looking at it. */
     public static function scopeFor(User $viewer, ?User $employee): string
     {

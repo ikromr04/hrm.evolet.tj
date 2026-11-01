@@ -6,6 +6,7 @@ use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
+use App\Support\Access;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DepartmentSeeder;
 use Database\Seeders\PositionSeeder;
@@ -264,12 +265,14 @@ class PositionTest extends TestCase
         }
     }
 
-    public function test_every_employee_but_the_admin_has_a_position()
+    public function test_every_employee_but_the_system_administrator_has_a_position()
     {
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertSame(0, User::withoutRole('admin')->doesntHave('positions')->count());
-        $this->assertCount(0, User::role('admin')->first()->positions);
+        // The one account is not somebody the company employs: it holds no job,
+        // and the role it holds is the reason it needs none.
+        $this->assertSame(0, User::withoutRole(Access::SOLE_ROLE)->doesntHave('positions')->count());
+        $this->assertCount(0, User::role(Access::SOLE_ROLE)->sole()->positions);
         $this->assertSame(0, User::where('sex', 'male')->whereHas('positions', fn ($q) => $q->where('name', 'Уборщица'))->count());
     }
 

@@ -80,23 +80,20 @@ class AppServiceProvider extends ServiceProvider
             return $this->app->isProduction() ? $password->uncompromised() : $password;
         });
 
-        // One account passes every authorization check, including rights added
-        // later: the system administrator. There is exactly one of them, and
-        // somebody has to be able to reach everything — not least the page where
-        // rights are handed out.
+        // Two roles pass every authorization check, including rights added later:
+        // the system administrator, of which there is one, and personnel, who do
+        // the work the application exists for. Somebody has to be able to reach
+        // everything, and until the other two roles are given a site of their own
+        // these two are the site.
         //
-        // «Администратор» is not that: it is an ordinary position whose rights are
-        // ticked in the access table like any other, so what an administrator may
-        // do is what somebody decided they may do. What only a system
-        // administrator can do — appoint an administrator, or take the role away —
-        // is guarded where roles are assigned, since it is a rule about roles
-        // rather than an ability.
-        Gate::before(fn (User $user) => $user->hasRole(Access::SOLE_ROLE) ? true : null);
+        // What only a system administrator can do — hand out «HR-специалист» — is
+        // guarded where roles are assigned, since it is a rule about roles rather
+        // than an ability, and Gate::before would wave it through.
+        Gate::before(fn (User $user) => Access::everything($user) ? true : null);
 
         // Every other right is a permission from App\Support\Access, carried by
-        // a position or given to one person on their card. Spatie answers "can"
-        // for those out of the permissions table, and a personal exception is
-        // applied in User::hasPermissionTo().
+        // the role. Nothing carries any at the moment: the two roles above pass
+        // without them, and the site is closed to the two that would need them.
 
         // The exception is a form that saves a whole block of a card: it asks one
         // question — "may this person change anything in here?" — which is an

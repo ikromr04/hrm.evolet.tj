@@ -2,37 +2,141 @@
 
 namespace App\Support;
 
+use App\Models\Position;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Spatie\Permission\Models\Role;
 
 /**
- * Every right the system knows about.
+ * The four roles there are, and every right the system knows about.
  *
- * A right is a section plus what it lets a person do there, which is how the
- * access table reads: one column group per section, one column per action. The
- * list lives in code rather than in the database because the sections and the
- * actions are the application itself — positions come and go, but "Оборудование:
- * выдача" only exists as long as there is a page that hands equipment out.
+ * A right is a section plus what it lets a person do there. The list lives in
+ * code because the sections and the actions are the application itself —
+ * positions come and go, but "Оборудование: выдача" only exists as long as there
+ * is a page that hands equipment out.
  *
- * Administrators and system administrators are not on this list: they pass every
- * check through Gate::before, including rights added later.
+ * Nothing hands these rights out at the moment. Roles used to be a directory
+ * with a table of ticks behind it; they are now the four named below, two of
+ * which pass every check through Gate::before while the other two wait for a
+ * site that is open to them. The catalogue is kept whole all the same: it is
+ * what the card is built out of, and it is what the ticks will go back onto.
  */
 final class Access
 {
     /**
-     * The one position that is not decided by this list.
+     * The system administrator: one account, and nobody hands the role out.
      *
-     * Everything a person may do is a right ticked on the access page — with a
-     * single exception, because somebody has to be able to reach that page and
-     * everything behind it. The system administrator holds no rights of their own
-     * and passes every check through Gate::before. There is exactly one: the
-     * position is offered in no picker, cannot be handed to anybody, and cannot be
-     * taken off its own card, since there would be nobody left to hand it back.
-     *
-     * Every other position, whatever it is called, is an ordinary one.
+     * It holds no rights of its own and passes every check through Gate::before.
+     * There is exactly one, it is offered in no picker, and it cannot be given to
+     * anybody — not even by the account that holds it, since a second one would
+     * be a second pair of hands on everything.
      */
     public const SOLE_ROLE = 'sysadmin';
+
+    /** Personnel: everything the system administrator may do, and the work besides. */
+    public const HR = 'hr';
+
+    /** Whoever holds a leading position of a department. */
+    public const HEAD = 'head';
+
+    /** Everybody else who works here. */
+    public const SPECIALIST = 'specialist';
+
+    /**
+     * The four roles there are, in the order a list shows them.
+     *
+     * Roles are no longer a directory the company keeps: they are these four and
+     * nothing else, and what each may do is decided here rather than ticked on a
+     * page. Two of them pass every check; the other two have no rights at all yet,
+     * because the site is not open to them — their part of it is still being
+     * built, and until it is they are shown that and nothing more.
+     *
+     * The arrangement is deliberately a blunt one and is expected to be undone:
+     * the machinery for deciding a card line by line is still here, with nothing
+     * driving it, waiting for the day somebody decides what a head of department
+     * may read.
+     *
+     * @var array<string, string> key => the name it is called by
+     */
+    public const ROLES = [
+        self::SOLE_ROLE => 'Системный администратор',
+        self::HR => 'HR-специалист',
+        self::HEAD => 'Руководитель',
+        self::SPECIALIST => 'Специалист',
+    ];
+
+    /**
+     * The roles that pass every check, Gate::before and all.
+     *
+     * @var list<string>
+     */
+    public const EVERYTHING = [self::SOLE_ROLE, self::HR];
+
+    /**
+     * The roles the site is not open to yet.
+     *
+     * Named rather than inferred from the two above, so that an account holding
+     * neither — a fixture, an installation halfway through a migration — is not
+     * shut out by an accident of arithmetic. In a working company every account
+     * holds one of the four, and these are the two that wait.
+     *
+     * @var list<string>
+     */
+    public const CLOSED = [self::HEAD, self::SPECIALIST];
+
+    /** Whether this person passes every check. */
+    public static function everything(User $user): bool
+    {
+        return $user->hasAnyRole(self::EVERYTHING);
+    }
+
+    /** Whether the site is still closed to this person. */
+    public static function closed(User $user): bool
+    {
+        return $user->hasAnyRole(self::CLOSED);
+    }
+
+    /**
+     * The role a card is given when nobody says otherwise: a leading position
+     * makes a head, and everything else makes a specialist.
+     *
+     * The flag is on the job rather than on the person, so this is a question
+     * about the positions held and not about the card — somebody leads a
+     * department by holding its leading job and stops when the job is taken away.
+     *
+     * @param  list<int>  $positions  the positions about to be held, when they are
+     *                                not on the card yet
+     */
+    public static function derive(?User $employee, array $positions = []): string
+    {
+        $leads = Position::query()->where('is_head', true);
+
+        $leads = $employee === null
+            ? $leads->whereIn('id', $positions)
+            : $leads->where(fn (Builder $q) => $q
+                ->whereIn('id', $positions)
+                ->orWhereHas('users', fn (Builder $u) => $u->whereKey($employee->id)));
+
+        return $leads->exists() ? self::HEAD : self::SPECIALIST;
+    }
+
+    /**
+     * The roles this person may put on somebody's card.
+     *
+     * The system administrator is in no list at all. «HR-специалист» is handed out
+     * by the system administrator alone: personnel pass every check, so an HR
+     * specialist who could appoint another would be the whole access system in one
+     * person's gift. The remaining two are the ordinary choice.
+     *
+     * @return list<string>
+     */
+    public static function offeredTo(User $actor): array
+    {
+        return array_values(array_filter(
+            [self::HR, self::HEAD, self::SPECIALIST],
+            fn (string $role) => $role !== self::HR || $actor->hasRole(self::SOLE_ROLE),
+        ));
+    }
 
     /** The sections, in the order the table shows them. */
     public const SECTIONS = [
@@ -115,114 +219,74 @@ final class Access
     }
 
     /**
-     * The rights a table of positions against rights shows as columns: the
-     * sections only. The lines of a card are four dozen rights and belong in a
-     * dialog behind a counter, not in a column each.
+     * The roles a list may be narrowed by: all of them but the one there is only
+     * ever one of.
      *
-     * @return list<string>
-     */
-    public static function sectionKeys(): array
-    {
-        return array_keys(self::PERMISSIONS);
-    }
-
-    /**
-     * A list of rights as this person may write it down.
-     *
-     * Nobody hands out what they have not got. Deciding on access is itself a
-     * right, and without this rule it is the only right anybody needs: whoever
-     * may tick the boxes ticks their own, and the whole catalogue follows —
-     * passports, addresses, the lot. So what is asked for is kept to the rights
-     * the asker holds, and whatever the row already carried beyond them is left
-     * exactly as it was, neither granted nor quietly taken away.
-     *
-     * The system administrator holds everything through Gate::before, so for
-     * that one account this filters nothing.
-     *
-     * @param  list<string>  $asked  the rights the form sent
-     * @param  list<string>  $held  the rights the row carries today
-     * @return list<string>
-     */
-    public static function writable(User $user, array $asked, array $held): array
-    {
-        $mine = array_filter(self::keys(), fn (string $key) => $user->can($key));
-
-        return array_values(array_unique([
-            ...array_intersect($asked, $mine),
-            ...array_diff($held, $mine),
-        ]));
-    }
-
-    /** Whether this person may hand this right to somebody else. */
-    public static function mayGrant(User $user, string $permission): bool
-    {
-        return $user->can($permission);
-    }
-
-    /**
-     * What one does to a colleague rather than to a line of their card, which is
-     * what the "Действия" column of the table holds. Adding somebody is among
-     * them: it is not a line of anybody's card but the card itself.
-     *
-     * @var list<string>
-     */
-    public const ACTIONS = ['employees.create', 'employees.transfer', 'employees.fire', 'employees.delete'];
-
-    /**
-     * The roles a picker may offer: everything but the one there is only ever one
-     * of. The directory still lists it — it exists, and its holder is countable —
-     * but nowhere is it offered as a choice.
+     * Not the same question as what may be handed out — a filter is reading, and
+     * somebody who cannot appoint personnel can still have business finding them.
      *
      * @return Builder<Role>
      */
-    public static function offeredRoles(): Builder
+    public static function listedRoles(): Builder
     {
-        return Role::query()->whereNot('name', self::SOLE_ROLE)->orderBy('title');
+        return self::inCatalogueOrder(
+            Role::query()->whereNot('name', self::SOLE_ROLE),
+            [self::HR, self::HEAD, self::SPECIALIST],
+        );
     }
 
     /**
-     * Why this person may not change that person's positions, or null when they
-     * may.
+     * The roles a picker may offer this person, as rows to show.
      *
-     * Two rules, both for people who could otherwise strip each other of what
-     * they may do. A person who may change the access table must not have their
-     * positions rearranged from outside: take their positions away and you have
-     * taken away what they may do. And two people who may both change positions
-     * do not change each other's. In either case the positions are the person's
-     * own and the system administrator's — nobody else's, however much they were
-     * granted.
+     * @return Builder<Role>
+     */
+    public static function offeredRoles(User $actor): Builder
+    {
+        $offered = self::offeredTo($actor);
+
+        return self::inCatalogueOrder(Role::query()->whereIn('name', $offered), $offered);
+    }
+
+    /**
+     * Rows in the order the catalogue names them, which goes from the widest role
+     * to the narrowest.
      *
-     * Everybody else's positions are an ordinary line of a card, opened by the
-     * ordinary right to that line. One's own card is the same: if the line is open
-     * on the access page, it is open.
+     * Sorting by the name shown would put «HR-специалист» first for the alphabet's
+     * reasons rather than for any of ours, and a database has no opinion about
+     * which role is wider — so the order is spelled out, as a CASE rather than as
+     * one of the vendor-specific functions for it.
+     *
+     * @param  Builder<Role>  $roles
+     * @param  list<string>  $names
+     * @return Builder<Role>
+     */
+    private static function inCatalogueOrder(Builder $roles, array $names): Builder
+    {
+        $case = 'case name';
+
+        foreach ($names as $place => $name) {
+            $case .= " when ? then {$place}";
+        }
+
+        return $roles->orderByRaw($case.' else '.count($names).' end', $names);
+    }
+
+    /**
+     * Why this card's role may not be changed, or null when it may.
+     *
+     * One rule is left of the several there used to be: the system administrator's
+     * own role is nobody's to touch, including its own. Everything else follows
+     * from the catalogue — there are four roles, two of them pass every check, and
+     * only the system administrator may hand out the second of those.
      *
      * The reason is a sentence rather than a flag, because the card shows it
      * beside the locked field and the form repeats it if a request comes anyway.
      */
-    public static function rolesLockedReason(User $actor, User $employee): ?string
+    public static function rolesLockedReason(User $employee): ?string
     {
-        if ($actor->hasRole(self::SOLE_ROLE) || $actor->is($employee)) {
-            return null;
-        }
-
-        if (Directories::canEdit($employee, 'access')) {
-            return 'Роли сотрудника, который сам распоряжается доступами, меняет только он или системный администратор.';
-        }
-
-        // Two people who may both rearrange positions would otherwise settle
-        // a quarrel by taking each other's away, so neither may touch the
-        // other's: that is left to the person themselves and the one account.
-        if (self::changesPositions($actor) && self::changesPositions($employee)) {
-            return 'Роли сотрудника, который сам может менять роли, меняет только он или системный администратор.';
-        }
-
-        return null;
-    }
-
-    /** Whether somebody may change the «Роль» line of other people's cards. */
-    private static function changesPositions(User $user): bool
-    {
-        return in_array('roles', EmployeeFields::editableBy($user), true);
+        return $employee->hasRole(self::SOLE_ROLE)
+            ? 'Роль системного администратора не меняется.'
+            : null;
     }
 
     public static function has(string $key): bool
@@ -234,30 +298,5 @@ final class Access
     public static function section(string $key): string
     {
         return explode('.', $key)[0];
-    }
-
-    /**
-     * The catalogue as the access page reads it: the sections in order, each
-     * with its rights.
-     *
-     * @return list<array{key: string, title: string, rights: list<array{key: string, title: string, hint: string}>}>
-     */
-    public static function tree(): array
-    {
-        $tree = [];
-
-        foreach (self::SECTIONS as $section => $title) {
-            $rights = [];
-
-            foreach (self::PERMISSIONS as $key => [$action, $hint]) {
-                if (self::section($key) === $section) {
-                    $rights[] = ['key' => $key, 'title' => $action, 'hint' => $hint];
-                }
-            }
-
-            $tree[] = ['key' => $section, 'title' => $title, 'rights' => $rights];
-        }
-
-        return $tree;
     }
 }

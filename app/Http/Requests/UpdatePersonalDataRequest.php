@@ -88,8 +88,9 @@ class UpdatePersonalDataRequest extends FormRequest
                 ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))
                 ->all(),
 
-            'roles' => $sent(['present', 'array']),
-            'roles.*' => ['string', 'distinct', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
+            // One role, as on the «Новый сотрудник» page.
+            'roles' => $sent(['present', 'array', 'max:1']),
+            'roles.*' => ['string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
 
             ...collect($this->places() ? Placements::rules() : ['placements' => ['nullable']])
                 ->map(fn (array $rules, string $key) => $key === 'placements' ? $sent($rules) : $rules)
@@ -162,7 +163,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'home_address' => 'домашний адрес',
             ...EmployeeCard::employmentAttributes(),
             ...EmployeeCard::accountAttributes(),
-            'roles' => 'позиция',
+            'roles' => 'роль',
             ...Placements::attributes(),
         ];
     }

@@ -20,10 +20,10 @@ class TableViewController extends Controller
 {
     public function __invoke(Request $request, string $key): RedirectResponse
     {
-        // Not a right: there is no line on the access page for this, and there
-        // is not meant to be one. The single system administrator sets how the
-        // company reads its tables, and nobody else does.
-        abort_unless($request->user()->hasRole(Access::SOLE_ROLE), 403);
+        // Not a right: there is no line in the catalogue for this, and there is
+        // not meant to be one. How the company reads its tables is settled by
+        // whoever holds everything, and by nobody else.
+        abort_unless(Access::everything($request->user()), 403);
 
         $data = $request->validate([
             // The same thing a kept view holds: what is hidden, what is held to
@@ -69,7 +69,7 @@ class TableViewController extends Controller
      */
     public function destroy(Request $request, string $key): RedirectResponse
     {
-        abort_unless($request->user()->hasRole(Access::SOLE_ROLE), 403);
+        abort_unless(Access::everything($request->user()), 403);
 
         TableView::query()->where('key', $key)->delete();
 

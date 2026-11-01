@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Models\UserDetail;
+use App\Support\Access;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\UserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -25,7 +27,7 @@ class UserSeederTest extends TestCase
         $this->assertSame(68, User::active()->count());
         $this->assertSame(6, User::where('status', 'fired')->count());
         $this->assertSame(3, User::where('status', 'transferred')->count());
-        $this->assertSame(1, User::role('admin')->count());
+        $this->assertSame(1, User::role(Access::SOLE_ROLE)->count());
         $this->assertSame(0, User::whereNull('surname')->orWhereNull('sex')->count());
         $this->assertSame(0, User::where('email', 'not like', '%@evolet.test')->count());
         $this->assertSame(0, UserDetail::whereNull('nationality')->count());
@@ -38,31 +40,37 @@ class UserSeederTest extends TestCase
         ));
     }
 
-    public function test_roles_are_seeded_with_russian_titles_and_every_employee_has_one()
+    public function test_the_four_roles_are_seeded_with_russian_titles_and_everybody_holds_one()
     {
         $this->seed(DatabaseSeeder::class);
 
-        $this->assertSame(25, Role::count());
-        $this->assertSame('Администратор', Role::findByName('admin')->title);
-        $this->assertSame('Руководитель Департамента', Role::findByName('department-head')->title);
+        $this->assertSame(count(Access::ROLES), Role::count());
+        $this->assertEqualsCanonicalizing(array_keys(Access::ROLES), Role::pluck('name')->all());
 
+        foreach (Access::ROLES as $name => $title) {
+            $this->assertSame($title, Role::findByName($name)->title);
+        }
+
+        // Exactly one each, and never a fifth name from anywhere: a person is
+        // one thing to the system, and the four are all there is to be.
         $this->assertSame(0, User::doesntHave('roles')->count());
-        // Many-to-many: some employees hold a second position, never more.
-        $this->assertSame(0, User::has('roles', '>', 2)->count());
-        // The demo superuser is both: an administrator, and the one who says
-        // who else may be one.
-        $this->assertSame(['sysadmin', 'admin'], User::role('sysadmin')->sole()->getRoleNames()->all());
-        // Leading follows from holding a leading position, so the two roles go
-        // to exactly the people the head titles went to: two departments and
-        // twelve units, which is what the structure is made of.
-        $this->assertSame(2, User::role('department-head')->count());
-        $this->assertSame(12, User::role('division-head')->count());
-        $this->assertSame(
-            14,
-            User::role(['department-head', 'division-head'])
-                ->whereHas('positions', fn ($query) => $query->where('is_head', true))
-                ->count(),
-        );
+        $this->assertSame(0, User::has('roles', '>', 1)->count());
+
+        // The two that are appointed rather than earned, by name.
+        $this->assertSame([Access::SOLE_ROLE], User::role(Access::SOLE_ROLE)->sole()->getRoleNames()->all());
+        $this->assertSame([Access::HR], User::firstWhere('email', UserSeeder::PERSONNEL)->getRoleNames()->all());
+
+        // Everybody else holds what their work says, with nothing drawn: whoever
+        // holds a leading position leads, and the rest are specialists. No count
+        // is written down here on purpose — it follows from the structure, and a
+        // number would only say how many heads the demo happened to make.
+        User::whereDoesntHave('roles', fn ($q) => $q->whereIn('name', [Access::SOLE_ROLE, Access::HR]))
+            ->with('positions')
+            ->get()
+            ->each(fn (User $user) => $this->assertSame(
+                $user->positions->contains('is_head', true) ? Access::HEAD : Access::SPECIALIST,
+                $user->getRoleNames()->sole(),
+            ));
     }
 
     public function test_admin_can_log_in_and_passes_every_authorization_check()
@@ -84,6 +92,6 @@ class UserSeederTest extends TestCase
 
         $this->assertSame(77, User::count());
         $this->assertSame(77, UserDetail::count());
-        $this->assertSame(1, User::role('admin')->count());
+        $this->assertSame(1, User::role(Access::SOLE_ROLE)->count());
     }
 }

@@ -8,7 +8,6 @@ use App\Models\User;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
@@ -20,6 +19,9 @@ use Tests\TestCase;
  * what it takes to add to them and what a save does is read here. The pages
  * themselves are read where they live, in PositionPagesTest and
  * DepartmentPagesTest.
+ *
+ * «Роли доступа» is not a list of the catalogue at all any more: there are four
+ * roles, they are named in App\Support\Access, and nothing writes them down.
  */
 class DirectoriesTest extends TestCase
 {
@@ -38,14 +40,14 @@ class DirectoriesTest extends TestCase
 
     public function test_only_admins_can_open_or_change_directories()
     {
-        $this->get('/directories/roles')->assertRedirect('/login');
+        $this->get('/directories/languages')->assertRedirect('/login');
 
         $employee = $this->colleague();
         $this->actingAs($employee);
 
-        $this->get('/directories/roles')->assertForbidden();
+        $this->get('/directories/languages')->assertForbidden();
         // "Отделы" is a tab of the company structure now, at /departments,
-        // and still asks the right the access table names the list with — which a
+        // and still asks the right the catalogue names the list with — which a
         // colleague does not hold, however freely they may read the chart.
         $this->get('/departments')->assertForbidden();
         // The job titles are a section of their own now, read and kept by the
@@ -66,14 +68,7 @@ class DirectoriesTest extends TestCase
         User::factory(2)->create()->each(fn (User $u) => $u->positions()->attach($position));
         $this->actingAs($this->admin);
 
-        $this->get('/directories')->assertRedirect('/directories/roles');
-        $this->get('/directories/roles')->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->component('directories/roles')
-            ->has('items', 25)
-            // The one position the system relies on; the rest, «Администратор»
-            // included, are ordinary entries of the list.
-            ->where('items', fn ($items) => collect($items)->where('protected', true)->pluck('name')->all() === ['sysadmin'])
-        );
+        $this->get('/directories')->assertRedirect('/directories/languages');
         // The job titles are not a tab of the section any more; their own page
         // counts their people, and PositionPagesTest reads it.
         $this->get('/positions')->assertInertia(fn (Assert $page) => $page
@@ -84,36 +79,6 @@ class DirectoriesTest extends TestCase
         // Nor are the departments: the list is read beside the chart it draws,
         // under the same right it has always had.
         $this->get('/departments')->assertInertia(fn (Assert $page) => $page->component('departments/index'));
-    }
-
-    public function test_roles_get_a_generated_key_that_survives_renaming()
-    {
-        $this->actingAs($this->admin);
-
-        $this->post('/directories/roles', ['title' => 'Главный бухгалтер'])->assertSessionHasNoErrors();
-        $role = Role::firstWhere('title', 'Главный бухгалтер');
-        $this->assertSame('glavnyy-buhgalter', $role->name);
-
-        $this->put("/directories/roles/{$role->id}", ['title' => 'Главный бухгалтер компании'])->assertSessionHasNoErrors();
-        $this->assertSame('glavnyy-buhgalter', $role->fresh()->name);
-        $this->assertSame('Главный бухгалтер компании', $role->fresh()->title);
-
-        $this->post('/directories/roles', ['title' => 'Главный бухгалтер компании'])->assertSessionHasErrors('title');
-    }
-
-    public function test_deleting_a_role_removes_it_from_employees_but_admin_is_protected()
-    {
-        $this->actingAs($this->admin);
-        $intern = Role::findByName('intern');
-        $employee = $this->colleague();
-        $employee->assignRole($intern);
-
-        $this->delete("/directories/roles/{$intern->id}")->assertSessionHasNoErrors();
-        $this->assertNull(Role::find($intern->id));
-        $this->assertCount(0, $employee->fresh()->roles);
-
-        $this->delete('/directories/roles/'.Role::findByName('sysadmin')->id)->assertForbidden();
-        $this->assertTrue($this->admin->fresh()->hasRole('sysadmin'));
     }
 
     // Adding a job title, renaming it, deleting it and writing down what it

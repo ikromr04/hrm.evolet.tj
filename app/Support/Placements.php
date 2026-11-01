@@ -216,10 +216,14 @@ final class Placements
             'positions' => Position::query()
                 ->with('department:id,name,abbreviation')
                 ->orderBy('name')
-                ->get(['id', 'name', 'department_id'])
+                ->get(['id', 'name', 'department_id', 'is_head'])
                 ->map(fn (Position $position) => [
                     'id' => $position->id,
                     'name' => $position->name,
+                    // Whether the job leads its department, which is what decides
+                    // the role a card is offered: the «Новый сотрудник» page fills
+                    // «Роль» in from the job picked rather than asking twice.
+                    'is_head' => $position->is_head,
                     // «Администратор (ОАП)»: the name alone no longer says which
                     // position it is, since the same one may exist in two
                     // departments.

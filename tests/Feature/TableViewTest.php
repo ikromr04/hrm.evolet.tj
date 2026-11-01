@@ -14,8 +14,9 @@ use Tests\TestCase;
  *
  * Arranging a table is each reader's own business and stays in their own
  * browser. The one arrangement underneath — what a table shows before anybody
- * has touched it — is the company's, and the single system administrator is
- * the one who says what it is.
+ * has touched it — is the company's, and whoever holds everything says what it
+ * is: the system administrator and personnel alike, and nobody else, however
+ * much of the lists they may otherwise read.
  */
 class TableViewTest extends TestCase
 {
@@ -45,7 +46,7 @@ class TableViewTest extends TestCase
         ];
     }
 
-    public function test_the_one_account_says_how_a_table_opens_for_everybody()
+    public function test_whoever_holds_everything_says_how_a_table_opens_for_everybody()
     {
         $sysadmin = User::factory()->create()->assignRole('sysadmin');
 
@@ -75,9 +76,28 @@ class TableViewTest extends TestCase
         $this->assertSame(0, TableView::query()->count());
     }
 
+    public function test_personnel_say_it_just_as_well()
+    {
+        // Not the one account's own: the arrangement goes to whoever passes every
+        // check, and an HR specialist passes every check.
+        $hr = User::factory()->create()->assignRole('hr');
+
+        $this->actingAs($hr)->put('/table-views/employees', $this->arrangement())->assertSessionHasNoErrors();
+
+        $kept = TableView::query()->sole();
+        $this->assertSame('employees', $kept->key);
+        $this->assertSame(['created'], $kept->view['view']['hidden']);
+        $this->assertSame($hr->id, $kept->updated_by);
+
+        // And taking it back is theirs too.
+        $this->actingAs($hr)->delete('/table-views/employees')->assertSessionHasNoErrors();
+        $this->assertSame(0, TableView::query()->count());
+    }
+
     public function test_nobody_else_touches_it_however_much_they_may_otherwise_do()
     {
-        // Somebody who may read and keep the lists, and is still not the one.
+        // Somebody who may read and keep the lists, and still passes neither of
+        // the two roles that hold everything.
         $manager = User::factory()->create()->givePermissionTo(['equipment.view.all', 'employees.view']);
 
         $this->actingAs($manager)->put('/table-views/equipment', $this->arrangement())->assertForbidden();
@@ -90,7 +110,7 @@ class TableViewTest extends TestCase
         // They are told how the table opens, all the same: it is how they read it.
         $this->actingAs($manager)->get('/inventory/equipment')->assertInertia(fn (AssertableInertia $page) => $page
             ->where('tableViews.equipment.view.hidden', [])
-            ->where('auth.sysadmin', false)
+            ->where('auth.everything', false)
         );
     }
 

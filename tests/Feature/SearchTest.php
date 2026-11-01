@@ -102,13 +102,38 @@ class SearchTest extends TestCase
             ->assertOk()
             // Typed in full and answered the way the pages name it.
             ->assertJsonPath('departments', [['id' => $department->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна']])
-            ->assertJsonPath('positions', [['id' => $position->id, 'name' => 'Графический дизайнер']])
-            ->assertJsonPath('roles.0.name', 'graphic-designer');
+            ->assertJsonPath('positions', [['id' => $position->id, 'name' => 'Графический дизайнер']]);
+
+        // A role answers to the name it is called by and to nothing else: the
+        // four there are were never typed in by anybody, so there is no short
+        // form and nothing else of one for a word to be matched against.
+        $this->getJson('/search?q='.urlencode('Руководител'))
+            ->assertOk()
+            ->assertJsonPath('roles', [['name' => 'head', 'title' => 'Руководитель']]);
 
         // And found by that short name, which is all anybody ever sees of it.
         $this->getJson('/search?q=ОД')
             ->assertOk()
             ->assertJsonPath('departments', [['id' => $department->id, 'name' => 'ОД', 'full_name' => 'Отдел Дизайна']]);
+    }
+
+    /**
+     * The system administrator is never an answer, however plainly it is asked for.
+     *
+     * A result is a door to the staff list narrowed by that line of a card, and
+     * narrowing it by the role there is only ever one of would be offering a list
+     * of one person nobody may be added to. The other three are offered because
+     * finding personnel is reading, which is not the same question as appointing
+     * them.
+     */
+    public function test_the_role_there_is_only_one_of_is_never_handed_back()
+    {
+        $this->seed(RoleSeeder::class);
+
+        $this->actingAs($this->colleague())
+            ->getJson('/search?q='.urlencode('администратор'))
+            ->assertOk()
+            ->assertJsonPath('roles', []);
     }
 
     public function test_finds_a_unit_by_anything_printed_on_it_or_by_who_has_it()

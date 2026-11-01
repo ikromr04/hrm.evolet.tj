@@ -198,45 +198,12 @@ class FieldVisibilityTest extends TestCase
             ->get("/employees/{$employee->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page->missing('employee.private.home_address'));
 
-        // The exception on a card beats the position, fields included.
-        $this->actingAs(User::factory()->create()->assignRole('sysadmin'))
-            ->put("/employees/{$reader->id}/access", ['permission' => 'employees.field.home_address', 'allowed' => true])
-            ->assertRedirect();
+        // A right handed to the person rather than to their position answers the
+        // same question, fields included.
+        $reader->givePermissionTo('employees.field.home_address');
 
         $this->actingAs($reader->fresh())
             ->get("/employees/{$employee->id}")
             ->assertInertia(fn (AssertableInertia $page) => $page->where('employee.private.home_address', 'Душанбе, Рудаки 55'));
-    }
-
-    public function test_the_position_dialog_and_the_access_table_offer_the_field_list()
-    {
-        $sysadmin = User::factory()->create()->assignRole('sysadmin');
-
-        foreach (['/directories/roles', '/directories/access'] as $url) {
-            $this->actingAs($sysadmin)
-                ->get($url)
-                ->assertOk()
-                ->assertInertia(fn (AssertableInertia $page) => $page
-                    ->has('fields', count(EmployeeFields::GROUPS))
-                    ->where('fields', fn ($groups) => collect($groups)->firstWhere('key', 'passport')['fields'][0]['permission'] === 'employees.field.passport_number')
-                );
-        }
-    }
-
-    public function test_a_position_is_given_its_fields_in_its_own_dialog()
-    {
-        $role = Role::findByName('analyst');
-
-        $this->actingAs(User::factory()->create()->assignRole('sysadmin'))
-            ->put("/directories/roles/{$role->id}", [
-                'title' => 'Аналитик',
-                'permissions' => ['employees.view', 'employees.field.phone', 'employees.field.email'],
-            ])
-            ->assertRedirect();
-
-        $this->assertSame(
-            ['employees.field.email', 'employees.field.phone', 'employees.view'],
-            $role->fresh()->permissions->pluck('name')->sort()->values()->all(),
-        );
     }
 }

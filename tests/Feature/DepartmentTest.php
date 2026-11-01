@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Department;
+use App\Models\Position;
 use App\Models\User;
+use App\Support\Access;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DepartmentSeeder;
 use Database\Seeders\PositionSeeder;
@@ -132,14 +134,32 @@ class DepartmentTest extends TestCase
     {
         $this->seed(DatabaseSeeder::class);
 
-        User::role('department-head')->with('departments')->get()->each(
-            fn (User $head) => $this->assertNull($head->departments->sole()->parent_id),
-        );
-        User::role('division-head')->with('departments')->get()->each(
-            fn (User $head) => $this->assertNotNull($head->departments->sole()->parent_id),
-        );
+        // Only the ones who still work here. A leaving colleague keeps the
+        // positions on their card and loses the departments — Membership writes
+        // memberships for working people alone — so a fired head sits nowhere
+        // while the job they held is still a leading one.
+        $heads = User::role(Access::HEAD)->active()->with(['departments', 'positions.department'])->get();
 
-        $this->assertCount(0, User::role('admin')->first()->departments);
+        $heads->each(function (User $head) {
+            // A head sits in the unit they lead: the membership follows from the
+            // job, and a leading job is the only thing that says who leads.
+            $leads = $head->positions->where('is_head', true);
+
+            $this->assertNotEmpty($leads);
+            $this->assertEmpty($leads->pluck('department_id')->diff($head->departments->pluck('id')));
+        });
+
+        // Both levels are led, which is what the structure is made of: a
+        // department of its own, and a unit inside one.
+        $led = $heads->flatMap(fn (User $head) => $head->positions->where('is_head', true))
+            ->map(fn (Position $position) => $position->department);
+
+        $this->assertTrue($led->contains(fn (Department $department) => $department->parent_id === null));
+        $this->assertTrue($led->contains(fn (Department $department) => $department->parent_id !== null));
+
+        // The system administrator's account is the system's and not any
+        // department's, so it leads nothing and sits nowhere.
+        $this->assertCount(0, User::role(Access::SOLE_ROLE)->sole()->departments);
         $this->assertSame(0, User::has('departments', '>', 2)->count());
     }
 }

@@ -77,7 +77,7 @@ class SearchController extends Controller
                 ->limit(self::LIMIT)
                 ->get(['id', 'name'])
                 ->map(fn (Position $p) => ['id' => $p->id, 'name' => $p->name]) : [],
-            'roles' => $narrows('roles') ? Access::offeredRoles()
+            'roles' => $narrows('roles') ? Access::listedRoles()
                 ->where(fn (Builder $q) => $this->everyWord($q, $words, ['title']))
                 ->limit(self::LIMIT)
                 ->get(['name', 'title'])

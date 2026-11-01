@@ -37,7 +37,9 @@ use Tests\TestCase;
  * things worth pinning hardest are that everything typed arrives — and that a
  * refusal in the last section of the page leaves nobody behind in the first.
  * Only the account section is demanded; the rest may be left empty and written
- * on the card later.
+ * on the card later. The role is a line of that first section with a rule of its
+ * own: a person holds exactly one, two of the four are nobody's to hand out, and
+ * a card that picks none is given the one its positions imply.
  */
 class EmployeeCreateTest extends TestCase
 {
@@ -657,21 +659,85 @@ class EmployeeCreateTest extends TestCase
             ->assertSessionHas('employee', fn (array $employee) => $employee['name'] === 'Азимова Нилуфар');
     }
 
-    public function test_the_one_position_that_cannot_be_handed_out()
+    public function test_which_roles_may_be_handed_out_and_by_whom()
     {
-        // Every position is given like any other, and one is given to nobody:
-        // there is a single system administrator and never a second.
+        Notification::fake();
+
+        // The ordinary choice: a head of a department, or everybody else who
+        // works here. Whoever may add a colleague picks between these two.
+        foreach (['head', 'specialist'] as $role) {
+            $this->actingAs($this->sysadmin())
+                ->post('/employees', $this->payload(['roles' => [$role], 'email' => "{$role}@evolet.tj"]))
+                ->assertSessionHasNoErrors();
+
+            $this->assertTrue(User::firstWhere('email', "{$role}@evolet.tj")->hasRole($role));
+        }
+
+        // And one is given to nobody: there is a single system administrator and
+        // never a second, not even at the hands of the account holding it.
         $this->actingAs($this->sysadmin())
             ->post('/employees', $this->payload(['roles' => ['sysadmin']]))
-            ->assertSessionHasErrors('roles.0');
+            ->assertSessionHasErrors(['roles.0' => 'Роль системного администратора не выдаётся: она одна и уже занята.']);
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+
+        // «HR-специалист» passes every check in the same way, so it is the system
+        // administrator's alone to give: personnel who could appoint personnel
+        // would be the whole of the access system in one person's gift.
+        $this->actingAs($this->withRights('employees.create'))
+            ->post('/employees', $this->payload(['roles' => ['hr']]))
+            ->assertSessionHasErrors(['roles.0' => 'Роль HR-специалиста выдаёт только системный администратор.']);
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
 
         $this->actingAs($this->sysadmin())
-            ->post('/employees', $this->payload(['roles' => ['admin']]))
+            ->post('/employees', $this->payload(['roles' => ['hr']]))
             ->assertSessionHasNoErrors();
 
-        $this->assertTrue(User::firstWhere('email', 'nilufar@evolet.tj')->hasRole('admin'));
+        $this->assertTrue(User::firstWhere('email', 'nilufar@evolet.tj')->hasRole('hr'));
+    }
+
+    /**
+     * A person holds one role, so a card arriving with two is refused.
+     *
+     * The field travels as a list because the picker has always sent one, but the
+     * four roles are an order rather than a set: somebody is personnel, or a
+     * head, or neither, and no two of those at once.
+     */
+    public function test_a_card_carrying_two_roles_is_refused()
+    {
+        $this->actingAs($this->sysadmin())
+            ->post('/employees', $this->payload(['roles' => ['head', 'specialist']]))
+            ->assertSessionHasErrors('roles');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+    }
+
+    /**
+     * A card that picks no role is given the one its positions imply.
+     *
+     * Nobody is left holding no role at all, since a role is what decides whether
+     * the site opens for somebody — so the empty list the page sends when nothing
+     * was picked means «whatever the jobs say» rather than «none». It is read
+     * after the placements are written, so what it reads is the job just saved.
+     */
+    public function test_a_card_that_picks_no_role_takes_the_one_its_jobs_imply()
+    {
+        Notification::fake();
+        $department = Department::create(['name' => 'Отдел разработки']);
+        $lead = $department->positions()->create(['name' => 'Начальник отдела', 'is_head' => true]);
+
+        // No job and no role: an ordinary specialist.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload())->assertSessionHasNoErrors();
+        $this->assertTrue(User::firstWhere('email', 'nilufar@evolet.tj')->hasRole('specialist'));
+
+        // The leading position of a department makes a head of whoever holds it.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+            'email' => 'rustam@evolet.tj',
+            'placements' => [['position_id' => $lead->id, 'duty_ids' => []]],
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertTrue(User::firstWhere('email', 'rustam@evolet.tj')->hasRole('head'));
     }
 
     public function test_an_unknown_role_position_or_department_is_refused()
@@ -750,16 +816,21 @@ class EmployeeCreateTest extends TestCase
         $creator = $this->withRights('employees.create');
         [$department, $position, $duty] = $this->chain();
 
-        // The page offers everything it asks for, the one position nobody is
-        // handed excepted. The duties are narrowed by the job in the browser, so
-        // the whole of each list travels with it.
+        // The page offers everything it asks for, the two roles this creator may
+        // not hand out excepted: the system administrator is in nobody's picker,
+        // and «HR-специалист» only in the system administrator's own. The duties
+        // are narrowed by the job in the browser, so the whole of each list
+        // travels with it.
         $this->actingAs($creator)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
-            ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->contains('specialist') && ! collect($roles)->pluck('name')->contains('sysadmin'))
+            ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->all() === ['head', 'specialist'])
             ->has('options.positions', Position::count())
             ->has('options.duties', PositionDuty::count())
             ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $position->id) === [
                 'id' => $position->id,
                 'name' => 'Аналитик',
+                // Whether the job leads its department travels with it: the page
+                // fills «Роль» in from the job picked rather than asking twice.
+                'is_head' => false,
                 'display_name' => 'Аналитик (Отдел разработки)',
                 // The department behind the job, short form and full, so a list can
                 // name it under the title rather than only in brackets.

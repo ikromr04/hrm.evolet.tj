@@ -9,9 +9,8 @@ use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 
 /**
- * What the company's own installation starts with: the rights, the system
- * administrator's position and the one account that holds it — and nothing
- * else.
+ * What the company's own installation starts with: the rights, the four roles
+ * and the one account that holds the first of them — and nothing else.
  *
  * No positions, departments, job titles, languages or equipment categories:
  * the company keeps those lists itself in «Справочники» and starts them empty,
@@ -36,12 +35,14 @@ class ProductionSeeder extends Seeder
         // the catalogue in the code, which no page can show any more.
         $this->call(PermissionSeeder::class);
 
-        // The one position the system cannot work without. It may be renamed in
-        // the directory, so an existing one is left exactly as it is.
-        Role::firstOrCreate(
-            ['name' => Access::SOLE_ROLE, 'guard_name' => 'web'],
-            ['title' => RoleSeeder::ROLES[Access::SOLE_ROLE]],
-        );
+        // All four of them, not just the one the system cannot work without:
+        // roles stopped being a directory, so there is no page left on which a
+        // company could add the other three for itself. A name they have since
+        // changed is theirs, so whatever is already there is left exactly as it
+        // is.
+        foreach (Access::ROLES as $name => $title) {
+            Role::firstOrCreate(['name' => $name, 'guard_name' => 'web'], ['title' => $title]);
+        }
 
         app(PermissionRegistrar::class)->forgetCachedPermissions();
 

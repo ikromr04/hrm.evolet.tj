@@ -8,6 +8,7 @@ use App\Http\Requests\UpdatePersonalDataRequest;
 use App\Models\Citizenship;
 use App\Models\EmploymentType;
 use App\Models\User;
+use App\Support\Access;
 use App\Support\AccessMemo;
 use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
@@ -109,21 +110,23 @@ class EmployeeDetailsController extends Controller
                 $employee->details()->updateOrCreate([], $details);
             }
 
+            // Departments the employee stays in keep their head flag, and the
+            // duties of a position they no longer hold go with it.
+            if (array_key_exists('placements', $data)) {
+                Placements::save($employee, (array) $data['placements']);
+            }
+
             // A line left out of the form is left as it is, rather than being
-            // emptied by a save that was never allowed to touch it.
+            // emptied by a save that was never allowed to touch it. Saved after
+            // the positions, so that a card left without a role named is given
+            // the one the positions it now holds imply.
             if (array_key_exists('roles', $data)) {
-                $employee->syncRoles($data['roles']);
+                $employee->syncRoles([$data['roles'][0] ?? Access::derive($employee)]);
                 // This is the one save that can rewrite the rights of whoever is
                 // making it — a person may edit their own card — so whatever
                 // this request had already worked out about what they may read
                 // is dropped rather than carried past the change.
                 AccessMemo::forget();
-            }
-
-            // Departments the employee stays in keep their head flag, and the
-            // duties of a position they no longer hold go with it.
-            if (array_key_exists('placements', $data)) {
-                Placements::save($employee, (array) $data['placements']);
             }
         });
 

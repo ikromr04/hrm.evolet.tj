@@ -37,10 +37,6 @@ final class Directories
      * @var array<string, array{string, string}>
      */
     public const LISTS = [
-        'roles' => [
-            'Роли доступа',
-            'Роли и то, что каждая из них открывает в системе.',
-        ],
         'positions' => [
             'Должности',
             'Названия должностей, которые носят сотрудники.',
@@ -65,12 +61,6 @@ final class Directories
             'Категории техники',
             'Категории и поля, которыми описываются их единицы.',
         ],
-        // A list like the others, and the heaviest one: whoever may change it
-        // decides what every position opens, this one included.
-        'access' => [
-            'Доступы',
-            'Таблица позиций и прав, вместе с личными исключениями на карточках.',
-        ],
     ];
 
     /**
@@ -80,11 +70,11 @@ final class Directories
      * Everything in the catalogue but the job titles and the departments: those
      * are read under "Структура компании" now, so the tabs no longer offer them
      * and the section never opens on them — while their four rights stay in the
-     * catalogue above, where the access page and the seeder read them.
+     * catalogue above, where the seeder reads them.
      *
      * @var list<string>
      */
-    public const TABS = ['roles', 'languages', 'citizenships', 'employment_types', 'equipment', 'access'];
+    public const TABS = ['languages', 'citizenships', 'employment_types', 'equipment'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string
@@ -113,49 +103,6 @@ final class Directories
         }
 
         return $rights;
-    }
-
-    /**
-     * The lists as a dialog of plain rights reads them: the right itself is the
-     * key, so the same window serves these as serves any other short list.
-     *
-     * @return list<array{key: string, title: string, hint: string}>
-     */
-    public static function viewTree(): array
-    {
-        $tree = [];
-
-        foreach (self::LISTS as $list => [$title, $hint]) {
-            $tree[] = ['key' => self::viewPermission($list), 'title' => $title, 'hint' => $hint];
-        }
-
-        return $tree;
-    }
-
-    /**
-     * The same for changing them. Each one names the right it depends on, so the
-     * dialog can grey out a list nobody may even read rather than letting a
-     * right be ticked that would never answer yes.
-     *
-     * @return list<array{key: string, title: string, hint: string, requires: array{key: string, hint: string}}>
-     */
-    public static function editTree(): array
-    {
-        $tree = [];
-
-        foreach (self::LISTS as $list => [$title, $hint]) {
-            $tree[] = [
-                'key' => self::editPermission($list),
-                'title' => $title,
-                'hint' => "Добавление, переименование и удаление: {$hint}",
-                'requires' => [
-                    'key' => self::viewPermission($list),
-                    'hint' => "Сначала откройте «{$title}» в «Просмотре»: менять можно только то, что видно.",
-                ],
-            ];
-        }
-
-        return $tree;
     }
 
     /**

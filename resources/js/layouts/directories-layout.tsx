@@ -12,9 +12,8 @@ export default function DirectoriesLayout({ title, children }: { title: string; 
     const { url } = usePage<SharedData>();
     const can = useCan();
 
-    // Each list is a right of its own, «Доступы» included, so the strip carries
-    // only the ones this person may open — a tab that led to a refusal would be
-    // worse than no tab.
+    // Each list is a right of its own, so the strip carries only the ones this
+    // person may open — a tab that led to a refusal would be worse than no tab.
     const tabs = directoryLists.filter((list) => can(list.view)).map((list) => ({ title: list.title, href: `/directories/${list.key}` }));
 
     // On a phone a later tab may start off-screen: slide the strip, and only

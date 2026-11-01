@@ -9,8 +9,12 @@ export interface Auth {
     user: User | null;
     /** Every right in the catalogue with a yes or a no; see lib/access.ts. */
     can: Record<string, boolean>;
-    /** The one account outside that list, for the few things that are not rights. */
-    sysadmin: boolean;
+    /**
+     * Whether this account passes every check whatever the list above says — a
+     * system administrator or an HR specialist — for the few things that are
+     * not rights at all.
+     */
+    everything: boolean;
 }
 
 export interface BreadcrumbItem {

@@ -198,33 +198,6 @@ final class EquipmentAccess
     }
 
     /**
-     * The catalogue as a dialog reads it: the three scopes, each with the right
-     * to see them and the right to read their journal.
-     *
-     * @return list<array{key: string, title: string, hint: string, permission: string, journal: array{title: string, hint: string, permission: string}}>
-     */
-    public static function tree(): array
-    {
-        $tree = [];
-
-        foreach (self::SCOPES as $scope => [$title, $hint, $journalHint]) {
-            $tree[] = [
-                'key' => $scope,
-                'title' => $title,
-                'hint' => $hint,
-                'permission' => self::viewPermission($scope),
-                'journal' => [
-                    'title' => 'Журнал операций',
-                    'hint' => $journalHint,
-                    'permission' => self::journalPermission($scope),
-                ],
-            ];
-        }
-
-        return $tree;
-    }
-
-    /**
      * Which parts of the fleet this person may see.
      *
      * @return list<string>

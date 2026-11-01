@@ -1,4 +1,3 @@
-import { type CardFieldGroup, type PlainRight } from '@/components/card-fields';
 import {
     cycleSort,
     DataTable,
@@ -15,7 +14,6 @@ import {
 } from '@/components/data-table';
 import { DirectoryEditor, type DirectoryItem, type Labels } from '@/components/directory-editor';
 import { IconChip } from '@/components/equipment-icon';
-import { type EquipmentScope } from '@/components/equipment-scopes';
 import { MobileFab } from '@/components/mobile-fab';
 import { PageActions } from '@/components/page-actions';
 
@@ -25,7 +23,7 @@ import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAskedToAdd } from '@/hooks/use-asked-to-add';
-import { useCan, type AccessRight, type AccessSection, type Permission } from '@/lib/access';
+import { useCan, type Permission } from '@/lib/access';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { plural } from '@/lib/plural';
@@ -37,14 +35,14 @@ interface DirectoryManagerProps {
     items: DirectoryItem[];
     /**
      * Whether this list is this person's to change. Reading a directory and
-     * changing it are two different rights, and each of the five lists has its
-     * own pair of them, so the page that opened says which it is: without the
+     * changing it are two different rights, and each list has its own pair of
+     * them, so the page that opened says which it is: without the
      * second right the same table simply has no controls.
      */
     canEdit: boolean;
     /** Server field that holds the label. */
     field: 'title' | 'name';
-    /** Route name prefix, e.g. "directories.roles". */
+    /** Route name prefix, e.g. "directories.languages". */
     route: string;
     labels: Labels;
     /** Link to the employee list filtered by this record; without it the count is plain text. */
@@ -64,59 +62,12 @@ interface DirectoryManagerProps {
     /** The parts of the stock a record can belong to, for a list kept in parts. */
     sections?: { value: string; label: string }[];
     /**
-     * When set, the dialog also ticks off what the record opens (positions).
-     * Absent for anybody who may not decide on access, and the rights are then
-     * left exactly as they are.
-     */
-    rights?: AccessSection[];
-    /**
      * When given, the dialog also edits what units of the record are described
      * by (equipment categories), choosing from these types of field.
      */
     fieldTypes?: FieldTypeOption[];
-    /**
-     * When given, the dialog also chooses which lines of an employee card the
-     * record reads and may change (positions). Absent for anybody who may not
-     * decide on access.
-     */
-    cardFields?: CardFieldGroup[];
-    /**
-     * The same lines again, but as the rights to one's own card: what a person
-     * holding the record sees and may change on themselves (positions).
-     */
-    profileFields?: CardFieldGroup[];
-    /**
-     * When given, the dialog also chooses how much of the fleet the record sees
-     * — one's own, the department's, everything — and whose journal it reads
-     * (positions).
-     */
-    equipmentScopes?: EquipmentScope[];
-    /**
-     * When given, the dialog also chooses which blocks of a unit's card the
-     * record may change (positions).
-     */
-    equipmentBlocks?: AccessRight[];
-    /**
-     * When given, the dialog also chooses which moves the record makes with a
-     * unit — putting it on the balance, handing it over, writing it off
-     * (positions).
-     */
-    equipmentActions?: AccessRight[];
-    /**
-     * When given, the dialog also chooses which of the five reference lists the
-     * record opens (positions). "Справочники" is not one right but five, so the
-     * section is ticked list by list rather than as a whole.
-     */
-    directoryLists?: PlainRight[];
-    /**
-     * The same five lists again, but as the right to change them: each names the
-     * viewing right it depends on, so one cannot be ticked without the other.
-     */
-    directoryEdits?: PlainRight[];
     /** What a new record's fields start off as (equipment categories). */
     defaultFields?: CategoryField[];
-    /** What a new record starts with, right by right (positions); from the server. */
-    defaultRights?: string[];
 }
 
 /**
@@ -135,13 +86,14 @@ const NOTHING_NARROWED = {
 };
 
 /**
- * A reference list, drawn and kept: the five lists under «Справочники» and the
+ * A reference list, drawn and kept: the lists under «Справочники» and the
  * categories of equipment beside them.
  *
- * They differ in what a record carries — a category has a drawing and a part of
- * the stock, a position carries the rights it opens — and in nothing else, so
- * the table, the funnels, the kept arrangements and the window that writes a
- * record down are this one component. The company structure is not one of
+ * They differ in what a record carries — a category has a drawing, a part of the
+ * stock and the fields its units are described by, a language has a name and
+ * nothing else — and in nothing besides, so the table, the funnels, the kept
+ * arrangements and the window that writes a record down are this one
+ * component. The company structure is not one of
  * them: «Подразделения» is a page of its own, since a department has a page of
  * its own, a department above it and the jobs filed in it, and none of that is
  * what a list of citizenships is.
@@ -158,17 +110,8 @@ export function DirectoryManager({
     countWords = ['сотрудник', 'сотрудника', 'сотрудников'],
     icons,
     sections,
-    rights,
     fieldTypes,
     defaultFields,
-    cardFields,
-    profileFields,
-    equipmentScopes,
-    equipmentBlocks,
-    equipmentActions,
-    directoryLists,
-    directoryEdits,
-    defaultRights,
 }: DirectoryManagerProps) {
     const can = useCan();
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
@@ -519,17 +462,8 @@ export function DirectoryManager({
                     labels={labels}
                     icons={icons}
                     sections={sections}
-                    rights={rights}
                     fieldTypes={fieldTypes}
                     defaultFields={defaultFields}
-                    cardFields={cardFields}
-                    profileFields={profileFields}
-                    equipmentScopes={equipmentScopes}
-                    equipmentBlocks={equipmentBlocks}
-                    equipmentActions={equipmentActions}
-                    directoryLists={directoryLists}
-                    directoryEdits={directoryEdits}
-                    defaultRights={defaultRights}
                     onClose={() => setEditing(null)}
                 />
             )}

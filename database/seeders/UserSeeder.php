@@ -13,6 +13,7 @@ use App\Models\UserChild;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
 use App\Models\UserWorkExperience;
+use App\Support\Access;
 use App\Support\Membership;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -22,6 +23,17 @@ use Illuminate\Support\Facades\DB;
 class UserSeeder extends Seeder
 {
     public const EMPLOYEES = 67;
+
+    /**
+     * The one account a developer can sign in to as personnel.
+     *
+     * Every other role in the demo follows from the work somebody does, and
+     * «HR-специалист» follows from nothing — it is appointed, by the system
+     * administrator and by nobody else. So the demo appoints one, by name, and
+     * says whose account it is on the way past; otherwise the only way into a
+     * site that personnel run would be the superuser.
+     */
+    public const PERSONNEL = 'm.karimova@evolet.test';
 
     /** People who have left: [status, how many, notes to pick from]. */
     public const FORMER = [
@@ -46,7 +58,9 @@ class UserSeeder extends Seeder
         $this->callOnce(LanguageSeeder::class);
 
         $admin = $this->account(['name' => 'Некруз', 'surname' => 'Абдуллоев', 'patronymic' => 'Саидович', 'sex' => 'male', 'email' => 'admin@evolet.test']);
-        $admin->assignRole(['sysadmin', 'admin']);
+        // The one role, and nothing beside it: it passes every check through
+        // Gate::before, so a second would say nothing the first does not.
+        $admin->syncRoles(Access::SOLE_ROLE);
 
         // Employees that are easy to remember when logging in.
         $fixed = [
@@ -58,10 +72,15 @@ class UserSeeder extends Seeder
         ];
 
         foreach ($fixed as $attributes) {
-            $this->account($attributes);
+            $account = $this->account($attributes);
+
+            if ($account->email === self::PERSONNEL) {
+                $account->syncRoles(Access::HR);
+                $this->command?->getOutput()->writeln('  HR-специалист: '.self::PERSONNEL.' (пароль password)');
+            }
         }
 
-        $missing = self::EMPLOYEES - User::active()->whereDoesntHave('roles', fn ($q) => $q->whereIn('name', ['sysadmin', 'admin']))->count();
+        $missing = self::EMPLOYEES - User::active()->whereDoesntHave('roles', fn ($q) => $q->where('name', Access::SOLE_ROLE))->count();
 
         if ($missing > 0) {
             User::factory($missing)->has(UserDetail::factory(), 'details')->create();
@@ -82,12 +101,14 @@ class UserSeeder extends Seeder
             }
         }
 
-        $this->assignRoles();
         $this->assignDepartments();
         $this->assignPositions();
         $this->assignDuties();
         $this->assignDepartmentHeads();
         $this->sayWhichPositionsLead();
+        // Last of all, because a role is now read off the structure and before
+        // this line there is no structure to read.
+        $this->assignRoles();
         $this->assignLanguages();
         $this->addChildren();
         $this->addEducation();
@@ -344,21 +365,21 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * The holder of a unit's head position leads it; units without one get a
-     * working member who holds a head role, if there is any. Larger units
-     * sometimes get a second head: a department can have several.
+     * The holder of a unit's head position leads it; a unit whose head title
+     * nobody holds is left without one, since there is nothing else left that
+     * says who leads anything. Larger units sometimes get a second head: a
+     * department can have several.
      */
     private function assignDepartmentHeads(): void
     {
         $headPositions = array_flip(PositionSeeder::HEADS);
 
         Department::whereDoesntHave('heads')->get()->each(function (Department $department) use ($headPositions) {
-            $members = $department->users()->active()->with(['positions', 'roles'])->get();
+            $members = $department->users()->active()->with('positions')->get();
 
             $head = isset($headPositions[$department->name])
                 ? $members->first(fn (User $u) => $u->positions->contains('name', $headPositions[$department->name]))
                 : null;
-            $head ??= $members->first(fn (User $u) => $u->hasAnyRole(['department-head', 'division-head']));
 
             if (! $head) {
                 return;
@@ -375,9 +396,9 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * Every head title goes to someone in the unit it leads, preferring people
-     * with a head role there. Everyone else gets one regular title, about one
-     * in eight a second one. The admin account holds no position.
+     * Every head title goes to somebody in the unit it leads. Everyone else
+     * gets one regular title, about one in eight a second one. The system
+     * administrator's account holds no position.
      */
     /**
      * The last word on the structure, so that seeded data obeys the rule the
@@ -430,27 +451,6 @@ class UserSeeder extends Seeder
                     ->all());
             });
 
-        // The role says which level somebody leads, and the title says which
-        // unit: whoever ended up with the head title of a department is a
-        // department head, and of a unit inside one, a division head. The two
-        // were handed out before the titles were, so they are put right here
-        // rather than left disagreeing with the structure.
-        User::whereHas('positions', fn ($query) => $query->whereIn('name', $heads))
-            ->with(['positions.department', 'roles'])
-            ->get()
-            ->each(function (User $head) use ($heads) {
-                $leads = $head->positions->first(fn (Position $position) => in_array($position->name, $heads, true));
-                $wanted = $leads->department?->parent_id === null ? 'department-head' : 'division-head';
-
-                // Nobody holds more than two roles, here as everywhere else:
-                // the one that says they lead, and whatever they held besides.
-                $head->syncRoles([$wanted, ...$head->roles
-                    ->pluck('name')
-                    ->reject(fn (string $role) => in_array($role, ['department-head', 'division-head'], true))
-                    ->take(1)
-                    ->all()]);
-            });
-
         // And the duties of a job let go go with it, as they do on every save.
         DB::table('position_user')->whereNotExists(fn ($query) => $query
             ->selectRaw('1')
@@ -476,7 +476,7 @@ class UserSeeder extends Seeder
     private function assignPositions(): void
     {
         $titles = Position::all()->keyBy('name');
-        $everyone = fn () => User::whereDoesntHave('roles', fn ($q) => $q->where('name', 'admin'));
+        $everyone = fn () => User::whereDoesntHave('roles', fn ($q) => $q->where('name', Access::SOLE_ROLE));
         // Head posts go to people who still work here.
         $employees = fn () => $everyone()->active();
 
@@ -489,9 +489,6 @@ class UserSeeder extends Seeder
             $head = $employees()
                 ->whereHas('departments', fn ($q) => $q->whereKey($department->id))
                 ->whereDoesntHave('positions', fn ($q) => $q->whereIn('name', array_keys(PositionSeeder::HEADS)))
-                ->with('roles')
-                ->get()
-                ->sortByDesc(fn (User $u) => $u->hasAnyRole(['department-head', 'division-head']))
                 ->first();
 
             if (! $head) {
@@ -500,7 +497,6 @@ class UserSeeder extends Seeder
                     ->doesntHave('positions')
                     // Nobody ends up in more than two departments.
                     ->has('departments', '<', 2)
-                    ->whereDoesntHave('roles', fn ($q) => $q->whereIn('name', ['department-head', 'division-head']))
                     ->inRandomOrder()
                     ->first();
                 $head?->departments()->syncWithoutDetaching([$department->id]);
@@ -552,8 +548,12 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * Heads sit in the unit they lead; everyone else is in one unit, a few in
-     * two, and a few in none. The admin belongs to no department.
+     * Everyone is in one unit, a few in two, and a few in none. The system
+     * administrator is in none at all: the account is the system's and not any
+     * department's.
+     *
+     * Nothing here says who leads. That follows from the titles handed out
+     * after this, and the memberships are written again from them at the end.
      */
     private function assignDepartments(): void
     {
@@ -562,16 +562,11 @@ class UserSeeder extends Seeder
         $all = $top->concat($units);
 
         User::doesntHave('departments')
-            ->whereDoesntHave('roles', fn ($q) => $q->whereIn('name', ['sysadmin', 'admin']))
-            ->with('roles')
+            ->whereDoesntHave('roles', fn ($q) => $q->where('name', Access::SOLE_ROLE))
             ->orderBy('id')
             ->get()
             ->each(function (User $user) use ($top, $units, $all) {
-                $roles = $user->roles->pluck('name');
-
                 $departments = match (true) {
-                    $roles->contains('department-head') => [$top->random()],
-                    $roles->contains('division-head') => [$units->random()],
                     fake()->boolean(7) => [],
                     fake()->boolean(9) => $all->random(2)->all(),
                     default => [fake()->boolean(80) ? $units->random() : $top->random()],
@@ -582,28 +577,23 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * A couple of department heads, a few division heads, everyone else spread
-     * over the remaining roles. About one in six also holds a second regular
-     * position (roles are many-to-many).
+     * One role each, and not a drawn one: whoever holds a leading position
+     * leads, and everybody else is a specialist.
+     *
+     * Nothing is decided here that the application does not decide the same way
+     * — App\Support\Access::derive is asked the question, so the demo holds
+     * exactly what a save would have written. The flag is on the job, which is
+     * why this comes after the titles are settled and not before.
+     *
+     * The two that are appointed rather than earned, the system administrator
+     * and personnel, already hold theirs and are passed over.
      */
     private function assignRoles(): void
     {
-        // Access roles are handed out by hand, not drawn at random. The two
-        // that say somebody leads are not among them: leading follows from
-        // holding a leading position, so those roles are given out once the
-        // titles are settled, to the people the titles went to.
-        $regular = array_keys(array_diff_key(RoleSeeder::ROLES, array_flip(['sysadmin', 'admin', 'department-head', 'division-head'])));
-
-        User::doesntHave('roles')->orderBy('id')->get()->each(function (User $user) use ($regular) {
-            $first = fake()->randomElement($regular);
-            $roles = [$first];
-
-            if (fake()->boolean(17)) {
-                $roles[] = fake()->randomElement(array_values(array_diff($regular, [$first])));
-            }
-
-            $user->assignRole($roles);
-        });
+        User::whereDoesntHave('roles', fn ($q) => $q->whereIn('name', [Access::SOLE_ROLE, Access::HR]))
+            ->orderBy('id')
+            ->get()
+            ->each(fn (User $user) => $user->syncRoles(Access::derive($user)));
     }
 
     /**

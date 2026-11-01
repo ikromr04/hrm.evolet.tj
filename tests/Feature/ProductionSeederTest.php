@@ -16,23 +16,31 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * What the company's own installation starts with: the rights and the system
- * administrator's position — and not one list, person or laptop made up for it.
+ * What the company's own installation starts with: the rights and the four
+ * roles — and not one list, person or laptop made up for it.
  */
 class ProductionSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_it_brings_the_rights_and_the_one_position()
+    public function test_it_brings_the_rights_and_the_four_roles()
     {
         $this->seed(ProductionSeeder::class);
 
         $this->assertEqualsCanonicalizing(Access::keys(), Permission::pluck('name')->all());
 
-        $this->assertSame([Access::SOLE_ROLE], Role::pluck('name')->all());
-        $this->assertSame('Системный администратор', Role::findByName(Access::SOLE_ROLE)->title);
-        // The system administrator holds nothing: the role passes every check by itself.
-        $this->assertSame(0, Role::findByName(Access::SOLE_ROLE)->permissions()->count());
+        // All four, not just the one the system cannot work without: there is no
+        // page left on which a company could add the other three for itself.
+        $this->assertEqualsCanonicalizing(array_keys(Access::ROLES), Role::pluck('name')->all());
+
+        foreach (Access::ROLES as $name => $title) {
+            $role = Role::findByName($name);
+
+            $this->assertSame($title, $role->title);
+            // Nothing is hung on a role: two of the four pass every check by
+            // themselves and the other two wait for a site that is open to them.
+            $this->assertSame(0, $role->permissions()->count());
+        }
     }
 
     public function test_the_directories_start_empty()
@@ -73,8 +81,12 @@ class ProductionSeederTest extends TestCase
     {
         $this->seed(ProductionSeeder::class);
 
-        // Somebody has been at work in «Справочники» since the first day.
+        // Somebody has been at work in «Справочники» since the first day. Two of
+        // the four are renamed rather than one: a role is looked for by its name
+        // and made only where there is none, so a run that wrote the titles back
+        // would be caught whichever of them it started with.
         Role::findByName(Access::SOLE_ROLE)->update(['title' => 'Главный администратор']);
+        Role::findByName(Access::HEAD)->update(['title' => 'Начальник подразделения']);
         $position = Role::create(['name' => 'accountant', 'guard_name' => 'web', 'title' => 'Бухгалтер']);
         $position->givePermissionTo('employees.view');
         Department::create(['name' => 'Бухгалтерия']);
@@ -82,7 +94,8 @@ class ProductionSeederTest extends TestCase
         $this->seed(ProductionSeeder::class);
 
         $this->assertSame('Главный администратор', Role::findByName(Access::SOLE_ROLE)->title);
-        $this->assertSame(2, Role::count());
+        $this->assertSame('Начальник подразделения', Role::findByName(Access::HEAD)->title);
+        $this->assertSame(count(Access::ROLES) + 1, Role::count());
         $this->assertSame(['employees.view'], Role::findByName('accountant')->permissions->pluck('name')->all());
         $this->assertSame(1, Department::count());
     }
@@ -99,7 +112,7 @@ class ProductionSeederTest extends TestCase
         $this->assertTrue(Permission::where('name', 'employees.fire')->exists());
     }
 
-    public function test_the_system_administrator_position_is_restored_if_it_is_missing()
+    public function test_a_role_is_restored_if_it_is_missing()
     {
         $this->seed(ProductionSeeder::class);
 
@@ -107,7 +120,8 @@ class ProductionSeederTest extends TestCase
 
         $this->seed(ProductionSeeder::class);
 
-        $this->assertSame([Access::SOLE_ROLE], Role::pluck('name')->all());
+        $this->assertEqualsCanonicalizing(array_keys(Access::ROLES), Role::pluck('name')->all());
+        $this->assertSame(Access::ROLES[Access::SOLE_ROLE], Role::findByName(Access::SOLE_ROLE)->title);
     }
 
     public function test_a_plain_db_seed_in_production_is_the_careful_one()
@@ -118,6 +132,6 @@ class ProductionSeederTest extends TestCase
         $this->artisan('db:seed', ['--force' => true, '--no-interaction' => true])->assertSuccessful();
 
         $this->assertSame(0, User::count());
-        $this->assertSame([Access::SOLE_ROLE], Role::pluck('name')->all());
+        $this->assertEqualsCanonicalizing(array_keys(Access::ROLES), Role::pluck('name')->all());
     }
 }

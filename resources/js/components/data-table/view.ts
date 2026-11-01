@@ -33,11 +33,12 @@ function clampWidth(width: number): number {
  * A table is arranged by whoever is reading it, and what they arrange is their
  * own and stays in their own browser. Underneath that is the one arrangement a
  * table opens in before anybody has touched it — which columns are shown, in
- * what order and how wide — and that one is the company's. The single system
- * administrator sets it; for everybody else it is simply how the table opens.
+ * what order and how wide — and that one is the company's. Whoever answers for
+ * the whole of it sets that; for everybody else it is simply how the table
+ * opens.
  */
 interface Shared {
-    auth: { sysadmin?: boolean };
+    auth: { everything?: boolean };
     tableViews?: Record<string, ViewState>;
     [key: string]: unknown;
 }
@@ -704,7 +705,7 @@ export function useTableMemory({
 
     return {
         offered: current !== 'default' || kept.views.length > 0,
-        canPublish: props.auth?.sysadmin === true,
+        canPublish: props.auth?.everything === true,
         published: company !== null,
         publish,
         unpublish,

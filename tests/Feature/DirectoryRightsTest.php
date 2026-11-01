@@ -9,7 +9,6 @@ use App\Support\Directories;
 use Database\Seeders\PermissionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
@@ -32,12 +31,9 @@ class DirectoryRightsTest extends TestCase
 
     /**
      * Each list one adds entries to, with a page of its own and something one may
-     * add. "Доступы" is a list of the section as well, but it is a table of what
-     * already exists rather than something one adds rows to, so it is checked on
-     * its own.
+     * add.
      */
     private const LISTS = [
-        'roles' => ['/directories/roles', ['title' => 'Кладовщик']],
         'languages' => ['/directories/languages', ['name' => 'Немецкий']],
         'employment_types' => ['/directories/employment_types', ['name' => 'Подработка']],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
@@ -49,12 +45,10 @@ class DirectoryRightsTest extends TestCase
      * PositionPagesTest and DepartmentPagesTest read the rights there.
      */
     private const READABLE = [
-        'roles' => '/directories/roles',
         'languages' => '/directories/languages',
         'citizenships' => '/directories/citizenships',
         'employment_types' => '/directories/employment_types',
         'equipment' => '/directories/equipment',
-        'access' => '/directories/access',
     ];
 
     protected function setUp(): void
@@ -143,8 +137,6 @@ class DirectoryRightsTest extends TestCase
 
     public function test_the_section_opens_on_the_first_list_its_reader_may_see()
     {
-        // Not on the roles, which is where the tabs start but not everybody who
-        // keeps a directory is allowed.
         $this->actingAs($this->person(Directories::viewPermission('languages')))
             ->get('/directories')
             ->assertRedirect('/directories/languages');
@@ -153,14 +145,15 @@ class DirectoryRightsTest extends TestCase
             ->get('/directories')
             ->assertRedirect('/directories/citizenships');
 
+        // And whoever may read every one of them lands on the first tab of all.
         $this->actingAs(User::factory()->create()->assignRole('sysadmin'))
             ->get('/directories')
-            ->assertRedirect('/directories/roles');
+            ->assertRedirect('/directories/languages');
     }
 
     public function test_each_page_says_whether_its_list_is_this_persons_to_keep()
     {
-        foreach (self::LISTS as $list => [$url]) {  // "Доступы" has no canEdit of its own.
+        foreach (self::LISTS as $list => [$url]) {
             $reader = $this->person(Directories::viewPermission($list));
             $keeper = $this->person(Directories::viewPermission($list), Directories::editPermission($list));
 
@@ -169,78 +162,17 @@ class DirectoryRightsTest extends TestCase
         }
     }
 
-    public function test_the_access_table_is_read_and_kept_by_rights_of_its_own()
-    {
-        $role = Role::findByName('analyst');
-
-        // Reading the table is not deciding what is in it, here as everywhere.
-        $reader = $this->person(Directories::viewPermission('access'));
-        $this->actingAs($reader)->get('/directories/access')->assertOk();
-        $this->actingAs($reader)
-            ->put("/directories/access/{$role->id}", ['permissions' => ['employees.view']])
-            ->assertForbidden();
-
-        // Deciding on access decides only on what the decider holds: handing
-        // out more than that would make this one right worth every other.
-        $keeper = $this->person(Directories::viewPermission('access'), Directories::editPermission('access'), 'employees.view');
-        // What this position carries that the keeper does not: none of their
-        // business, and so neither granted nor taken away by their form.
-        $untouched = $role->permissions->pluck('name')->reject(fn (string $name) => $name === 'employees.view')->values();
-
-        $this->actingAs($keeper)
-            ->put("/directories/access/{$role->id}", ['permissions' => ['employees.view']])
-            ->assertRedirect();
-        $this->assertSame(
-            $untouched->push('employees.view')->sort()->values()->all(),
-            $role->fresh()->permissions->pluck('name')->sort()->values()->all(),
-        );
-
-        // A personal exception on somebody's card is the same duty, so it takes
-        // the same right rather than one of its own.
-        $colleague = User::factory()->create();
-        $this->actingAs($reader)
-            ->put("/employees/{$colleague->id}/access", ['permission' => 'employees.view', 'allowed' => true])
-            ->assertForbidden();
-        $this->actingAs($keeper)
-            ->put("/employees/{$colleague->id}/access", ['permission' => 'employees.view', 'allowed' => true])
-            ->assertRedirect();
-    }
-
     public function test_the_one_account_keeps_every_list_without_a_single_right()
     {
         $sysadmin = User::factory()->create()->assignRole('sysadmin');
 
+        $this->assertSame(Directories::TABS, array_keys(self::READABLE));
         $this->assertSame(array_keys(self::READABLE), Directories::visibleTo($sysadmin));
         $this->assertSame(array_keys(self::READABLE), Directories::editableBy($sysadmin));
 
         foreach (self::LISTS as [$url, $payload]) {
             $this->actingAs($sysadmin)->get($url)->assertOk();
             $this->actingAs($sysadmin)->post($url, $payload)->assertRedirect();
-        }
-    }
-
-    public function test_the_access_page_offers_both_lists_of_rights()
-    {
-        $sysadmin = User::factory()->create()->assignRole('sysadmin');
-
-        $page = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
-
-        // Every list of the catalogue, which is two more than the tabs: the job
-        // titles and the departments are read and kept by rights of this section
-        // although their pages sit elsewhere, so the table still offers all four.
-        $this->assertCount(count(Directories::LISTS), $page['directoryLists']);
-        $this->assertCount(count(Directories::LISTS), $page['directoryEdits']);
-        $this->assertCount(count(self::READABLE) + 2, $page['directoryLists']);
-
-        foreach (['positions', 'departments'] as $elsewhere) {
-            $this->assertContains(Directories::viewPermission($elsewhere), array_column($page['directoryLists'], 'key'));
-            $this->assertContains(Directories::editPermission($elsewhere), array_column($page['directoryEdits'], 'key'));
-        }
-        // Every right to change a list names the right to read it, so the dialog
-        // can grey out what would never answer yes.
-        foreach ($page['directoryEdits'] as $right) {
-            $this->assertArrayHasKey('requires', $right);
-            $this->assertContains($right['requires']['key'], array_column($page['directoryLists'], 'key'));
         }
     }
 }

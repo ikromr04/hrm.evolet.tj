@@ -5,7 +5,6 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DepartmentProfileController;
 use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
-use App\Http\Controllers\EmployeeAccessController;
 use App\Http\Controllers\EmployeeAvatarController;
 use App\Http\Controllers\EmployeeAwardController;
 use App\Http\Controllers\EmployeeController;
@@ -489,10 +488,10 @@ Route::middleware(['auth', 'can:directories.manage.positions'])->name('positions
     });
 });
 
-// Directories: roles ("Позиция"), languages, citizenships and equipment categories.
+// Directories: languages, citizenships, employment types and equipment categories.
 Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(function () {
-    // The section opens on the first list this person may read rather than always
-    // on the roles, which not everybody who keeps a directory may see.
+    // The section opens on the first list this person may read, since the lists
+    // are kept by different people and not everybody sees the first of them.
     Route::get('/', function (Request $request) {
         $first = DirectoryLists::firstFor($request->user());
 
@@ -502,13 +501,13 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
     });
 
     // Lists kept by different people, so each is a right of its own — reading it,
-    // and adding to it and renaming in it. "Доступы" is one of them too, further
-    // down: it is a page of its own rather than a resource.
+    // and adding to it and renaming in it.
     // Neither "Должности" nor "Отделы" is among them any more: both are tabs of
     // a section of their own, at /positions and /departments, and both are
     // read and kept by the very same two rights they always were.
+    // "Роли доступа" and "Доступы" are gone altogether: there are four roles, they
+    // are named in App\Support\Access, and no page hands rights out any more.
     $lists = [
-        'roles' => Directories\RoleController::class,
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,
         'employment_types' => Directories\EmploymentTypeController::class,
@@ -526,24 +525,7 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
             ->only(['store', 'update', 'destroy'])
             ->middleware("can:directories.manage.{$list}");
     }
-
-    // Who may do what: a list of the section like any other, read and kept by its
-    // own pair of rights. The two access roles are still not editable in it —
-    // they answer yes to everything whatever the table says.
-    Route::get('access', [Directories\AccessController::class, 'index'])
-        ->middleware('can:'.DirectoryLists::viewPermission('access'))
-        ->name('access.index');
-    Route::put('access/{role}', [Directories\AccessController::class, 'update'])
-        ->middleware('can:directories.manage.access')
-        ->name('access.update');
 });
-
-// A right given to, or taken from, one colleague in particular. The same duty as
-// the access table, so the same right: an exception on a card and a tick in the
-// table are two ways of doing one thing.
-Route::put('employees/{employee}/access', EmployeeAccessController::class)
-    ->middleware(['auth', 'can:directories.manage.access'])
-    ->name('employees.access');
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';

@@ -24,7 +24,7 @@ use Tests\TestCase;
  *
  * Moving the list out of "Справочники" moved no rights: it is still read with
  * "directories.view.positions" and kept with "directories.edit.positions", and
- * both are still offered by the access table. Filing a position in a department
+ * both are still in that section's catalogue. Filing a position in a department
  * is part of keeping the position and asks for nothing more.
  *
  * A position belongs to one department, and its name is only taken within that
@@ -673,7 +673,7 @@ class PositionPagesTest extends TestCase
         $this->assertNotContains('positions', Directories::visibleTo($sysadmin));
         $this->assertNotContains('positions', Directories::editableBy($sysadmin));
         $this->actingAs($sysadmin)->get('/directories/positions')->assertNotFound();
-        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/roles');
+        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/languages');
 
         // The section is shut for somebody who may read nothing but the job
         // titles — that list is elsewhere now and answers for itself.
@@ -681,15 +681,11 @@ class PositionPagesTest extends TestCase
         $this->actingAs($reader)->get('/directories')->assertForbidden();
         $this->actingAs($reader)->get('/positions')->assertOk();
 
-        // The two rights are still the two rights, and the access table still
-        // offers both: the production table is keyed by these very strings.
+        // The two rights are still the two rights: the production table is keyed
+        // by these very strings, so dropping the list from the catalogue would
+        // silently take away what every position has been granted.
         $this->assertContains('directories.view.positions', Directories::permissions());
         $this->assertContains('directories.edit.positions', Directories::permissions());
         $this->assertArrayHasKey('positions', Directories::LISTS);
-
-        $props = $this->actingAs($sysadmin)->get('/directories/access')->assertOk()->viewData('page')['props'];
-
-        $this->assertContains('directories.view.positions', array_column($props['directoryLists'], 'key'));
-        $this->assertContains('directories.edit.positions', array_column($props['directoryEdits'], 'key'));
     }
 }

@@ -15,11 +15,7 @@ export default function Forbidden() {
             icon={Lock}
             title="Действие не авторизовано"
             description="Эта страница открыта не всем: у вашей позиции нет доступа к ней."
-            note={
-                <p className="text-muted-foreground text-[13px]">
-                    Если доступ нужен для работы, его выдаёт системный администратор на странице «Справочники → Доступы».
-                </p>
-            }
+            note={<p className="text-muted-foreground text-[13px]">Если доступ нужен для работы, обратитесь к системному администратору.</p>}
         />
     );
 }

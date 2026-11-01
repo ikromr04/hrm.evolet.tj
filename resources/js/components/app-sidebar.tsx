@@ -55,18 +55,18 @@ const named = ({ title }: { title: string }) => ({ title });
 // of pages drift apart, and the one nobody looks at is the one that goes stale.
 export const navGroups = (
     can: (permission: Permission) => boolean,
-    sysadmin: boolean,
+    everything: boolean,
     href: (url: string, key: string) => string,
 ): SidebarNavGroup[] => [
     {
         title: 'Обзор',
         items: [
-            // The company at a glance is the one account's page, and it is nobody
-            // else's first stop: everybody else starts at their own card.
-            // No address for the first of them either: what a main page should
-            // hold has not been decided, so it names itself and waits. Everybody
-            // who is not a sysadmin still starts at their own card.
-            sysadmin ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
+            // The company at a glance belongs to whoever answers for the company
+            // as a whole, and it is nobody else's first stop: everybody else
+            // starts at their own card. No address for the first of them either:
+            // what a main page should hold has not been decided, so it names
+            // itself and waits.
+            everything ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
             { title: 'Уведомления', icon: Bell },
         ],
     },
@@ -162,7 +162,7 @@ const SCROLL_KEY = 'evolet.sidebar.scroll';
 export function AppSidebar() {
     const can = useCan();
     const listHref = useListHref();
-    const { sysadmin } = usePage<SharedData>().props.auth;
+    const { everything } = usePage<SharedData>().props.auth;
     const menu = useRef<HTMLDivElement>(null);
 
     /**
@@ -227,7 +227,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent ref={menu}>
-                {navGroups(can, sysadmin, listHref)
+                {navGroups(can, everything, listHref)
                     .filter((group) => group.items.length > 0)
                     .map((group) => (
                         <NavMain key={group.title} group={group} />

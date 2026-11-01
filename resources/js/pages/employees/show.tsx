@@ -26,7 +26,6 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
@@ -67,14 +66,6 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useRef, useState, type FormEventHandler, type ReactNode } from 'react';
-
-/** Every right, what the positions give and what was decided for this person. */
-interface AccessPicture {
-    /** An access role: they pass every check whatever the rights below say. */
-    everything: boolean;
-    sections: { key: string; title: string; rights: { key: string; title: string; hint: string }[] }[];
-    rights: { key: string; position: boolean; override: boolean | null }[];
-}
 
 /** One line of the equipment journal, narrowed to this colleague's spells. */
 interface HistoryEvent {
@@ -282,142 +273,6 @@ interface EditOptions extends PlacementOptions {
     reasons: string[];
     equipment_types: { id: number; name: string }[];
 }
-
-/**
- * What this colleague may do, and why.
- *
- * Rights come with a position; an exception is for the person whose work does
- * not fit their position — one who needs the journal, one who must not see
- * private data. An exception beats the position either way, which is why it is
- * spelled out here rather than hidden behind a tick.
- */
-function AccessSection({ employee, access }: { employee: Employee; access: AccessPicture }) {
-    const [open, setOpen] = useState(false);
-
-    const titles = new Map(access.sections.flatMap((section) => section.rights.map((right) => [right.key, `${section.title}: ${right.title}`])));
-
-    // Only the rights this block can name: field, equipment and directory rights are
-    // read and kept list by list elsewhere, and here they would be blank lines.
-    const titled = access.rights.filter((right) => titles.has(right.key));
-    const granted = titled.filter((right) => right.override === true);
-    const revoked = titled.filter((right) => right.override === false);
-    const effective = titled.filter((right) => right.override ?? right.position);
-
-    // Each tick is saved on its own, so a quick second one neither cancels the
-    // first nor the save of a form standing open elsewhere on the page.
-    const set = (key: string, allowed: boolean | null) =>
-        router.put(route('employees.access', employee.id), { permission: key, allowed }, { preserveScroll: true, preserveState: true, async: true });
-
-    return (
-        <>
-            <Section title="Доступы" action={!access.everything && <EditButton label="Настроить доступы" onClick={() => setOpen(true)} />}>
-                {access.everything ? (
-                    <p className={emptyNote}>Все доступы: сотрудник — системный администратор и проходит любую проверку.</p>
-                ) : (
-                    <Fields columns={1}>
-                        <Field label="Открыто">
-                            {effective.length > 0 ? (
-                                <span className="flex flex-col gap-0.5">
-                                    {effective.map((right) => (
-                                        <span key={right.key}>{titles.get(right.key)}</span>
-                                    ))}
-                                </span>
-                            ) : (
-                                <span className="text-muted-foreground">Ничего</span>
-                            )}
-                        </Field>
-                        {granted.length > 0 && (
-                            <Field label="Добавлено лично">
-                                <span className="flex flex-col gap-0.5">
-                                    {granted.map((right) => (
-                                        <span key={right.key}>{titles.get(right.key)}</span>
-                                    ))}
-                                </span>
-                            </Field>
-                        )}
-                        {revoked.length > 0 && (
-                            <Field label="Снято лично">
-                                <span className="flex flex-col gap-0.5">
-                                    {revoked.map((right) => (
-                                        <span key={right.key}>{titles.get(right.key)}</span>
-                                    ))}
-                                </span>
-                            </Field>
-                        )}
-                    </Fields>
-                )}
-            </Section>
-
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="sm:max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Доступы сотрудника</DialogTitle>
-                        <DialogDescription>
-                            По умолчанию доступ берётся из позиции. Здесь его можно выдать этому сотруднику отдельно или снять с него — решение
-                            сохраняется сразу.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="scroll-soft -mx-4 max-h-[60vh] overflow-y-auto px-4 sm:-mx-6 sm:px-6">
-                        {/* Sections kept list by list (fields, equipment, directories) have no single right to override here. */}
-                        {access.sections
-                            .filter((section) => section.rights.length > 0)
-                            .map((section) => (
-                                <div key={section.key} className="border-t py-3 first:border-t-0 first:pt-0">
-                                    <p className="text-muted-foreground mb-2 text-xs font-semibold tracking-wide uppercase">{section.title}</p>
-                                    <ul className="grid gap-2">
-                                        {section.rights.map((right) => {
-                                            const state = access.rights.find((row) => row.key === right.key);
-                                            const value = state?.override === true ? 'yes' : state?.override === false ? 'no' : 'position';
-
-                                            return (
-                                                <li key={right.key} className="flex flex-wrap items-center justify-between gap-2">
-                                                    <span className="min-w-0">
-                                                        <span className="text-sm">{right.title}</span>
-                                                        <span className="text-muted-foreground block text-xs">
-                                                            {state?.position ? 'Роль даёт этот доступ' : 'Роль этот доступ не даёт'}
-                                                        </span>
-                                                    </span>
-                                                    <ToggleGroup
-                                                        className="w-full sm:w-auto"
-                                                        type="single"
-                                                        variant="outline"
-                                                        size="sm"
-                                                        value={value}
-                                                        onValueChange={(next) => next && set(right.key, next === 'position' ? null : next === 'yes')}
-                                                        aria-label={right.title}
-                                                    >
-                                                        <ToggleGroupItem value="position" className={toggleItem}>
-                                                            По позиции
-                                                        </ToggleGroupItem>
-                                                        <ToggleGroupItem value="yes" className={toggleItem}>
-                                                            Разрешить
-                                                        </ToggleGroupItem>
-                                                        <ToggleGroupItem value="no" className={toggleItem}>
-                                                            Запретить
-                                                        </ToggleGroupItem>
-                                                    </ToggleGroup>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                </div>
-                            ))}
-                    </div>
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setOpen(false)}>
-                            Готово
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
-    );
-}
-
-/** On a phone the three choices split the row between them; from `sm` they sit at their own width. */
-const toggleItem = 'h-auto min-h-8 flex-1 px-1 text-xs whitespace-nowrap sm:flex-none sm:px-2.5 sm:text-sm';
 
 /** The area left under the tabs, split into a main column and a sidebar. */
 const paneGrid = 'grid gap-4 max-md:gap-4 lg:grid-cols-[1fr_24rem]';
@@ -2675,7 +2530,6 @@ export default function EmployeeProfile({
     equipmentTypes,
     options,
     assigned,
-    access,
     visibleFields,
     editableFields,
 }: {
@@ -2700,8 +2554,6 @@ export default function EmployeeProfile({
     options: EditOptions | null;
     assigned: Assigned | null;
 
-    /** Rights and personal exceptions; only a system administrator is sent these. */
-    access: AccessPicture | null;
     /** Which lines of this card the viewer reads; everything else is not drawn. */
     visibleFields: string[];
     /** Which of them they may change; the rest are shown without a pencil. */
@@ -3083,8 +2935,6 @@ export default function EmployeeProfile({
                                         </Fields>
                                     </Section>
 
-                                    {access && <AccessSection employee={employee} access={access} />}
-
                                     {/* Nobody transfers, fires or deletes themselves, so on one's own
                                     card the row would be three disabled buttons and nothing else. */}
                                     {canEdit && !isSelf && (
@@ -3107,7 +2957,7 @@ export default function EmployeeProfile({
                                     <Card className="text-muted-foreground flex items-start gap-3 rounded-xl px-4 py-5 text-sm max-md:rounded-2xl max-md:border-0 max-md:py-3.5 max-md:text-[15px] max-md:shadow-none md:px-6">
                                         <Lock className="mt-0.5 size-5 shrink-0" />
                                         {/* Who exactly sees them is no longer a sentence to write down:
-                                        it is whatever the access page says, line by line. */}
+                                        it follows from the viewer's role, line by line. */}
                                         <p>Личные данные, контакты, паспорт и семья закрыты.</p>
                                     </Card>
                                 </div>

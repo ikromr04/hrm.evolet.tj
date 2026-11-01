@@ -48,10 +48,11 @@ class HandleInertiaRequests extends Middleware
                 // Every right in the catalogue with a yes or a no, so a page can
                 // hide what it must without asking a second question.
                 'can' => $request->user()?->accessMap() ?? [],
-                // The one account outside the list of rights. Pages ask this only
-                // where something is not a right at all — the company dashboard,
-                // which nobody is granted line by line.
-                'sysadmin' => (bool) $request->user()?->hasRole(Access::SOLE_ROLE),
+                // Whether this person is outside the list of rights altogether —
+                // the system administrator or personnel. Pages ask it only where
+                // something is not a right at all: the company dashboard, which
+                // nobody is granted line by line.
+                'everything' => $request->user() !== null && Access::everything($request->user()),
             ],
             // How the tables of the app open for whoever has not arranged them
             // themselves: one arrangement per table, set by that one account.

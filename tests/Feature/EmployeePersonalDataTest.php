@@ -250,6 +250,9 @@ class EmployeePersonalDataTest extends TestCase
                 ->where('options.positions', fn ($positions) => collect($positions)->firstWhere('id', $analyst->id) === [
                     'id' => $analyst->id,
                     'name' => 'Аналитик',
+                    // Whether the job leads its department, which is what the
+                    // role on the card follows from when nobody picks one.
+                    'is_head' => false,
                     'display_name' => 'Аналитик (Отдел продаж)',
                     // The department behind the job, short form and full, so a list can
                     // name it under the title rather than only in brackets.
