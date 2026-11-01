@@ -173,6 +173,11 @@ class EmployeeFamilyTest extends TestCase
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
 
+        // Whatever the card said before, since a factory may well have married
+        // this one off and named the spouse: what matters is that a refused save
+        // leaves the line exactly as it found it.
+        $before = $employee->details->spouse_name;
+
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
                 'spouse_name' => '',
@@ -180,7 +185,7 @@ class EmployeeFamilyTest extends TestCase
             ]))
             ->assertSessionHasErrors(['spouse_name', 'spouse_birth_date']);
 
-        $this->assertNull($employee->refresh()->details->spouse_name);
+        $this->assertSame($before, $employee->refresh()->details->spouse_name);
     }
 
     /**
