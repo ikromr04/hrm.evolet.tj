@@ -22,11 +22,11 @@ class UserWorkExperience extends Model
     protected $fillable = [
         'organization',
         'position',
-        'country',
         'started_month',
         'started_year',
         'ended_month',
         'ended_year',
+        'reason',
     ];
 
     public function user(): BelongsTo

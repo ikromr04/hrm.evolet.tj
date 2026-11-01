@@ -47,6 +47,17 @@ final class EmployeeFields
         'languages' => ['Знание языков', false],
         'employment' => ['Начало и стаж работы', false],
         'education' => ['Образование', false],
+        // Next to where somebody studied and not inside it: the two are read by
+        // much the same people, but a degree is the one line of this card a
+        // person puts on a business card themselves, and a company may well
+        // open it wider than it opens a list of universities.
+        'degree' => ['Учёная степень, звание', false],
+        // Kept beside it and not inside it, for the reason the degree is kept
+        // beside the places of study: the two are read by much the same people,
+        // and a company may well open one of them wider than the other.
+        'award' => ['Государственные награды, поощрения', false],
+        // And the third line of its kind, beside them for the same reason.
+        'military' => ['Отношение к воинской обязанности', false],
         'experience' => ['Трудовая деятельность', false],
         'equipment' => ['Оборудование', false],
     ];
@@ -86,20 +97,28 @@ final class EmployeeFields
         'passport_number' => ['passport', 'Серия и номер'],
         'passport_issued_at' => ['passport', 'Дата выдачи'],
         'passport_issued_by' => ['passport', 'Кем выдан'],
+        'tax_number' => ['passport', 'ИНН'],
 
         'email' => ['contacts', 'Электронная почта'],
         'phone' => ['contacts', 'Телефон'],
-        'sos_phone' => ['contacts', 'Телефон SOS'],
+        'sos_phone' => ['contacts', 'Экстренный контакт'],
 
         'marital_status' => ['family', 'Семейное положение'],
         'spouse' => ['family', 'Супруг и его дата рождения'],
         'children' => ['family', 'Дети'],
+        'relatives' => ['family', 'Родство'],
 
         'languages' => ['languages', 'Языки и уровень'],
 
         'hired_at' => ['employment', 'Начало работы и стаж'],
 
         'educations' => ['education', 'Учебные заведения'],
+
+        'degree' => ['degree', 'Учёная степень, звание'],
+
+        'award' => ['award', 'Государственные награды, поощрения'],
+
+        'military' => ['military', 'Отношение к воинской обязанности'],
 
         'work_experiences' => ['experience', 'Места работы'],
 
@@ -123,10 +142,10 @@ final class EmployeeFields
      */
     public const PRIVATE_FIELDS = [
         'birth_date', 'birth_place', 'citizenship', 'nationality', 'home_address',
-        'passport_number', 'passport_issued_at', 'passport_issued_by',
+        'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number',
         'phone', 'sos_phone',
-        'marital_status', 'spouse', 'children',
-        'educations', 'work_experiences', 'hired_at', 'equipment',
+        'marital_status', 'spouse', 'children', 'relatives',
+        'educations', 'degree', 'award', 'military', 'work_experiences', 'hired_at', 'equipment',
     ];
 
     /** @return list<string> */

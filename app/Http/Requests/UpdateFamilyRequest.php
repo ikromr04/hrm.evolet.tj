@@ -48,7 +48,12 @@ class UpdateFamilyRequest extends FormRequest
         // on file are gone". Which is the one thing this card says differently
         // from the create page, where there is nothing on file to lose.
         if (in_array('children', $lines, true)) {
-            $rules['children'] = ['present', 'array', 'max:'.EmployeeCard::MAX_ROWS];
+            $rules['children'] = ['present', EmployeeCard::CHILDREN_REQUIRED, 'array', 'max:'.EmployeeCard::MAX_ROWS];
+        }
+
+        // And the rest of the family the same way.
+        if (in_array('relatives', $lines, true)) {
+            $rules['relatives'] = ['present', 'array', 'max:'.EmployeeCard::MAX_ROWS];
         }
 
         return $rules;
@@ -60,5 +65,13 @@ class UpdateFamilyRequest extends FormRequest
     public function attributes(): array
     {
         return EmployeeCard::familyAttributes();
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return EmployeeCard::familyMessages();
     }
 }

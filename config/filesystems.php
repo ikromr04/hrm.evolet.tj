@@ -55,7 +55,8 @@ return [
         // photographs are, and more so — a diploma carries a name, a date of
         // birth and a registry number, and a file under the web root is read by
         // whoever holds its address without anybody being asked. Read through
-        // /employees/{id}/educations/{id}/document, which asks first.
+        // the routes that ask first — a diploma under a place of study, the
+        // papers behind a degree — and never by its path.
         'documents' => [
             'driver' => 'local',
             'root' => storage_path('app/documents'),

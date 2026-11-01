@@ -106,17 +106,19 @@ class EmployeeRecordListsTest extends TestCase
                     [
                         'organization' => 'ООО «Ориён»',
                         'position' => 'Аналитик',
-                        'country' => 'Таджикистан',
                         'started_month' => 3,
                         'started_year' => 2018,
                         'ended_month' => 8,
                         'ended_year' => 2021,
+                        'reason' => 'Окончание срока договора',
                     ],
                 ],
             ])
             ->assertSessionHasNoErrors();
 
         $this->assertCount(1, $employee->workExperiences);
+        // The row says why the job ended, as the sheet prints it.
+        $this->assertSame('Окончание срока договора', $employee->workExperiences->first()->reason);
 
         // Leaving before joining is caught on the row it happened in.
         $this->actingAs($admin)
@@ -125,11 +127,11 @@ class EmployeeRecordListsTest extends TestCase
                     [
                         'organization' => 'ООО «Ориён»',
                         'position' => 'Аналитик',
-                        'country' => 'Таджикистан',
                         'started_month' => 3,
                         'started_year' => 2021,
                         'ended_month' => 8,
                         'ended_year' => 2018,
+                        'reason' => 'Соглашение сторон',
                     ],
                 ],
             ])

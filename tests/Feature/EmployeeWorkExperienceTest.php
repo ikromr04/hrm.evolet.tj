@@ -37,11 +37,11 @@ class EmployeeWorkExperienceTest extends TestCase
         return [
             'organization' => 'ООО «Шифобахш»',
             'position' => 'Фармацевт',
-            'country' => 'Таджикистан',
             'started_month' => 3,
             'started_year' => 2015,
             'ended_month' => 6,
             'ended_year' => 2018,
+            'reason' => 'Перевод на другую работу',
             ...$overrides,
         ];
     }
@@ -91,12 +91,97 @@ class EmployeeWorkExperienceTest extends TestCase
         $employee = $this->colleague();
 
         $this->actingAs($this->sysadmin())
-            ->post("/employees/{$employee->id}/experiences", $this->payload(['ended_month' => '', 'ended_year' => '']))
+            // The reason goes with the date, as the form sends it: there is no
+            // leaving to give one for.
+            ->post("/employees/{$employee->id}/experiences", $this->payload(['ended_month' => '', 'ended_year' => '', 'reason' => '']))
             ->assertSessionHasNoErrors();
 
         $job = $employee->refresh()->workExperiences->first();
         $this->assertNull($job->ended_month);
         $this->assertNull($job->ended_year);
+        $this->assertNull($job->reason);
+    }
+
+    /**
+     * A job that ended says why: the sheet prints the reason beside the leaving
+     * date, in the words a labour book uses.
+     */
+    public function test_a_job_that_ended_says_why()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences", $this->payload())
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('Перевод на другую работу', $employee->refresh()->workExperiences->first()->reason);
+    }
+
+    /** And a record that names the leaving date owes that answer. */
+    public function test_a_job_that_ended_without_saying_why_is_refused()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences", $this->payload(['reason' => '']))
+            ->assertSessionHasErrors('reason');
+
+        $this->assertCount(0, $employee->refresh()->workExperiences);
+    }
+
+    /**
+     * Nobody still working somewhere is asked why they left.
+     *
+     * The reason is asked for with the leaving date and not before it: a card
+     * that insisted on one would be asking them to invent it.
+     */
+    public function test_a_job_the_person_still_holds_is_not_asked_why_it_ended()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences", $this->payload([
+                'ended_month' => '',
+                'ended_year' => '',
+                'reason' => '',
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($employee->refresh()->workExperiences->first()->reason);
+    }
+
+    /**
+     * And is refused one, which is the same tie read the other way round.
+     *
+     * A record that says somebody still works there and that they left over
+     * something is two answers contradicting each other, and whichever of them
+     * is wrong, the card is read by somebody who cannot tell which.
+     */
+    public function test_a_job_the_person_still_holds_cannot_say_why_it_ended()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences", $this->payload([
+                'ended_month' => '',
+                'ended_year' => '',
+                'reason' => 'По собственному желанию',
+            ]))
+            ->assertSessionHasErrors('reason');
+
+        $this->assertCount(0, $employee->refresh()->workExperiences);
+    }
+
+    /** One line out of a labour book, not a page: the column holds two hundred characters. */
+    public function test_a_reason_longer_than_the_column_is_refused()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences", $this->payload(['reason' => str_repeat('я', 201)]))
+            ->assertSessionHasErrors('reason');
+
+        $this->assertCount(0, $employee->refresh()->workExperiences);
     }
 
     public function test_half_an_end_date_is_rejected()

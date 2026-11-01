@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
+use App\Models\UserRelative;
 use App\Support\EmployeeFields;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -35,7 +36,25 @@ class EmployeeFamilyTest extends TestCase
             'spouse_birth_date' => '1992-03-08',
             'has_children' => null,
             'children' => [],
+            // Both lists are replaced wholesale, so both travel even when empty
+            // — see UpdateFamilyRequest, which asks for them.
+            'relatives' => [],
             ...$overrides,
+        ];
+    }
+
+    /**
+     * The rest of the family as the form sends it: who they are to this person,
+     * what they are called, and the two lines that may be left unanswered.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function relatives(): array
+    {
+        return [
+            ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_year' => 1971, 'occupation' => 'Пенсионерка'],
+            // Nobody remembered the year, and a student's line says enough.
+            ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_year' => '', 'occupation' => ''],
         ];
     }
 
@@ -131,6 +150,7 @@ class EmployeeFamilyTest extends TestCase
                 'spouse_name' => '',
                 'spouse_birth_date' => '',
                 'children' => [],
+                'relatives' => [],
             ])
             ->assertSessionHasNoErrors();
 
@@ -138,6 +158,151 @@ class EmployeeFamilyTest extends TestCase
         $this->assertNull($employee->details->marital_status);
         $this->assertNull($employee->details->spouse_name);
         $this->assertCount(0, $employee->children);
+        $this->assertCount(0, $employee->relatives);
+    }
+
+    /**
+     * «Женат» with nobody named is half an answer.
+     *
+     * The spouse is asked for by the status and by nothing else: everybody
+     * else leaves the two lines empty, and a card that insisted on a name from
+     * them would be asking the unmarried to invent one.
+     */
+    public function test_a_married_card_names_the_spouse()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'spouse_name' => '',
+                'spouse_birth_date' => '',
+            ]))
+            ->assertSessionHasErrors(['spouse_name', 'spouse_birth_date']);
+
+        $this->assertNull($employee->refresh()->details->spouse_name);
+    }
+
+    /**
+     * And «Есть» is an answer that needs a row behind it.
+     *
+     * The whole point of the three-way answer is to tell «детей нет» from
+     * «ещё не спрашивали»; a card that says there are children and names none
+     * is a third thing nobody can read, and somebody would have to go back and
+     * ask about it.
+     */
+    public function test_children_said_to_exist_are_named()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'has_children' => true,
+                'children' => [],
+            ]))
+            ->assertSessionHasErrors('children');
+
+        $this->assertCount(0, $employee->refresh()->children);
+    }
+
+    /**
+     * The rest of the family is a list like the children: saved whole, and
+     * whatever was on file before gives way to it.
+     */
+    public function test_an_admin_saves_the_rest_of_the_family()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        UserRelative::factory(3)->for($employee)->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload(['relatives' => $this->relatives()]))
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertSame(
+            [
+                ['Мать', 'Рахимова Зарина Курбоновна', 1971, 'Пенсионерка'],
+                ['Брат', 'Рахимов Далер Саидович', null, null],
+            ],
+            $employee->refresh()->relatives
+                ->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_year, $r->occupation])
+                ->all(),
+        );
+    }
+
+    /** And an empty list takes the family off the card, as it takes the children off. */
+    public function test_an_empty_list_takes_the_rest_of_the_family_off_the_card()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        UserRelative::factory(2)->for($employee)->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload())
+            ->assertSessionHasNoErrors();
+
+        $this->assertCount(0, $employee->refresh()->relatives);
+    }
+
+    /**
+     * What they are to this person and what they are called make the row a row.
+     *
+     * A row with neither answers nothing, and the card prints it as a blank line
+     * between two it was meant to explain.
+     */
+    public function test_a_relative_without_the_relation_or_a_name_is_refused()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'relatives' => [['relation' => '', 'full_name' => '', 'birth_year' => 1971]],
+            ]))
+            ->assertSessionHasErrors(['relatives.0.relation', 'relatives.0.full_name']);
+
+        $this->assertCount(0, $employee->refresh()->relatives);
+    }
+
+    /**
+     * The year is a year somebody was born in: this one at the latest, and no
+     * earlier than a grandmother could have been.
+     */
+    public function test_a_year_nobody_was_born_in_is_refused()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        foreach ([1899, (int) date('Y') + 1] as $year) {
+            $this->actingAs($admin)
+                ->put("/employees/{$employee->id}/family", $this->payload([
+                    'relatives' => [['relation' => 'Мать', 'full_name' => 'Рахимова Зарина', 'birth_year' => $year]],
+                ]))
+                ->assertSessionHasErrors('relatives.0.birth_year');
+        }
+
+        $this->assertCount(0, $employee->refresh()->relatives);
+    }
+
+    /** What they do is one line of the sheet, not a page of one. */
+    public function test_an_occupation_longer_than_the_column_is_refused()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'relatives' => [[
+                    'relation' => 'Мать',
+                    'full_name' => 'Рахимова Зарина',
+                    'occupation' => str_repeat('я', 201),
+                ]],
+            ]))
+            ->assertSessionHasErrors('relatives.0.occupation');
+
+        $this->assertCount(0, $employee->refresh()->relatives);
     }
 
     public function test_invalid_data_is_rejected()
@@ -217,6 +382,7 @@ class EmployeeFamilyTest extends TestCase
             'has_children' => true,
         ]);
         UserChild::factory()->for($employee)->create(['full_name' => 'Азимов Далер', 'birth_date' => '2015-09-01']);
+        UserRelative::factory()->for($employee)->create(['relation' => 'Мать', 'full_name' => 'Азимова Зарина']);
 
         return $employee->refresh();
     }
@@ -231,6 +397,11 @@ class EmployeeFamilyTest extends TestCase
     {
         $this->assertTrue($employee->details->has_children);
         $this->assertSame(['Азимов Далер'], $employee->children->pluck('full_name')->all());
+    }
+
+    private function assertRelativesKept(User $employee): void
+    {
+        $this->assertSame(['Азимова Зарина'], $employee->relatives->pluck('full_name')->all());
     }
 
     /**
@@ -250,6 +421,7 @@ class EmployeeFamilyTest extends TestCase
                 'spouse_birth_date' => '',
                 'has_children' => false,
                 'children' => [],
+                'relatives' => [],
             ])
             ->assertSessionHasNoErrors();
 
@@ -257,6 +429,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertSame('single', $employee->details->marital_status);
         $this->assertSpouseKept($employee);
         $this->assertChildrenKept($employee);
+        $this->assertRelativesKept($employee);
 
         // Nor is a line they may not change checked: there is nothing for them to fix in it.
         $this->actingAs($clerk)
@@ -275,6 +448,7 @@ class EmployeeFamilyTest extends TestCase
                 'marital_status' => '',
                 'spouse_name' => '',
                 'children' => [['full_name' => 'Азимова Мадина', 'birth_date' => '2018-05-12']],
+                'relatives' => [],
             ])
             ->assertSessionHasNoErrors();
 
@@ -282,6 +456,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertSame(['Азимова Мадина'], $employee->children->pluck('full_name')->all());
         $this->assertSame('married', $employee->details->marital_status);
         $this->assertSpouseKept($employee);
+        $this->assertRelativesKept($employee);
 
         // "Детей нет" is part of the children's line, and so theirs to tick.
         $this->actingAs($clerk)
@@ -292,11 +467,41 @@ class EmployeeFamilyTest extends TestCase
         $this->assertFalse($employee->details->has_children);
         $this->assertCount(0, $employee->children);
         $this->assertSame('married', $employee->details->marital_status);
+        $this->assertRelativesKept($employee);
+    }
+
+    /**
+     * And the rest of the family is a line of its own: whoever may change it
+     * replaces that list and nothing else on the card.
+     */
+    public function test_whoever_may_change_only_the_rest_of_the_family_replaces_just_them()
+    {
+        $clerk = $this->withFamilyRights(EmployeeFields::OTHERS, 'relatives');
+        $employee = $this->withFamily(User::factory()->has(UserDetail::factory(), 'details')->create());
+
+        $this->actingAs($clerk)
+            ->put("/employees/{$employee->id}/family", [
+                'marital_status' => '',
+                'spouse_name' => '',
+                'has_children' => false,
+                'children' => [],
+                'relatives' => $this->relatives(),
+            ])
+            ->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame(
+            ['Рахимова Зарина Курбоновна', 'Рахимов Далер Саидович'],
+            $employee->relatives->pluck('full_name')->all(),
+        );
+        $this->assertSame('married', $employee->details->marital_status);
+        $this->assertSpouseKept($employee);
+        $this->assertChildrenKept($employee);
     }
 
     public function test_whoever_may_change_every_line_saves_the_whole_card()
     {
-        $clerk = $this->withFamilyRights(EmployeeFields::OTHERS, 'marital_status', 'spouse', 'children');
+        $clerk = $this->withFamilyRights(EmployeeFields::OTHERS, 'marital_status', 'spouse', 'children', 'relatives');
         $employee = $this->withFamily(User::factory()->has(UserDetail::factory(), 'details')->create());
 
         $this->actingAs($clerk)
@@ -306,6 +511,7 @@ class EmployeeFamilyTest extends TestCase
                 'spouse_birth_date' => '',
                 'has_children' => null,
                 'children' => [],
+                'relatives' => [],
             ])
             ->assertSessionHasNoErrors();
 
@@ -315,6 +521,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertNull($employee->details->spouse_birth_date);
         $this->assertNull($employee->details->has_children);
         $this->assertCount(0, $employee->children);
+        $this->assertCount(0, $employee->relatives);
     }
 
     public function test_whoever_may_change_no_line_of_the_family_is_turned_away()
@@ -323,7 +530,7 @@ class EmployeeFamilyTest extends TestCase
         $reader = $this->withFamilyRights(EmployeeFields::OTHERS);
         $reader->roles->first()->givePermissionTo(array_map(
             fn (string $field) => EmployeeFields::permission($field),
-            ['marital_status', 'spouse', 'children'],
+            ['marital_status', 'spouse', 'children', 'relatives'],
         ));
         $employee = $this->withFamily(User::factory()->has(UserDetail::factory(), 'details')->create());
 
@@ -334,6 +541,7 @@ class EmployeeFamilyTest extends TestCase
         $employee->refresh();
         $this->assertSpouseKept($employee);
         $this->assertChildrenKept($employee);
+        $this->assertRelativesKept($employee);
     }
 
     /**
@@ -357,6 +565,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertSame('single', $employee->details->marital_status);
         $this->assertSpouseKept($employee);
         $this->assertChildrenKept($employee);
+        $this->assertRelativesKept($employee);
 
         $parent = $this->withFamily($this->withFamilyRights(EmployeeFields::OWN, 'children'));
 
@@ -371,6 +580,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertSame(['Азимова Мадина'], $parent->children->pluck('full_name')->all());
         $this->assertSame('married', $parent->details->marital_status);
         $this->assertSpouseKept($parent);
+        $this->assertRelativesKept($parent);
 
         $this->actingAs($parent)
             ->put("/employees/{$employee->id}/family", $this->payload())

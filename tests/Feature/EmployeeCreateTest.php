@@ -12,6 +12,7 @@ use App\Models\PositionDuty;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserEducation;
+use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
 use App\Support\Placements;
@@ -101,6 +102,12 @@ class EmployeeCreateTest extends TestCase
             'spouse_birth_date' => '1988-02-02',
             'has_children' => true,
             'children' => [['full_name' => 'Азимова Сабина', 'birth_date' => '2015-05-05']],
+            // The rest of the family the sheet names, beside the children and
+            // read under the same right.
+            'relatives' => [
+                ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_year' => 1971, 'occupation' => 'Пенсионерка'],
+                ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_year' => 2001, 'occupation' => 'Студент, ТТУ им. Осими'],
+            ],
 
             /* Образование */
             'educations' => [
@@ -114,16 +121,31 @@ class EmployeeCreateTest extends TestCase
                 ],
             ],
 
+            /* Учёная степень, звание */
+            // One line, holding both of the things the heading names. The
+            // document behind it is a file, so it is filed with the card too —
+            // see EmployeeDegreeTest, which sends one.
+            'degree' => 'кандидат экономических наук, доцент',
+
+            /* Государственные награды, поощрения */
+            // Kept on the degree's terms, down to the one line and the one
+            // document — see EmployeeAwardTest, which sends one.
+            'award' => 'Медаль „Хизмати шоиста“',
+
+            /* Отношение к воинской обязанности */
+            // The third line kept on those terms — see EmployeeMilitaryTest.
+            'military' => 'Военнообязанный, старший лейтенант запаса',
+
             /* Трудовая деятельность */
             'experiences' => [
                 [
                     'organization' => 'ООО «Ориён»',
                     'position' => 'Аналитик',
-                    'country' => 'Таджикистан',
                     'started_month' => 3,
                     'started_year' => 2013,
                     'ended_month' => 8,
                     'ended_year' => 2020,
+                    'reason' => 'По собственному желанию',
                 ],
             ],
 
@@ -295,10 +317,17 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame('Азимов Рустам', $employee->details->spouse_name);
         $this->assertTrue($employee->details->has_children);
         $this->assertSame(['Азимова Сабина'], $employee->children->pluck('full_name')->all());
+        // And the rest of the family, each row with what the sheet asks of it.
+        $this->assertSame(
+            [['Мать', 'Рахимова Зарина Курбоновна', 1971, 'Пенсионерка'], ['Брат', 'Рахимов Далер Саидович', 2001, 'Студент, ТТУ им. Осими']],
+            $employee->relatives->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_year, $r->occupation])->all(),
+        );
 
         // Образование и трудовая деятельность.
         $this->assertSame(['ТНУ'], $employee->educations->pluck('institution')->all());
         $this->assertSame(['ООО «Ориён»'], $employee->workExperiences->pluck('organization')->all());
+        // A job that ended arrives with the reason it ended for.
+        $this->assertSame('По собственному желанию', $employee->workExperiences->first()->reason);
 
         // Оборудование: the workplace is put together in the same request.
         $this->assertSame($employee->id, $laptop->refresh()->holder_user_id);
@@ -307,6 +336,43 @@ class EmployeeCreateTest extends TestCase
 
         // One colleague, one letter, one password.
         Notification::assertSentToTimes($employee, AccountCreated::class, 1);
+    }
+
+    /**
+     * The degree is filed with the card rather than afterwards, and as one line.
+     *
+     * Two things under one heading, and somebody arrives holding both: a page
+     * that asked for the whole card and then came back for the доцент would be
+     * a page that asked twice.
+     */
+    public function test_a_degree_is_saved_with_the_card()
+    {
+        Notification::fake();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard())
+            ->assertSessionHasNoErrors();
+
+        $employee = User::firstWhere('email', 'nilufar@evolet.tj');
+
+        $this->assertSame('кандидат экономических наук, доцент', $employee->details->degree);
+        // And the awards beside it, filed in the same breath and on the same terms.
+        $this->assertSame('Медаль „Хизмати шоиста“', $employee->details->award);
+        // And what the military papers say, the third line of that kind.
+        $this->assertSame('Военнообязанный, старший лейтенант запаса', $employee->details->military);
+    }
+
+    /**
+     * And left unanswered on the cards of everybody who holds neither, which is
+     * most of them.
+     */
+    public function test_a_card_may_name_no_degree()
+    {
+        Notification::fake();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard(['degree' => null]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj')->details->degree);
     }
 
     public function test_a_refusal_in_a_late_section_leaves_no_colleague_behind()
@@ -326,11 +392,11 @@ class EmployeeCreateTest extends TestCase
                 [
                     'organization' => 'ООО «Ориён»',
                     'position' => 'Аналитик',
-                    'country' => 'Таджикистан',
                     'started_month' => 3,
                     'started_year' => 2021,
                     'ended_month' => 8,
                     'ended_year' => 2018,
+                    'reason' => 'Соглашение сторон',
                 ],
             ],
         ]))->assertSessionHasErrors('experiences.0.ended_year');
@@ -343,6 +409,7 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame(0, UserEducation::count());
         $this->assertSame(0, UserWorkExperience::count());
         $this->assertSame(0, UserChild::count());
+        $this->assertSame(0, UserRelative::count());
         $this->assertSame('stock', $laptop->refresh()->status);
         Notification::assertNothingSent();
     }

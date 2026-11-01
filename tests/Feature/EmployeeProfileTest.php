@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
+use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -165,6 +166,7 @@ class EmployeeProfileTest extends TestCase
     {
         $user = $this->mayLookAround(User::factory()->has(UserDetail::factory(), 'details')->create());
         UserChild::factory(2)->for($user)->create();
+        UserRelative::factory(2)->for($user)->create();
         UserEducation::factory()->for($user)->create();
         UserWorkExperience::factory()->for($user)->create(['organization' => 'ООО «Шифобахш»']);
 
@@ -176,6 +178,7 @@ class EmployeeProfileTest extends TestCase
                 ->where('employee.private.birth_place', $user->details->birth_place)
                 ->where('employee.private.sos_phone', $user->details->sos_phone)
                 ->has('employee.private.children', 2)
+                ->has('employee.private.relatives', 2)
                 ->has('employee.private.educations', 1)
                 ->where('employee.private.educations.0.institution', $user->educations->first()->institution)
                 ->where('employee.private.work_experiences.0.organization', 'ООО «Шифобахш»')
@@ -191,6 +194,37 @@ class EmployeeProfileTest extends TestCase
         $this->actingAs($admin)
             ->get("/employees/{$employee->id}")
             ->assertInertia(fn (Assert $page) => $page->where('employee.private.passport.number', $employee->details->passport_number));
+    }
+
+    /**
+     * The rest of the family travels under its own right, like every other line
+     * of a card: whoever may read it gets the rows, and whoever may not gets no
+     * mention of them at all.
+     */
+    public function test_the_rest_of_the_family_is_read_under_its_own_right()
+    {
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        UserRelative::factory(2)->for($employee)->create();
+
+        $reader = $this->mayLookAround(User::factory()->create())->givePermissionTo('employees.field.relatives');
+
+        $this->actingAs($reader)
+            ->get("/employees/{$employee->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('employee.private.relatives', 2)
+                ->where('employee.private.relatives.0.relation', $employee->relatives->first()->relation)
+            );
+
+        // Another line of the same block opens the private part of the card and
+        // not the rows beside it.
+        $colleague = $this->mayLookAround(User::factory()->create())->givePermissionTo('employees.field.marital_status');
+
+        $this->actingAs($colleague)
+            ->get("/employees/{$employee->id}")
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('employee.private')
+                ->missing('employee.private.relatives')
+            );
     }
 
     public function test_unknown_employee_returns_404()

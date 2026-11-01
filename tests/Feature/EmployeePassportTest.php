@@ -30,6 +30,7 @@ class EmployeePassportTest extends TestCase
             'passport_number' => '0512345',
             'passport_issued_at' => '2018-06-14',
             'passport_issued_by' => 'МВД Республики Таджикистан',
+            'tax_number' => '012345678',
             ...$overrides,
         ];
     }
@@ -49,6 +50,7 @@ class EmployeePassportTest extends TestCase
         $this->assertSame('0512345', $details->passport_number);
         $this->assertSame('2018-06-14', $details->passport_issued_at->toDateString());
         $this->assertSame('МВД Республики Таджикистан', $details->passport_issued_by);
+        $this->assertSame('012345678', $details->tax_number);
     }
 
     public function test_the_details_row_is_created_when_the_employee_has_none()
@@ -75,6 +77,7 @@ class EmployeePassportTest extends TestCase
                 'passport_number' => '',
                 'passport_issued_at' => '',
                 'passport_issued_by' => '',
+                'tax_number' => '',
             ])
             ->assertSessionHasNoErrors();
 
@@ -94,8 +97,9 @@ class EmployeePassportTest extends TestCase
                 'passport_issued_at' => now()->addDay()->toDateString(),
                 'passport_series' => str_repeat('A', 11),
                 'passport_issued_by' => str_repeat('В', 151),
+                'tax_number' => str_repeat('0', 21),
             ]))
-            ->assertSessionHasErrors(['passport_issued_at', 'passport_series', 'passport_issued_by']);
+            ->assertSessionHasErrors(['passport_issued_at', 'passport_series', 'passport_issued_by', 'tax_number']);
     }
 
     public function test_an_employee_cannot_edit_anyones_passport()

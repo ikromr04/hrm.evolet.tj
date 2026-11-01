@@ -11,18 +11,26 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  */
 class UserWorkExperienceFactory extends Factory
 {
-    /** Organization => country. */
     private const ORGANIZATIONS = [
-        'ОАО «Ориёнбанк»' => 'Таджикистан',
-        'ЗАО «Бонки Эсхата»' => 'Таджикистан',
-        'ООО «Тcell»' => 'Таджикистан',
-        'ООО «Фарм Дистрибьюшн»' => 'Таджикистан',
-        'ГУ «Республиканский центр лекарственных средств»' => 'Таджикистан',
-        'ООО «Шифобахш»' => 'Таджикистан',
-        'ООО «Nika Pharm»' => 'Узбекистан',
-        'ООО «Фармстандарт»' => 'Россия',
-        'ТОО «Европа-Фарм»' => 'Казахстан',
-        'Представительство «Эволет» в Европе' => 'Германия',
+        'ОАО «Ориёнбанк»',
+        'ЗАО «Бонки Эсхата»',
+        'ООО «Тcell»',
+        'ООО «Фарм Дистрибьюшн»',
+        'ГУ «Республиканский центр лекарственных средств»',
+        'ООО «Шифобахш»',
+        'ООО «Nika Pharm»',
+        'ООО «Фармстандарт»',
+        'ТОО «Европа-Фарм»',
+        'Представительство «Эволет» в Европе',
+    ];
+
+    /** Why such a job ended, in the words a labour book uses. */
+    private const REASONS = [
+        'По собственному желанию',
+        'Перевод на другую работу',
+        'Окончание срока договора',
+        'Соглашение сторон',
+        'Сокращение штата',
     ];
 
     private const POSITIONS = [
@@ -37,18 +45,18 @@ class UserWorkExperienceFactory extends Factory
      */
     public function definition(): array
     {
-        $organization = fake()->randomElement(array_keys(self::ORGANIZATIONS));
         $started = fake()->numberBetween(2008, 2020);
 
         return [
             'user_id' => User::factory(),
-            'organization' => $organization,
+            'organization' => fake()->randomElement(self::ORGANIZATIONS),
             'position' => fake()->randomElement(self::POSITIONS),
-            'country' => self::ORGANIZATIONS[$organization],
             'started_month' => fake()->numberBetween(1, 12),
             'started_year' => $started,
             'ended_month' => fake()->numberBetween(1, 12),
             'ended_year' => $started + fake()->numberBetween(1, 4),
+            // The job ended, so it says why: the card asks the two together.
+            'reason' => fake()->randomElement(self::REASONS),
         ];
     }
 

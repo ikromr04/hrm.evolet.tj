@@ -6,6 +6,7 @@ use App\Models\Equipment;
 use App\Models\Language;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -47,8 +48,35 @@ final class EmployeeCard
      */
     public const MAX_ROWS = 20;
 
+    /**
+     * The answer that says there is none of something, on the lines a card
+     * keeps as free text: the degree, the awards.
+     *
+     * An empty column means nobody has asked yet, so «нет» has to be written
+     * down to be told from it — and written the same way every time, or a card
+     * will read «нет», another «Нет» and a third «—», and none of the three
+     * will be the answer the page is looking for.
+     */
+    public const NONE = 'Нет';
+
     /** The three lines the «Семья» block is given out in, each with a right of its own. */
-    public const FAMILY_LINES = ['marital_status', 'spouse', 'children'];
+    public const FAMILY_LINES = ['marital_status', 'spouse', 'children', 'relatives'];
+
+    /**
+     * «Есть» is an answer that needs a row behind it: a card that says there
+     * are children and names none is a card somebody has to go back and ask
+     * about, which is the whole thing the three-way answer was there to avoid.
+     *
+     * Both forms of the flag, because a form carrying a file sends it as «1»
+     * and one without sends it as true.
+     *
+     * It is a rule on the list itself, and the two places that take a list of
+     * children describe that list differently — «present» on a card, where a
+     * form that forgot the field must not wipe what is on file, and «nullable»
+     * on the page that files a new colleague, where there is nothing to wipe.
+     * So it is added to theirs rather than being one of ours.
+     */
+    public const CHILDREN_REQUIRED = 'required_if:has_children,true,1';
 
     /* ------------------------------------------------------------- паспорт */
 
@@ -65,6 +93,10 @@ final class EmployeeCard
             'passport_number' => ['nullable', 'string', 'max:20'],
             'passport_issued_at' => ['nullable', 'date', 'before_or_equal:today'],
             'passport_issued_by' => ['nullable', 'string', 'max:150'],
+            // Written down and compared, never counted, so a string — and no
+            // pattern beyond its length: the shape of such a code is the tax
+            // office's business to change, not this application's to refuse.
+            'tax_number' => ['nullable', 'string', 'max:20'],
         ];
     }
 
@@ -78,6 +110,7 @@ final class EmployeeCard
             'passport_number' => 'номер паспорта',
             'passport_issued_at' => 'дата выдачи',
             'passport_issued_by' => 'кем выдан',
+            'tax_number' => 'ИНН',
         ];
     }
 
@@ -178,7 +211,7 @@ final class EmployeeCard
     {
         return [
             'phone' => 'телефон',
-            'sos_phone' => 'телефон SOS',
+            'sos_phone' => 'экстренный контакт',
             'sos_contact' => 'чей это номер',
         ];
     }
@@ -193,7 +226,7 @@ final class EmployeeCard
     {
         return [
             'phone.regex' => 'Телефон указан неверно.',
-            'sos_phone.regex' => 'Телефон SOS указан неверно.',
+            'sos_phone.regex' => 'Экстренный контакт указан неверно.',
         ];
     }
 
@@ -302,8 +335,12 @@ final class EmployeeCard
         }
 
         if (in_array('spouse', $lines, true)) {
-            $rules['spouse_name'] = ['nullable', 'string', 'max:150'];
-            $rules['spouse_birth_date'] = ['nullable', 'date', 'before_or_equal:today'];
+            // Asked for once the card says there is a spouse, and not before:
+            // «женат» with nobody named is half an answer, and a card that
+            // insisted on a name from everybody else would be asking the
+            // unmarried to invent one.
+            $rules['spouse_name'] = ['nullable', 'required_if:marital_status,married', 'string', 'max:150'];
+            $rules['spouse_birth_date'] = ['nullable', 'required_if:marital_status,married', 'date', 'before_or_equal:today'];
         }
 
         if (in_array('children', $lines, true)) {
@@ -312,6 +349,18 @@ final class EmployeeCard
             $rules['has_children'] = ['nullable', 'boolean'];
             $rules['children.*.full_name'] = ['required', 'string', 'max:150'];
             $rules['children.*.birth_date'] = ['nullable', 'date', 'before_or_equal:today'];
+        }
+
+        if (in_array('relatives', $lines, true)) {
+            // What they are to this person and what they are called make the
+            // row a row; the year and the work are asked for and not insisted
+            // on, because a card is filled in from what somebody remembers.
+            $rules['relatives.*.relation'] = ['required', 'string', 'max:50'];
+            $rules['relatives.*.full_name'] = ['required', 'string', 'max:150'];
+            // A grandmother may well have been born in the twenties, so the
+            // floor is lower here than the one the places of study go by.
+            $rules['relatives.*.birth_year'] = ['nullable', 'integer', 'min:1900', 'max:'.date('Y')];
+            $rules['relatives.*.occupation'] = ['nullable', 'string', 'max:200'];
         }
 
         return $rules;
@@ -328,6 +377,29 @@ final class EmployeeCard
             'spouse_birth_date' => 'дата рождения супруга',
             'children.*.full_name' => 'ФИО ребёнка',
             'children.*.birth_date' => 'дата рождения ребёнка',
+            'relatives.*.relation' => 'родство',
+            'relatives.*.full_name' => 'ФИО родственника',
+            'relatives.*.birth_year' => 'год рождения',
+            'relatives.*.occupation' => 'работа или учёба',
+        ];
+    }
+
+    /**
+     * What the refusals of this block are to say.
+     *
+     * The rules behind them are «required_if», whose own wording names the
+     * field it depends on and the value it was compared with — «…когда
+     * семейное положение равно married» — which is the inside of the form
+     * read out to somebody filling it in.
+     *
+     * @return array<string, string>
+     */
+    public static function familyMessages(): array
+    {
+        return [
+            'spouse_name.required_if' => 'Укажите ФИО супруга.',
+            'spouse_birth_date.required_if' => 'Укажите дату рождения супруга.',
+            'children.required_if' => 'Добавьте хотя бы одного ребёнка или ответьте «Нет».',
         ];
     }
 
@@ -360,6 +432,24 @@ final class EmployeeCard
             fn (array $child) => ['full_name' => $child['full_name'], 'birth_date' => $child['birth_date'] ?? null],
             $children,
         ));
+    }
+
+    /**
+     * And the rest of the family, replaced by the list that was sent, for the
+     * reason the children are: both the card's dialog and the create page edit
+     * the list whole rather than a row at a time.
+     *
+     * @param  array<array-key, array<string, mixed>>  $relatives
+     */
+    public static function saveRelatives(User $employee, array $relatives): void
+    {
+        $employee->relatives()->delete();
+        $employee->relatives()->createMany(array_map(fn (array $relative) => [
+            'relation' => $relative['relation'],
+            'full_name' => $relative['full_name'],
+            'birth_year' => $relative['birth_year'] ?? null,
+            'occupation' => $relative['occupation'] ?? null,
+        ], $relatives));
     }
 
     /* ---------------------------------------------------------- образование */
@@ -471,6 +561,119 @@ final class EmployeeCard
         }
     }
 
+    /* ------ учёная степень, награды и отношение к воинской обязанности */
+
+    /**
+     * Two blocks of the card kept on the same terms: «Учёная степень, звание»
+     * and «Государственные награды, поощрения». One line of text apiece, and
+     * one document behind it.
+     *
+     * Both lines are optional on their own: most cards have nothing to put in
+     * either, and a form that insisted would have HR typing «нет» eighty times
+     * over. Each is one line because that is the question — see the migrations
+     * for why a degree and a title are not filed apart, and a medal and a
+     * commendation neither.
+     *
+     * A document without the line, though, is a scan of something nobody has
+     * said the name of: the card would show a paper and answer nothing. So the
+     * line is asked for the moment a document is attached, and not before.
+     *
+     * One document, kept on the terms a diploma is kept on. No name is asked
+     * for it, unlike the diploma of a place of study: there the name is the one
+     * thing that says which of several papers a record is about, and here the
+     * line above has already said it. So it keeps the name it arrived under.
+     *
+     * @return array<string, mixed>
+     */
+    private static function lineRules(string $line): array
+    {
+        return [
+            $line => ['nullable', "required_with:{$line}_document", 'string', 'max:200'],
+            // And no document under «Нет», which is the same tie read the other
+            // way round: a card that said there is none and showed a scan of it
+            // would be two answers contradicting each other.
+            "{$line}_document" => ['nullable', 'prohibited_if:'.$line.','.self::NONE, 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+        ];
+    }
+
+    /**
+     * The block as columns of the details row, with the document put away.
+     *
+     * The file is the one part of the block that is not a column: it goes to
+     * the private disk and the row keeps where it went, the way a diploma does.
+     * A save that brings none leaves whatever is on file alone — not every save
+     * is about the document, and absent is not «take it away».
+     *
+     * @param  array<string, mixed>  $data  as validated, the file included
+     * @return array<string, mixed> the columns to write
+     */
+    public static function lineColumns(User $employee, array $data, string $line): array
+    {
+        $columns = Arr::only($data, [$line]);
+        $file = $data["{$line}_document"] ?? null;
+        $said = $columns[$line] ?? null;
+
+        if ($file instanceof UploadedFile) {
+            $columns["{$line}_document_path"] = DocumentStore::keep($file, $employee->id);
+            $columns["{$line}_document_name"] = $file->getClientOriginalName();
+        } elseif (array_key_exists($line, $columns) && ($said === null || $said === self::NONE)) {
+            // An answer taken back, or one that says there is none, takes the
+            // paper with it. The rules refuse a document sent under «Нет», and
+            // this is the same thing a save later: a card that said «нет» and
+            // showed a scan of it would be two answers contradicting each
+            // other, reached by two saves instead of one.
+            $columns["{$line}_document_path"] = null;
+            $columns["{$line}_document_name"] = null;
+        }
+
+        return $columns;
+    }
+
+    /** @return array<string, mixed> */
+    public static function degreeRules(): array
+    {
+        return self::lineRules('degree');
+    }
+
+    /** @return array<string, string> */
+    public static function degreeAttributes(): array
+    {
+        return [
+            'degree' => 'учёная степень, звание',
+            'degree_document' => 'документ',
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public static function awardRules(): array
+    {
+        return self::lineRules('award');
+    }
+
+    /** @return array<string, mixed> */
+    public static function militaryRules(): array
+    {
+        return self::lineRules('military');
+    }
+
+    /** @return array<string, string> */
+    public static function militaryAttributes(): array
+    {
+        return [
+            'military' => 'отношение к воинской обязанности',
+            'military_document' => 'документ',
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function awardAttributes(): array
+    {
+        return [
+            'award' => 'государственные награды, поощрения',
+            'award_document' => 'документ',
+        ];
+    }
+
     /* ------------------------------------------------- трудовая деятельность */
 
     /**
@@ -483,13 +686,16 @@ final class EmployeeCard
         return [
             "{$prefix}organization" => ['required', 'string', 'max:200'],
             "{$prefix}position" => ['required', 'string', 'max:150'],
-            "{$prefix}country" => ['required', 'string', 'max:100'],
             "{$prefix}started_month" => ['required', 'integer', 'between:1,12'],
             "{$prefix}started_year" => ['required', 'integer', 'min:1950', 'max:'.date('Y')],
             // Both empty while the person still works there; one without the
             // other would be half a date.
             "{$prefix}ended_month" => ['nullable', "required_with:{$prefix}ended_year", 'integer', 'between:1,12'],
             "{$prefix}ended_year" => ['nullable', "required_with:{$prefix}ended_month", 'integer', 'min:1950', 'max:'.date('Y')],
+            // And a job that ended says why. Nobody still working somewhere has
+            // an answer to give, so it is asked for with the leaving date and
+            // not before it.
+            "{$prefix}reason" => ['nullable', "required_with:{$prefix}ended_year", 'string', 'max:200'],
         ];
     }
 
@@ -501,18 +707,19 @@ final class EmployeeCard
         return [
             "{$prefix}organization" => 'организация',
             "{$prefix}position" => 'должность',
-            "{$prefix}country" => 'страна',
             "{$prefix}started_month" => 'месяц вступления',
             "{$prefix}started_year" => 'год вступления',
             "{$prefix}ended_month" => 'месяц ухода',
             "{$prefix}ended_year" => 'год ухода',
+            "{$prefix}reason" => 'причина ухода',
         ];
     }
 
     /**
-     * Neither date in the future, and the leaving date after the joining one.
-     * Rules cannot say this on their own: the two halves of a date are separate
-     * fields, so they are compared here.
+     * Neither date in the future, the leaving date after the joining one, and a
+     * reason only where there is a leaving to give one for. Rules cannot say
+     * any of this on their own: the two halves of a date are separate fields,
+     * so they are compared here.
      *
      * Called from inside the validator's own `after`, which is where both callers
      * register it — one record at a time, so whatever it finds is said on the row
@@ -537,6 +744,14 @@ final class EmployeeCard
         }
         if ($start !== null && $end !== null && $end < $start) {
             $validator->errors()->add("{$prefix}ended_year", 'Дата ухода раньше даты вступления.');
+        }
+
+        // The rules above ask for a reason with a leaving date; this is the same
+        // tie read the other way round, which they cannot say. Somebody who
+        // still works there has not left for any reason, and a record that said
+        // so would be two answers that contradict each other.
+        if ($end === null && trim((string) ($record['reason'] ?? '')) !== '') {
+            $validator->errors()->add("{$prefix}reason", 'Причина ухода — только у места работы, которое человек покинул.');
         }
     }
 

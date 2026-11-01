@@ -37,6 +37,7 @@ import {
     languageLevels,
     monthNames,
     tenure,
+    type CardDocument,
     type Education,
     type Equipment,
     type LanguageLevel,
@@ -102,6 +103,10 @@ interface HeldUnit extends Equipment {
 
 interface ProfilePrivate extends PrivateDetails {
     educations: (Education & { id: number })[];
+    /** The documents behind those two lines; the lines themselves are private details. */
+    degree_document: CardDocument | null;
+    award_document: CardDocument | null;
+    military_document: CardDocument | null;
     /** The latest first. */
     work_experiences: (WorkExperience & { id: number })[];
     /** Grouped by kind, which is resolved to its directory name here. */
@@ -109,7 +114,14 @@ interface ProfilePrivate extends PrivateDetails {
     /** What has passed through their hands and what happened to it meanwhile. */
     equipment_history: { events: HistoryEvent[]; names: NameLookup };
     birth_place: string | null;
-    passport: { series: string | null; number: string | null; issued_at: string | null; issued_by: string | null };
+    passport: {
+        series: string | null;
+        number: string | null;
+        issued_at: string | null;
+        issued_by: string | null;
+        /** The number the tax office files them under; a line of the block like the rest. */
+        tax_number: string | null;
+    };
 }
 
 /**
@@ -266,8 +278,8 @@ interface EditOptions extends PlacementOptions {
     /** Access roles, chosen by name. */
     roles: { name: string; title: string }[];
     languages: { id: number; name: string }[];
-    /** Countries already on file, as suggestions for a previous job. */
-    countries: string[];
+    /** Why jobs have ended before, as suggestions for a previous job. */
+    reasons: string[];
     equipment_types: { id: number; name: string }[];
 }
 
@@ -491,7 +503,7 @@ function ContactsDialog({ employee, details, onClose }: { employee: Employee; de
 
                         {canEdit('sos_phone') && (
                             <div className="grid content-start gap-2">
-                                <Label htmlFor="contacts-sos-phone">Телефон SOS</Label>
+                                <Label htmlFor="contacts-sos-phone">Экстренный контакт</Label>
                                 <Input
                                     id="contacts-sos-phone"
                                     type="tel"
@@ -3065,7 +3077,7 @@ export default function EmployeeProfile({
                                                     </a>
                                                 )}
                                             </Field>
-                                            <Field label="Телефон SOS" field="sos_phone">
+                                            <Field label="Экстренный контакт" field="sos_phone">
                                                 {details.sos_phone && <SosPhone phone={details.sos_phone} contact={details.sos_contact} />}
                                             </Field>
                                         </Fields>

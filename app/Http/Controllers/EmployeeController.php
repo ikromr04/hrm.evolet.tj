@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
+use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
 use App\Support\Access;
@@ -306,6 +307,17 @@ class EmployeeController extends Controller
         // and without that right the page leaves the section out altogether.
         $canIssue = $request->user()->can('equipment.issue');
 
+        /**
+         * Whether this viewer may read a line of a card at all.
+         *
+         * The lists offered under the three free-text lines are what other
+         * cards say on them, and those three are private: the right to add a
+         * colleague is not the right to read what the colleagues already on
+         * file hold. Without it the box still takes whatever is typed — it is
+         * the offering that stops, not the answering.
+         */
+        $reads = fn (string $field) => $request->user()->can(EmployeeFields::permission($field));
+
         return Inertia::render('employees/create', [
             'canIssue' => $canIssue,
             'options' => [
@@ -315,15 +327,30 @@ class EmployeeController extends Controller
                 // the duties under it without a round trip each time.
                 ...Placements::options(),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
-                'nationalities' => $this->distinctDetail('nationality'),
+                // A nationality is a private line of somebody's card, so the
+                // ones already written down are offered on the same terms as
+                // the three free lines below: only to a reader of that line.
+                'nationalities' => $reads('nationality') ? $this->distinctDetail('nationality') : [],
+                // The countries of the directory, which are nobody's data.
                 'citizenships' => $this->citizenships(),
                 // The kinds of work, named rather than numbered: one missing
                 // from the list is typed into the page and added to the list on
                 // the save.
                 'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
                 // What diplomas have made of people here, to offer rather than to
-                // impose: a diploma may name something no list has heard of.
-                'qualifications' => $this->qualifications(),
+                // impose: a diploma may name something no list has heard of. The
+                // usual half-dozen travel to anybody; what the cards on file say
+                // only to somebody who may read a card's education.
+                'qualifications' => $this->qualifications($reads('educations')),
+                // And what is written on the three lines a card keeps as free
+                // text, for the same reason and on the same terms — but only
+                // for somebody who may read those lines on a card at all.
+                'degrees' => $reads('degree') ? $this->distinctDetail('degree') : [],
+                'awards' => $reads('award') ? $this->distinctDetail('award') : [],
+                'militaries' => $reads('military') ? $this->distinctDetail('military') : [],
+                // Why a job ended, on the same terms again: a labour book says
+                // what it says, and the usual wordings are only a start.
+                'reasons' => $this->leavingReasons($reads('work_experiences')),
                 // The last section hands out hardware, so what is free travels too.
                 'stock' => $canIssue ? $this->freeUnits() : [],
             ],
@@ -372,8 +399,13 @@ class EmployeeController extends Controller
             // because that is the order somebody looking for a field will read.
             $employee->details()->create([
                 ...Arr::only($data, ['hired_at', 'birth_date', 'birth_place', 'nationality', 'home_address']),
+                // The two lines that keep a document apiece: a file rather than
+                // a column, so it is put away on the way in.
+                ...EmployeeCard::lineColumns($employee, $data, 'degree'),
+                ...EmployeeCard::lineColumns($employee, $data, 'award'),
+                ...EmployeeCard::lineColumns($employee, $data, 'military'),
                 ...Arr::only($data, ['phone', 'sos_phone', 'sos_contact']),
-                ...Arr::only($data, ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by']),
+                ...Arr::only($data, ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number']),
                 ...Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date']),
                 // "Детей нет" and "не указано" look the same in an empty list,
                 // so the answer is worked out rather than taken as sent — by the
@@ -399,6 +431,10 @@ class EmployeeController extends Controller
             // moment ago, so the lists below only ever go in.
             if ($children !== []) {
                 EmployeeCard::saveChildren($employee, $children);
+            }
+
+            if (($data['relatives'] ?? []) !== []) {
+                EmployeeCard::saveRelatives($employee, $data['relatives']);
             }
 
             // Each record may carry a diploma, which is a file rather than a
@@ -480,7 +516,7 @@ class EmployeeController extends Controller
             // The values come with the field behind each of them: a unit's name
             // and its number are two of those fields, read by the role they
             // carry, so the block cannot print either without them.
-            $employee->load(['details', 'children', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
+            $employee->load(['details', 'children', 'relatives', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
         }
 
         return Inertia::render('employees/show', [
@@ -516,8 +552,24 @@ class EmployeeController extends Controller
                     ...$this->only($visible, [
                         'birth_place' => fn () => $employee->details?->birth_place,
                         'educations' => fn () => $employee->educations->map(fn (UserEducation $e) => $this->education($e))->all(),
+                        // The rest of the family, a line apiece as the sheet
+                        // prints them. Read on the card and not in the list:
+                        // the list has no column for it, and twenty mothers
+                        // and brothers a page is a payload nobody draws.
+                        'relatives' => fn () => $employee->relatives->map(fn (UserRelative $r) => [
+                            'relation' => $r->relation,
+                            'full_name' => $r->full_name,
+                            'birth_year' => $r->birth_year,
+                            'occupation' => $r->occupation,
+                        ])->all(),
                         'work_experiences' => fn () => $employee->workExperiences->map(fn (UserWorkExperience $w) => $this->workExperience($w))->all(),
                     ]),
+                    // The degree is one line, read with the rest of the private
+                    // lines above; the document shown for it travels with that
+                    // line and under the same answer.
+                    ...($shows('degree') ? ['degree_document' => $this->lineDocument($employee, 'degree')] : []),
+                    ...($shows('award') ? ['award_document' => $this->lineDocument($employee, 'award')] : []),
+                    ...($shows('military') ? ['military_document' => $this->lineDocument($employee, 'military')] : []),
                     // What they hold and what happened to it while they held it:
                     // one field, two things to read.
                     // Both readings are narrowed to the units this viewer may
@@ -542,6 +594,8 @@ class EmployeeController extends Controller
                         'number' => $shows('passport_number') ? $employee->details?->passport_number : null,
                         'issued_at' => $shows('passport_issued_at') ? $employee->details?->passport_issued_at?->toDateString() : null,
                         'issued_by' => $shows('passport_issued_by') ? $employee->details?->passport_issued_by : null,
+                        // A line of the block like the rest, read under its own right.
+                        'tax_number' => $shows('tax_number') ? $employee->details?->tax_number : null,
                     ],
                 ] : null,
             ],
@@ -571,7 +625,10 @@ class EmployeeController extends Controller
             // instead of letting somebody find out by saving.
             'rolesLocked' => Access::rolesLockedReason($request->user(), $employee),
             'options' => $canEdit ? [
-                'nationalities' => $this->distinctDetail('nationality'),
+                // On the terms the «Новый сотрудник» page is given them: what
+                // other cards say is offered only to a reader of that line, and
+                // the box still takes whatever is typed either way.
+                'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
                 'citizenships' => $this->citizenships(),
                 // What a card may be given, plus whatever it already carries: the
                 // single system administrator is offered to nobody, and their own
@@ -592,8 +649,10 @@ class EmployeeController extends Controller
                 // the window and added on the save.
                 'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
                 'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
-                // Countries already on file, as suggestions for a previous job.
-                'countries' => UserWorkExperience::query()->distinct()->orderBy('country')->pluck('country'),
+                // Why jobs have ended before, as suggestions for one ending now
+                // — the usual wordings to anybody, the ones on file only to
+                // somebody who may read the jobs a card lists.
+                'reasons' => $this->leavingReasons($shows('work_experiences')),
             ] : null,
             // The dialog edits these by id or name, not by the labels shown above.
             'assigned' => $canEdit ? [
@@ -1349,11 +1408,13 @@ class EmployeeController extends Controller
             'id' => $job->id,
             'organization' => $job->organization,
             'position' => $job->position,
-            'country' => $job->country,
             'started_month' => $job->started_month,
             'started_year' => $job->started_year,
             'ended_month' => $job->ended_month,
             'ended_year' => $job->ended_year,
+            // Empty while the person still works there, and on the records
+            // filed before the card asked.
+            'reason' => $job->reason,
         ];
     }
 
@@ -1381,6 +1442,28 @@ class EmployeeController extends Controller
     }
 
     /**
+     * The document behind one of the card's two lines that keep one — the
+     * degree, the award — as a card reads it.
+     *
+     * @param  string  $line  the column it lives in, which is also its right
+     * @return array<string, string>|null
+     */
+    private function lineDocument(User $employee, string $line): ?array
+    {
+        if ($employee->details?->{"{$line}_document_path"} === null) {
+            return null;
+        }
+
+        return [
+            'name' => $employee->details->{"{$line}_document_name"},
+            // As a way to ask for it rather than as a path, for the reason a
+            // diploma is: where the file lies is nobody's business outside this
+            // application.
+            'url' => route("employees.{$line}.document.show", $employee),
+        ];
+    }
+
+    /**
      * @return list<string>
      */
     private function distinctDetail(string $column): array
@@ -1397,17 +1480,21 @@ class EmployeeController extends Controller
      * the same word is not spelled two ways across a hundred cards, and the
      * usual ones are there so the list is not empty on a fresh database.
      *
+     * @param  bool  $onFile  Whether what the cards say travels too. A reader of
+     *                        nobody's education gets the usual ones only: the
+     *                        list is a convenience, and the lines it is drawn
+     *                        from are somebody's.
      * @return list<string>
      */
-    private function qualifications(): array
+    private function qualifications(bool $onFile = true): array
     {
         $usual = ['бакалавр', 'магистр', 'специалист', 'инженер', 'аспирант', 'кандидат наук'];
 
-        $named = UserEducation::query()
+        $named = $onFile ? UserEducation::query()
             ->whereNotNull('qualification')
             ->distinct()
             ->pluck('qualification')
-            ->all();
+            ->all() : [];
 
         return collect([...$usual, ...$named])
             ->map(fn (string $name) => trim($name))
@@ -1415,6 +1502,43 @@ class EmployeeController extends Controller
             // Without regard to case, so «Бакалавр» typed once does not stand
             // beside «бакалавр» for ever after.
             ->unique(fn (string $name) => mb_strtolower($name))
+            ->sort(fn (string $a, string $b) => strcoll($a, $b))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Why a job ended, as the cards on file put it, with the few wordings a
+     * labour book carries whatever else is in it.
+     *
+     * Offered and not imposed, like the qualifications: the reason is copied
+     * from a book that says what it says, and a list that refused the wording
+     * in front of somebody would have them write something else down. The ones
+     * already on file come with it so the same reason is not spelled three
+     * ways across a hundred cards.
+     *
+     * @param  bool  $onFile  Whether what the cards say travels too, as with the
+     *                        qualifications: a reason is written on somebody's
+     *                        card, so only a reader of those gets the rest.
+     * @return list<string>
+     */
+    private function leavingReasons(bool $onFile = true): array
+    {
+        $usual = [
+            'По собственному желанию',
+            'Перевод на другую работу',
+            'Окончание срока договора',
+            'Соглашение сторон',
+            'Сокращение штата',
+        ];
+
+        $named = $onFile ? UserWorkExperience::query()->whereNotNull('reason')->distinct()->pluck('reason')->all() : [];
+
+        return collect([...$usual, ...$named])
+            ->map(fn (string $reason) => trim($reason))
+            ->filter()
+            // Without regard to case, as the qualifications are.
+            ->unique(fn (string $reason) => mb_strtolower($reason))
             ->sort(fn (string $a, string $b) => strcoll($a, $b))
             ->values()
             ->all();
@@ -1464,6 +1588,9 @@ class EmployeeController extends Controller
             ...$this->only($visible, [
                 'birth_date' => fn () => $details?->birth_date?->toDateString(),
                 'nationality' => fn () => $details?->nationality,
+                'degree' => fn () => $details?->degree,
+                'award' => fn () => $details?->award,
+                'military' => fn () => $details?->military,
                 'citizenship' => fn () => $user->citizenships->pluck('name')->all() ?: null,
                 'home_address' => fn () => $details?->home_address,
                 'phone' => fn () => $details?->phone,

@@ -232,12 +232,13 @@ class EmployeeDetailsController extends Controller
         $data = $request->validated();
         $details = Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date']);
         $children = $data['children'] ?? null;
+        $relatives = $data['relatives'] ?? null;
 
         if ($children !== null) {
             $details['has_children'] = EmployeeCard::childrenFlag($data['has_children'] ?? null, $children);
         }
 
-        DB::transaction(function () use ($employee, $details, $children) {
+        DB::transaction(function () use ($employee, $details, $children, $relatives) {
             if ($details !== []) {
                 $employee->details()->updateOrCreate([], $details);
             }
@@ -245,6 +246,11 @@ class EmployeeDetailsController extends Controller
             // Only whoever may change the children gets to replace them.
             if ($children !== null) {
                 EmployeeCard::saveChildren($employee, $children);
+            }
+
+            // And the rest of the family, on the same terms.
+            if ($relatives !== null) {
+                EmployeeCard::saveRelatives($employee, $relatives);
             }
         });
 

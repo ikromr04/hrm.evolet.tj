@@ -7,10 +7,13 @@ use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
 use App\Http\Controllers\EmployeeAccessController;
 use App\Http\Controllers\EmployeeAvatarController;
+use App\Http\Controllers\EmployeeAwardController;
 use App\Http\Controllers\EmployeeController;
+use App\Http\Controllers\EmployeeDegreeController;
 use App\Http\Controllers\EmployeeDetailsController;
 use App\Http\Controllers\EmployeeEducationController;
 use App\Http\Controllers\EmployeeEquipmentController;
+use App\Http\Controllers\EmployeeMilitaryController;
 use App\Http\Controllers\EmployeeStatusController;
 use App\Http\Controllers\EmployeeWorkExperienceController;
 use App\Http\Controllers\EquipmentController;
@@ -228,6 +231,36 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     // controller against the very line of the card that decides whether the
     // records show at all, exactly as a photograph is.
     Route::get('educations/{education}/document', [EmployeeEducationController::class, 'document'])->name('educations.document');
+
+    // «Учёная степень, звание»: the line is saved whole like the passport, and
+    // the document behind it comes with that save — but goes on its own, since
+    // a file is not a column and taking it away is not a correction to the line.
+    Route::middleware('can:employees.edit.block.degree,employee')->group(function () {
+        Route::put('degree', [EmployeeDegreeController::class, 'update'])->name('degree.update');
+        Route::delete('degree/document', [EmployeeDegreeController::class, 'destroy'])->name('degree.document.destroy');
+    });
+
+    // And the document itself, outside that group for the reason the diploma is.
+    Route::get('degree/document', [EmployeeDegreeController::class, 'document'])->name('degree.document.show');
+
+    // «Государственные награды, поощрения», kept on the same terms down to the
+    // addresses: one line saved whole, one document attached by that save and
+    // taken off on its own, and the reading of it asked in the controller.
+    Route::middleware('can:employees.edit.block.award,employee')->group(function () {
+        Route::put('award', [EmployeeAwardController::class, 'update'])->name('award.update');
+        Route::delete('award/document', [EmployeeAwardController::class, 'destroy'])->name('award.document.destroy');
+    });
+
+    Route::get('award/document', [EmployeeAwardController::class, 'document'])->name('award.document.show');
+
+    // «Отношение к воинской обязанности», the third of those lines and kept
+    // exactly as the two above it.
+    Route::middleware('can:employees.edit.block.military,employee')->group(function () {
+        Route::put('military', [EmployeeMilitaryController::class, 'update'])->name('military.update');
+        Route::delete('military/document', [EmployeeMilitaryController::class, 'destroy'])->name('military.document.destroy');
+    });
+
+    Route::get('military/document', [EmployeeMilitaryController::class, 'document'])->name('military.document.show');
 
     Route::middleware('can:employees.edit.block.experience,employee')->group(function () {
         Route::post('experiences', [EmployeeWorkExperienceController::class, 'store'])->name('experiences.store');

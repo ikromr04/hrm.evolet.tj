@@ -116,18 +116,28 @@ class StoreEmployeeRequest extends FormRequest
             'languages' => ['sometimes', 'array'],
             ...EmployeeCard::languageRules(),
 
-            /* Паспорт и семья */
+            /* Семейное положение и состав семьи, и паспорт */
             ...EmployeeCard::passportRules(),
             ...EmployeeCard::familyRules(),
-            'children' => $rows,
+            'children' => [...$rows, EmployeeCard::CHILDREN_REQUIRED],
+            'relatives' => $rows,
 
             /* Образование */
             'educations' => $rows,
             ...EmployeeCard::educationRules('educations.*.'),
 
+            /* Учёная степень, звание */
+            ...EmployeeCard::degreeRules(),
+
             /* Трудовая деятельность */
             'experiences' => $rows,
             ...EmployeeCard::experienceRules('experiences.*.'),
+
+            /* Государственные награды, поощрения */
+            ...EmployeeCard::awardRules(),
+
+            /* Отношение к воинской обязанности */
+            ...EmployeeCard::militaryRules(),
 
             /* Оборудование */
             'equipment' => $rows,
@@ -184,6 +194,9 @@ class StoreEmployeeRequest extends FormRequest
             ...EmployeeCard::passportAttributes(),
             ...EmployeeCard::familyAttributes(),
             ...EmployeeCard::educationAttributes('educations.*.'),
+            ...EmployeeCard::degreeAttributes(),
+            ...EmployeeCard::awardAttributes(),
+            ...EmployeeCard::militaryAttributes(),
             ...EmployeeCard::experienceAttributes('experiences.*.'),
             ...EmployeeCard::equipmentAttributes(),
         ];
@@ -194,6 +207,9 @@ class StoreEmployeeRequest extends FormRequest
      */
     public function messages(): array
     {
-        return EmployeeCard::contactMessages();
+        return [
+            ...EmployeeCard::contactMessages(),
+            ...EmployeeCard::familyMessages(),
+        ];
     }
 }

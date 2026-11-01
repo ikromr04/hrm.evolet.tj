@@ -1,6 +1,7 @@
 import { DatePicker } from '@/components/date-picker';
 import { FormGrid } from '@/components/form-grid';
 import InputError from '@/components/input-error';
+import { MonthPicker } from '@/components/month-picker';
 import { MultiSelect } from '@/components/multi-select';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
@@ -12,6 +13,7 @@ import { Sections } from '@/components/sections';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
 import { languageLevelLabels, languageLevels, sexLabels, type LanguageLevel, type Sex } from '@/lib/employee';
@@ -31,8 +33,14 @@ interface Options extends PlacementOptions {
     employment_types: string[];
     /** The usual qualifications and the ones already on file; a record may name another. */
     qualifications: string[];
-    /** Hardware free to hand out; empty for whoever may not issue it. */
-    stock: { id: number; name: string; inventory_number: string }[];
+    /** What the degree line says on the cards already filed; a card may say something else. */
+    degrees: string[];
+    /** Why jobs have ended before, offered the same way and no more binding. */
+    reasons: string[];
+    /** And what the cards already filed say under the awards; a card may say another. */
+    awards: string[];
+    /** And under the military line, on the same terms again. */
+    militaries: string[];
 }
 
 /**
@@ -57,26 +65,23 @@ const sections = [
         note: 'Кто это',
         fields: ['sex', 'birth_date', 'birth_place', 'nationality', 'citizenship'],
     },
-    { title: 'Личные данные', note: 'Где живёт', fields: ['home_address'] },
     { title: 'Образование', note: 'Где учился', fields: ['educations'] },
-    { title: 'Контакты и языки', note: 'Как связаться, чем владеет', fields: ['phone', 'sos_phone', 'sos_contact', 'languages'] },
-    {
-        title: 'Паспорт и семья',
-        note: 'Документ и близкие',
-        fields: [
-            'passport_series',
-            'passport_number',
-            'passport_issued_at',
-            'passport_issued_by',
-            'marital_status',
-            'spouse_name',
-            'spouse_birth_date',
-            'has_children',
-            'children',
-        ],
-    },
+    { title: 'Учёная степень, звание', note: 'Что присвоено', fields: ['degree', 'degree_document'] },
+    { title: 'Знание языков', note: 'Чем владеет', fields: ['languages'] },
     { title: 'Трудовая деятельность', note: 'Где работал раньше', fields: ['experiences'] },
-    { title: 'Оборудование', note: 'Что выдаём на руки', fields: ['equipment', 'issued_at'] },
+    { title: 'Государственные награды, поощрения', note: 'Чем отмечен', fields: ['award', 'award_document'] },
+    {
+        title: 'Семейное положение и состав семьи',
+        note: 'Кто дома',
+        fields: ['marital_status', 'spouse_name', 'spouse_birth_date', 'has_children', 'children', 'relatives'],
+    },
+    {
+        title: 'Паспортные данные',
+        note: 'Документ',
+        fields: ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number'],
+    },
+    { title: 'Адрес и контакты', note: 'Где живёт, как связаться', fields: ['home_address', 'phone', 'sos_phone', 'sos_contact'] },
+    { title: 'Отношение к воинской обязанности', note: 'Что в военном билете', fields: ['military', 'military_document'] },
 ] as const;
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -180,14 +185,12 @@ function Section({
  */
 function Records<T>({
     items,
-    empty,
     addLabel,
     onAdd,
     onRemove,
     children,
 }: {
     items: T[];
-    empty: string;
     addLabel: string;
     onAdd: () => void;
     onRemove: (index: number) => void;
@@ -195,8 +198,6 @@ function Records<T>({
 }) {
     return (
         <div className="flex flex-col gap-4">
-            {items.length === 0 && <p className="text-muted-foreground text-sm">{empty}</p>}
-
             {items.map((item, index) => (
                 // 24px round the record and 16px above it: the strip at the top
                 // carries «Запись 1» and the button that removes it, and a strip
@@ -287,6 +288,7 @@ function DocumentInput({ value, onChange, invalid }: { value: File | null; onCha
         </div>
     );
 }
+
 /**
  * The years a place of study may be dated to, newest first: a card being filled
  * in now is far likelier to name the last few years than the fifties, and a list
@@ -297,11 +299,18 @@ function DocumentInput({ value, onChange, invalid }: { value: File | null; onCha
  * has not happened is not a fact, and a year of graduation says the studying
  * ended, which is why the box is left empty while it has not.
  */
-const years = () => {
+/** The server's own floor, from EmployeeCard: nothing on a card is older. */
+const firstYear = 1950;
+
+const years = (from: number = firstYear) => {
     const last = new Date().getFullYear();
 
-    return Array.from({ length: last - 1950 + 1 }, (_, i) => String(last - i));
+    return Array.from({ length: last - from + 1 }, (_, i) => String(last - i));
 };
+
+/** A grandmother may well have been born in the twenties, so hers goes back further. */
+const firstFamilyYear = 1900;
+
 const blankEducation: Education = {
     institution: '',
     faculty: '',
@@ -316,11 +325,12 @@ const blankEducation: Education = {
 type Job = {
     organization: string;
     position: string;
-    country: string;
     started_month: string;
     started_year: string;
     ended_month: string;
     ended_year: string;
+    /** Why it ended; empty while the person still works there. */
+    reason: string;
 };
 
 /** This month, which no date of a past job can be later than. */
@@ -336,9 +346,24 @@ const fromMonth = (value: string, field: 'started' | 'ended') => {
     return { [`${field}_year`]: year ?? '', [`${field}_month`]: month ? String(Number(month)) : '' };
 };
 
-const blankJob: Job = { organization: '', position: '', country: '', started_month: '', started_year: '', ended_month: '', ended_year: '' };
+const blankJob: Job = { organization: '', position: '', started_month: '', started_year: '', ended_month: '', ended_year: '', reason: '' };
 
 type Child = { full_name: string; birth_date: string };
+
+/**
+ * One of the family a card names besides the children: what they are to
+ * this person, their name, the year they were born and what they do.
+ */
+type Relative = { relation: string; full_name: string; birth_year: string; occupation: string };
+
+const blankRelative: Relative = { relation: '', full_name: '', birth_year: '', occupation: '' };
+
+/**
+ * Who a card names, in the words it names them with — offered rather than
+ * imposed, because a card may name a stepmother or a guardian and a
+ * directory of ways to be related is not one a company keeps.
+ */
+const relations = ['Мать', 'Отец', 'Брат', 'Сестра', 'Супруг', 'Супруга', 'Сын', 'Дочь', 'Бабушка', 'Дедушка'];
 
 type SpokenLanguage = { id: string; level: LanguageLevel };
 
@@ -361,16 +386,10 @@ type NewEmployee = { id: number; name: string };
  * which entry it marks follows what is on screen. A page rather than a dialog
  * because it is long, and half-filled work should survive a stray key.
  */
-export default function CreateEmployee({ options, canIssue }: { options: Options; canIssue: boolean }) {
-    const today = new Date().toISOString().slice(0, 10);
+export default function CreateEmployee({ options }: { options: Options }) {
     // A position nobody has filed in a department yet would put the person
     // nowhere, so it is not one of the posts on offer.
     const posts = options.positions.filter((position) => position.department_id !== null);
-    // Handing hardware over is not a line of the card but an operation on the
-    // fleet: without the right to issue units there is no section for it, and
-    // the server refuses one sent anyway.
-    const parts = canIssue ? sections : sections.slice(0, -1);
-
     const [current, setCurrent] = useState(0);
     const [added, setAdded] = useState<NewEmployee | null>(null);
     const [createdLanguages, setCreatedLanguages] = useState<string[]>([]);
@@ -407,24 +426,31 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         sos_contact: '',
         languages: [] as SpokenLanguage[],
 
-        /* Паспорт и семья */
+        /* Семья и паспортные данные */
         passport_series: '',
         passport_number: '',
         passport_issued_at: '',
         passport_issued_by: '',
+        tax_number: '',
         marital_status: '',
         spouse_name: '',
         spouse_birth_date: '',
         has_children: '' as '' | 'yes' | 'no',
         children: [] as Child[],
+        relatives: [] as Relative[],
 
         /* Образование и трудовая деятельность */
         educations: [] as Education[],
+        // One line and whatever paper there is for it; see EmployeeCard for
+        // why neither is asked for twice.
+        degree: '',
+        degree_document: null as File | null,
         experiences: [] as Job[],
-
-        /* Оборудование */
-        equipment: [] as number[],
-        issued_at: today,
+        // What a state has given them, kept on the terms the degree is kept on.
+        award: '',
+        award_document: null as File | null,
+        military: '',
+        military_document: null as File | null,
     });
 
     const { data, setData, errors } = form;
@@ -441,14 +467,26 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
     };
 
     /**
+     * A press holds the mark where it was pressed until the reader scrolls
+     * themselves.
+     *
+     * Without it the part that was asked for is not always the part that ends
+     * up marked: the page can only scroll so far, so a short part at the foot
+     * of it never reaches the line the watching below goes by, and the mark
+     * springs back to whatever is standing there instead. Pressing one entry
+     * and watching another light up is the kind of thing a reader blames
+     * themselves for.
+     */
+    const pressed = useRef(false);
+
+    /**
      * Which entry the nav marks is a question about what is on screen, so the
      * browser answers it rather than arithmetic on every scroll event.
      *
      * The window is cropped to a quarter of the way down and watched from there
      * to the bottom, so the section marked is the first one still reaching past
      * that line — the one being read, rather than the tail of the one above it
-     * disappearing off the top. That is also what gets the last section marked
-     * at the foot of the page, where nothing follows it to take over.
+     * disappearing off the top.
      */
     useEffect(() => {
         const inside = new Set<number>();
@@ -462,6 +500,11 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     else inside.delete(index);
                 }
 
+                // What is on screen is worked out either way — the answer is
+                // needed the moment the hold ends — but while a press is being
+                // answered it does not move the mark.
+                if (pressed.current) return;
+
                 // The sections tile the page, so one of them always crosses the
                 // line; nothing in view at all can only mean the page is being
                 // torn down, and the mark is left where it was.
@@ -470,17 +513,73 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
             { rootMargin: '-25% 0px 0px 0px' },
         );
 
-        marks.current.slice(0, parts.length).forEach((node) => node && observer.observe(node));
+        marks.current.slice(0, sections.length).forEach((node) => node && observer.observe(node));
 
         return () => observer.disconnect();
-    }, [parts.length]);
+    }, [sections.length]);
+
+    /**
+     * The hold ends the moment the page is scrolled by hand — a wheel, a
+     * finger, or one of the keys that scroll. Typing into a field is not one of
+     * them: a card being filled in would otherwise drop the mark the reader
+     * just put somewhere.
+     */
+    useEffect(() => {
+        const scrolls = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+        const release = () => {
+            pressed.current = false;
+        };
+
+        // Those keys are only scrolling while nothing is being typed into: a
+        // space in «Кандидат экономических наук» scrolls nothing, and an arrow
+        // in a date is a caret moving.
+        const key = (event: KeyboardEvent) =>
+            scrolls.has(event.key) && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable]') && release();
+
+        window.addEventListener('wheel', release, { passive: true });
+        window.addEventListener('touchmove', release, { passive: true });
+        window.addEventListener('keydown', key);
+
+        return () => {
+            window.removeEventListener('wheel', release);
+            window.removeEventListener('touchmove', release);
+            window.removeEventListener('keydown', key);
+        };
+    }, []);
+
+    /**
+     * Answering a field is being in the part it belongs to, so the mark goes
+     * there — however the reader got to it: pressed into it, tabbed into it
+     * from the part above, or sent to it by a refusal.
+     *
+     * Held afterwards for the reason a press is held: a field near the foot of
+     * the page cannot always be scrolled under the line the watching goes by,
+     * and the mark would leave the part being filled in. The nav's own buttons
+     * are outside every part, so pressing one is not a field taking the focus.
+     */
+    useEffect(() => {
+        const answered = (event: FocusEvent) => {
+            const part = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-section]');
+
+            if (!part) return;
+
+            pressed.current = true;
+            setCurrent(Number(part.dataset.section));
+        };
+
+        window.addEventListener('focusin', answered);
+
+        return () => window.removeEventListener('focusin', answered);
+    }, []);
 
     /**
      * Pressing an entry of the nav. The mark moves at once rather than waiting
-     * for the scrolling to arrive, so the press answers; the band above then
-     * confirms it.
+     * for the scrolling to arrive, so the press answers — and stays there,
+     * because the page below may not be able to put that part under the line.
      */
     const show = (index: number) => {
+        pressed.current = true;
         setCurrent(index);
         marks.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
@@ -551,7 +650,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                 startOver();
             },
             onError: (refused) => {
-                const first = parts.findIndex((part) => part.fields.some((field) => at(refused, field) !== undefined));
+                const first = sections.findIndex((part) => part.fields.some((field) => at(refused, field) !== undefined));
 
                 if (first >= 0) show(first);
             },
@@ -570,6 +669,65 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
         setData(
             'educations',
             data.educations.map((row, position) => (position === index ? { ...row, ...patch } : row)),
+        );
+
+    /**
+     * Whether the line names something to show a paper for.
+     *
+     * «Нет» is an answer and an empty line is the absence of one, and neither
+     * of them has a diploma behind it: the document is asked for only once
+     * there is a degree for it to be the proof of.
+     */
+    const degreeNamed = data.degree !== '' && data.degree !== 'Нет';
+
+    /**
+     * And the answer taken back takes the document with it. A scan left in the
+     * form under «Нет» would travel with the card unseen and be refused on a
+     * field nobody can see any more.
+     */
+    const setDegree = (value: string) => {
+        setData('degree', value);
+
+        if (value === '' || value === 'Нет') setData('degree_document', null);
+    };
+
+    /** The awards are read and taken back the same way. */
+    const awardNamed = data.award !== '' && data.award !== 'Нет';
+
+    const setAward = (value: string) => {
+        setData('award', value);
+
+        if (value === '' || value === 'Нет') setData('award_document', null);
+    };
+
+    /** And the military line, which is the third of exactly the same thing. */
+    const militaryNamed = data.military !== '' && data.military !== 'Нет';
+
+    const setMilitary = (value: string) => {
+        setData('military', value);
+
+        if (value === '' || value === 'Нет') setData('military_document', null);
+    };
+
+    /**
+     * «Есть» with nothing under it is what the server will not take, so the
+     * answer opens the first row itself: whoever says there are children is
+     * about to name one, and a form that made them press «Добавить» first
+     * would be asking twice. «Нет» and «не выбрано» leave the list alone —
+     * rows already typed are not thrown away over a misread of the answer.
+     */
+    const setChildren = (said: '' | 'yes' | 'no') => {
+        setData('has_children', said);
+
+        if (said === 'yes' && data.children.length === 0) {
+            setData('children', [{ full_name: '', birth_date: '' }]);
+        }
+    };
+
+    const setRelative = (index: number, patch: Partial<Relative>) =>
+        setData(
+            'relatives',
+            data.relatives.map((row, position) => (position === index ? { ...row, ...patch } : row)),
         );
 
     const setJob = (index: number, patch: Partial<Job>) =>
@@ -624,7 +782,7 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                     className="bg-card @container flex flex-col gap-4 rounded-xl border p-6 max-md:rounded-2xl max-md:p-4 max-md:[&_[role=combobox]]:h-11 max-md:[&_input:not([type=checkbox])]:h-11"
                 >
                     <Sections
-                        nav={<SectionNav label="Анкета" items={parts} current={current} onSelect={show} />}
+                        nav={<SectionNav label="Анкета" items={sections} current={current} onSelect={show} />}
                         sections={
                             <>
                                 <Section index={0} title={sections[0].title} hold={hold}>
@@ -784,17 +942,20 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                             />
                                         </Field>
                                         <Field label="Национальность" error={errors.nationality}>
-                                            <Input
-                                                list="nationalities"
+                                            {/* Offered rather than imposed, like the kind of work above:
+                                                what is already on the cards, so that «Таджичка» is not
+                                                spelled two ways across a hundred of them, and whatever
+                                                is typed instead is taken as it is. Left unanswered as
+                                                easily — it is nobody's business to insist. */}
+                                            <SearchableSelect
+                                                options={named(options.nationalities, data.nationality)}
                                                 value={data.nationality}
-                                                onChange={(event) => setData('nationality', event.target.value)}
-                                                aria-invalid={!!errors.nationality}
+                                                onChange={(value) => setData('nationality', value)}
+                                                onCreate={(value) => setData('nationality', value)}
+                                                placeholder="Выберите или впишите"
+                                                searchPlaceholder="Национальность"
+                                                invalid={!!errors.nationality}
                                             />
-                                            <datalist id="nationalities">
-                                                {options.nationalities.map((value) => (
-                                                    <option key={value} value={value} />
-                                                ))}
-                                            </datalist>
                                         </Field>
                                         <Field
                                             label="Гражданство"
@@ -813,10 +974,9 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     </FormGrid>
                                 </Section>
 
-                                <Section index={4} title={sections[4].title} hold={hold}>
+                                <Section index={3} title={sections[3].title} hold={hold}>
                                     <Records
                                         items={data.educations}
-                                        empty="Если сведений нет, оставьте раздел пустым."
                                         addLabel="Добавить образование"
                                         onAdd={() => setData('educations', [...data.educations, { ...blankEducation }])}
                                         onRemove={(index) =>
@@ -888,7 +1048,17 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 >
                                                     <SearchableSelect
                                                         value={record.graduated_year}
-                                                        onChange={(value) => setEducation(index, { graduated_year: value })}
+                                                        onChange={(value) =>
+                                                            setEducation(index, {
+                                                                graduated_year: value,
+                                                                // The year taken back takes the file with
+                                                                // it, as the comment under this field says:
+                                                                // a scan left behind would travel with the
+                                                                // card and be refused on a field that is no
+                                                                // longer on the page.
+                                                                ...(value === '' ? { document: null, document_name: '' } : {}),
+                                                            })
+                                                        }
                                                         options={[
                                                             // The entry standing for «still studying», so a year
                                                             // chosen by mistake can be taken back.
@@ -955,60 +1125,68 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                     </Records>
                                 </Section>
 
-                                <Section index={3} title={sections[3].title} hold={hold}>
+                                <Section index={4} title={sections[4].title} hold={hold}>
                                     <FormGrid>
-                                        {/* An address runs long, so it takes a row of its own. */}
-
-                                        <Field label="Домашний адрес" error={errors.home_address} className="@min-[46rem]:col-span-2">
-                                            <Input
-                                                value={data.home_address}
-                                                onChange={(event) => setData('home_address', event.target.value)}
-                                                aria-invalid={!!errors.home_address}
+                                        {/* Written out in one line, because that is the question the
+                                            sheet asks and the answer a person gives: «кандидат
+                                            экономических наук, доцент» is one thing to know about one
+                                            colleague. Left empty on most cards, which is why nothing
+                                            here is insisted on. */}
+                                        <Field label="Учёная степень, звание" error={errors.degree}>
+                                            <SearchableSelect
+                                                options={[
+                                                    { value: '', label: 'Не выбрано' },
+                                                    // Said rather than left empty. An empty line means
+                                                    // nobody has asked yet; this means somebody asked
+                                                    // and the answer was none, and a card that cannot
+                                                    // tell the two apart sends HR to ask again.
+                                                    { value: 'Нет', label: 'Нет' },
+                                                    ...offered(options.degrees, data.degree).filter(({ value }) => value !== 'Нет'),
+                                                ]}
+                                                value={data.degree}
+                                                onChange={setDegree}
+                                                onCreate={setDegree}
+                                                placeholder="Выберите или впишите"
+                                                searchPlaceholder="Степень или звание"
+                                                invalid={!!errors.degree}
                                             />
                                         </Field>
+
+                                        {/* One paper, and no name asked for it: the line beside it has
+                                            already said what it is about, which is the one thing a
+                                            diploma of a place of study needs a name of its own for.
+                                            It stands here only while that line names a degree — and
+                                            an empty column stands in its place, so the row keeps its
+                                            three and the line does not stretch across half the page
+                                            the moment the answer is «Нет». */}
+                                        {degreeNamed ? (
+                                            <Field label="Документ" error={errors.degree_document}>
+                                                <DocumentInput
+                                                    value={data.degree_document}
+                                                    onChange={(file) => setData('degree_document', file)}
+                                                    invalid={!!errors.degree_document}
+                                                />
+                                            </Field>
+                                        ) : (
+                                            <div />
+                                        )}
+                                        <div></div>
                                     </FormGrid>
                                 </Section>
 
                                 <Section index={5} title={sections[5].title} hold={hold}>
-                                    <FormGrid>
-                                        <Field label="Телефон" error={errors.phone}>
-                                            <Input
-                                                value={data.phone}
-                                                onChange={(event) => setData('phone', event.target.value)}
-                                                placeholder="+992 90 123 45 67"
-                                                aria-invalid={!!errors.phone}
-                                            />
-                                        </Field>
-                                        <Field label="Телефон SOS" error={errors.sos_phone}>
-                                            <Input
-                                                value={data.sos_phone}
-                                                onChange={(event) => setData('sos_phone', event.target.value)}
-                                                placeholder="+992 90 765 43 21"
-                                                aria-invalid={!!errors.sos_phone}
-                                            />
-                                        </Field>
-                                        <Field label="Чей это номер" error={errors.sos_contact}>
-                                            <Input
-                                                value={data.sos_contact}
-                                                onChange={(event) => setData('sos_contact', event.target.value)}
-                                                placeholder="Супруга, Нигина"
-                                                aria-invalid={!!errors.sos_contact}
-                                            />
-                                        </Field>
-                                    </FormGrid>
-
-                                    <div className="flex flex-col gap-3 pt-2">
-                                        <Label>Знание языков</Label>
+                                    {/* Spaced as the lists of records are, so a page of five
+                                        parts is not spaced unlike the four around it. */}
+                                    <div className="flex flex-col gap-4">
                                         <InputError message={at(errors, 'languages')} />
 
-                                        {data.languages.length === 0 && (
-                                            <p className="text-muted-foreground text-sm">Если сведений нет, оставьте пустым.</p>
-                                        )}
-
+                                        {/* A language and its level are two fields like any other
+                                            two, so they stand in the same columns: a row of its own
+                                            arithmetic would line up with nothing above it. */}
                                         {data.languages.map((spoken, index) => (
-                                            <div key={index} className="flex flex-wrap items-center gap-2 @min-[30rem]:flex-nowrap">
+                                            <FormGrid key={index}>
                                                 <SearchableSelect
-                                                    className="min-w-0 grow basis-full @min-[30rem]:basis-0"
+                                                    className="min-w-0"
                                                     invalid={!!at(errors, `languages.${index}.id`) || !!at(errors, `languages.${index}.name`)}
                                                     value={spoken.id}
                                                     onChange={(value) =>
@@ -1040,39 +1218,56 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                     searchPlaceholder="Поиск языка"
                                                     empty="Язык не найден"
                                                 />
-                                                <SearchableSelect
-                                                    className="min-w-0 flex-1 @min-[30rem]:w-48 @min-[30rem]:flex-none"
-                                                    invalid={!!at(errors, `languages.${index}.level`)}
-                                                    value={spoken.level}
-                                                    onChange={(value) =>
-                                                        setData(
-                                                            'languages',
-                                                            data.languages.map((item, position) =>
-                                                                position === index ? { ...item, level: value as LanguageLevel } : item,
-                                                            ),
-                                                        )
-                                                    }
-                                                    options={languageLevels.map((level) => ({
-                                                        value: level,
-                                                        label: languageLevelLabels[level],
-                                                    }))}
-                                                />
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="text-muted-foreground size-9 shrink-0"
-                                                    aria-label={`Убрать язык ${index + 1}`}
-                                                    onClick={() =>
-                                                        setData(
-                                                            'languages',
-                                                            data.languages.filter((_, position) => position !== index),
-                                                        )
-                                                    }
-                                                >
-                                                    <Trash2 className="size-4" />
-                                                </Button>
-                                            </div>
+                                                {/* The level and the button that drops the row share the
+                                                    second column: a column of its own for a 36px button
+                                                    would leave a third of the row empty. */}
+                                                <div className="flex min-w-0 items-center gap-2">
+                                                    {/* Four answers, every one of them in view at once: a
+                                                        box with a search in it would be asking somebody
+                                                        to look for what they are already looking at. */}
+                                                    <Select
+                                                        value={spoken.level}
+                                                        onValueChange={(value) =>
+                                                            setData(
+                                                                'languages',
+                                                                data.languages.map((item, position) =>
+                                                                    position === index ? { ...item, level: value as LanguageLevel } : item,
+                                                                ),
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger
+                                                            className="min-w-0 flex-1"
+                                                            aria-invalid={!!at(errors, `languages.${index}.level`)}
+                                                        >
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {languageLevels.map((level) => (
+                                                                <SelectItem key={level} value={level}>
+                                                                    {languageLevelLabels[level]}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="text-muted-foreground size-9 shrink-0"
+                                                        aria-label={`Убрать язык ${index + 1}`}
+                                                        onClick={() =>
+                                                            setData(
+                                                                'languages',
+                                                                data.languages.filter((_, position) => position !== index),
+                                                            )
+                                                        }
+                                                    >
+                                                        <Trash2 className="size-4" />
+                                                    </Button>
+                                                </div>
+                                                <div></div>
+                                            </FormGrid>
                                         ))}
 
                                         <Button
@@ -1089,168 +1284,8 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                 </Section>
 
                                 <Section index={6} title={sections[6].title} hold={hold}>
-                                    <FormGrid>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <Field label="Серия паспорта" error={errors.passport_series}>
-                                                <Input
-                                                    value={data.passport_series}
-                                                    onChange={(event) => setData('passport_series', event.target.value)}
-                                                    placeholder="A"
-                                                    aria-invalid={!!errors.passport_series}
-                                                />
-                                            </Field>
-                                            <Field label="Номер паспорта" error={errors.passport_number}>
-                                                <Input
-                                                    value={data.passport_number}
-                                                    onChange={(event) => setData('passport_number', event.target.value)}
-                                                    placeholder="01234567"
-                                                    aria-invalid={!!errors.passport_number}
-                                                />
-                                            </Field>
-                                        </div>
-                                        <Field label="Дата выдачи" error={errors.passport_issued_at}>
-                                            <DatePicker
-                                                value={data.passport_issued_at}
-                                                onChange={(value) => setData('passport_issued_at', value)}
-                                                toDate={new Date()}
-                                                invalid={!!errors.passport_issued_at}
-                                            />
-                                        </Field>
-                                        <Field label="Кем выдан" error={errors.passport_issued_by}>
-                                            <Input
-                                                value={data.passport_issued_by}
-                                                onChange={(event) => setData('passport_issued_by', event.target.value)}
-                                                aria-invalid={!!errors.passport_issued_by}
-                                            />
-                                        </Field>
-                                    </FormGrid>
-
-                                    <FormGrid className="pt-2">
-                                        <Field label="Семейное положение" error={errors.marital_status}>
-                                            <SearchableSelect
-                                                value={data.marital_status}
-                                                onChange={(value) => setData('marital_status', value)}
-                                                options={[
-                                                    { value: 'single', label: 'Не женат / не замужем' },
-                                                    { value: 'married', label: 'Женат / замужем' },
-                                                ]}
-                                                invalid={!!errors.marital_status}
-                                            />
-                                        </Field>
-                                        <Field label="Дети">
-                                            <SearchableSelect
-                                                invalid={!!errors.has_children}
-                                                value={data.has_children}
-                                                onChange={(value) => setData('has_children', value as 'yes' | 'no')}
-                                                options={[
-                                                    { value: 'yes', label: 'Есть' },
-                                                    { value: 'no', label: 'Нет' },
-                                                ]}
-                                            />
-                                        </Field>
-                                    </FormGrid>
-
-                                    {data.marital_status === 'married' && (
-                                        <div className="flex flex-col gap-4 @min-[22rem]:flex-row @min-[22rem]:items-end @min-[22rem]:gap-2">
-                                            <Field label="ФИО супруга" className="flex-1" error={errors.spouse_name}>
-                                                <Input
-                                                    value={data.spouse_name}
-                                                    onChange={(event) => setData('spouse_name', event.target.value)}
-                                                    aria-invalid={!!errors.spouse_name}
-                                                />
-                                            </Field>
-                                            <Field label="Дата рождения" error={errors.spouse_birth_date}>
-                                                <DatePicker
-                                                    value={data.spouse_birth_date}
-                                                    onChange={(value) => setData('spouse_birth_date', value)}
-                                                    toDate={new Date()}
-                                                    invalid={!!errors.spouse_birth_date}
-                                                />
-                                            </Field>
-                                        </div>
-                                    )}
-
-                                    {data.has_children === 'yes' && (
-                                        <div className="flex flex-col gap-3">
-                                            {data.children.map((child, index) => (
-                                                <div key={index} className="flex flex-wrap items-end gap-2 @min-[22rem]:flex-nowrap">
-                                                    {/* Nobody has to be entered with children at all, but a row
-                                                    that has been added is a child, and a child has a name. */}
-                                                    <Field
-                                                        label="ФИО ребёнка"
-                                                        className="min-w-0 grow basis-full @min-[22rem]:basis-0"
-                                                        error={at(errors, `children.${index}.full_name`)}
-                                                        required
-                                                    >
-                                                        <Input
-                                                            aria-required
-                                                            value={child.full_name}
-                                                            onChange={(event) =>
-                                                                setData(
-                                                                    'children',
-                                                                    data.children.map((item, position) =>
-                                                                        position === index ? { ...item, full_name: event.target.value } : item,
-                                                                    ),
-                                                                )
-                                                            }
-                                                            aria-invalid={!!at(errors, `children.${index}.full_name`)}
-                                                        />
-                                                    </Field>
-                                                    <Field
-                                                        label="Дата рождения"
-                                                        className="min-w-0 flex-1 @min-[22rem]:flex-none"
-                                                        error={at(errors, `children.${index}.birth_date`)}
-                                                    >
-                                                        <DatePicker
-                                                            value={child.birth_date}
-                                                            onChange={(value) =>
-                                                                setData(
-                                                                    'children',
-                                                                    data.children.map((item, position) =>
-                                                                        position === index ? { ...item, birth_date: value } : item,
-                                                                    ),
-                                                                )
-                                                            }
-                                                            toDate={new Date()}
-                                                            invalid={!!at(errors, `children.${index}.birth_date`)}
-                                                        />
-                                                    </Field>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="text-muted-foreground mb-[2px] size-9 shrink-0"
-                                                        aria-label={`Убрать ребёнка ${index + 1}`}
-                                                        onClick={() =>
-                                                            setData(
-                                                                'children',
-                                                                data.children.filter((_, position) => position !== index),
-                                                            )
-                                                        }
-                                                    >
-                                                        <Trash2 className="size-4" />
-                                                    </Button>
-                                                </div>
-                                            ))}
-
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="self-start"
-                                                onClick={() => setData('children', [...data.children, { full_name: '', birth_date: '' }])}
-                                            >
-                                                <Plus />
-                                                Добавить ребёнка
-                                            </Button>
-                                        </div>
-                                    )}
-                                </Section>
-
-                                <Section index={7} title={sections[7].title} hold={hold}>
                                     <Records
                                         items={data.experiences}
-                                        empty="Если сведений нет, оставьте раздел пустым."
                                         addLabel="Добавить место работы"
                                         onAdd={() => setData('experiences', [...data.experiences, { ...blankJob }])}
                                         onRemove={(index) =>
@@ -1280,29 +1315,19 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                         aria-invalid={!!at(errors, `experiences.${index}.position`)}
                                                     />
                                                 </Field>
-                                                <Field label="Страна" error={at(errors, `experiences.${index}.country`)} required>
-                                                    <Input
-                                                        aria-required
-                                                        list="job-countries"
-                                                        value={record.country}
-                                                        onChange={(event) => setJob(index, { country: event.target.value })}
-                                                        aria-invalid={!!at(errors, `experiences.${index}.country`)}
-                                                    />
-                                                </Field>
-
                                                 {/*
                                                  * One box per date, picked as a month: that is the precision a
                                                  * previous job is remembered to, and the record keeps the two
                                                  * halves apart as the server does.
                                                  */}
                                                 <Field label="Дата вступления" error={at(errors, `experiences.${index}.started_year`)} required>
-                                                    <Input
-                                                        aria-required
-                                                        type="month"
+                                                    <MonthPicker
+                                                        required
                                                         max={thisMonth}
+                                                        min={`${firstYear}-01`}
                                                         value={asMonth(record.started_year, record.started_month)}
-                                                        onChange={(event) => setJob(index, fromMonth(event.target.value, 'started'))}
-                                                        aria-invalid={
+                                                        onChange={(value) => setJob(index, fromMonth(value, 'started'))}
+                                                        invalid={
                                                             !!at(errors, `experiences.${index}.started_month`) ||
                                                             !!at(errors, `experiences.${index}.started_year`)
                                                         }
@@ -1311,55 +1336,435 @@ export default function CreateEmployee({ options, canIssue }: { options: Options
                                                 <Field
                                                     label="Дата ухода"
                                                     error={at(errors, `experiences.${index}.ended_year`)}
-                                                    hint="Пусто — работает там до сих пор."
+                                                    hint="Пусто — ещё работает."
                                                 >
-                                                    <Input
-                                                        type="month"
+                                                    <MonthPicker
                                                         max={thisMonth}
+                                                        min={`${firstYear}-01`}
                                                         value={asMonth(record.ended_year, record.ended_month)}
-                                                        onChange={(event) => setJob(index, fromMonth(event.target.value, 'ended'))}
-                                                        aria-invalid={
+                                                        onChange={(value) =>
+                                                            setJob(index, {
+                                                                ...fromMonth(value, 'ended'),
+                                                                // Still working there is no reason to
+                                                                // give, so taking the date back takes
+                                                                // the answer with it rather than
+                                                                // sending one the server would refuse.
+                                                                ...(value === '' ? { reason: '' } : {}),
+                                                            })
+                                                        }
+                                                        invalid={
                                                             !!at(errors, `experiences.${index}.ended_month`) ||
                                                             !!at(errors, `experiences.${index}.ended_year`)
                                                         }
                                                     />
                                                 </Field>
+
+                                                {/* Asked for once the job has an end: a book says why it
+                                                    ended, and nobody still working somewhere has an
+                                                    answer. Offered rather than imposed, like the kind of
+                                                    work on the first part of the page — the wording is
+                                                    copied from the book, whatever the list has heard of. */}
+                                                {record.ended_year !== '' && (
+                                                    <Field label="Причина ухода" error={at(errors, `experiences.${index}.reason`)} required>
+                                                        <SearchableSelect
+                                                            options={offered(options.reasons, record.reason)}
+                                                            value={record.reason}
+                                                            onChange={(value) => setJob(index, { reason: value })}
+                                                            onCreate={(value) => setJob(index, { reason: value })}
+                                                            placeholder="Выберите или впишите"
+                                                            searchPlaceholder="Причина ухода"
+                                                            invalid={!!at(errors, `experiences.${index}.reason`)}
+                                                            required
+                                                        />
+                                                    </Field>
+                                                )}
                                             </FormGrid>
                                         )}
                                     </Records>
                                 </Section>
 
-                                {canIssue && (
-                                    <Section index={8} title={sections[8].title} hold={hold}>
-                                        <FormGrid>
-                                            <Field
-                                                label="Что выдаём"
-                                                className="@min-[46rem]:col-span-2"
-                                                error={at(errors, 'equipment')}
-                                                hint="Только то, что свободно и никому не выдано."
-                                            >
-                                                <MultiSelect
-                                                    options={options.stock.map((unit) => ({
-                                                        value: unit.id,
-                                                        label: `${unit.name} · ${unit.inventory_number}`,
-                                                    }))}
-                                                    value={data.equipment}
-                                                    onChange={(value) => setData('equipment', value)}
-                                                    searchPlaceholder="Поиск по названию или номеру"
-                                                />
-                                            </Field>
+                                <Section index={7} title={sections[7].title} hold={hold}>
+                                    <FormGrid>
+                                        {/* One line, as the degree is: «Медаль „Хизмати шоиста“,
+                                            благодарность Правительства» is one answer about one
+                                            person, and a list of the kinds of award would be a
+                                            directory nobody keeps. Empty on most cards. */}
+                                        <Field label="Государственные награды, поощрения" error={errors.award}>
+                                            <SearchableSelect
+                                                options={[
+                                                    { value: '', label: 'Не выбрано' },
+                                                    // «Нет» is an answer and an empty line is the
+                                                    // absence of one, exactly as above.
+                                                    { value: 'Нет', label: 'Нет' },
+                                                    ...offered(options.awards, data.award).filter(({ value }) => value !== 'Нет'),
+                                                ]}
+                                                value={data.award}
+                                                onChange={setAward}
+                                                onCreate={setAward}
+                                                placeholder="Выберите или впишите"
+                                                searchPlaceholder="Награда или поощрение"
+                                                invalid={!!errors.award}
+                                            />
+                                        </Field>
 
-                                            <Field label="Дата выдачи" error={errors.issued_at}>
-                                                <DatePicker
-                                                    value={data.issued_at}
-                                                    onChange={(value) => setData('issued_at', value)}
-                                                    toDate={new Date()}
-                                                    invalid={!!errors.issued_at}
+                                        {/* The decree, the certificate, the letter — one paper, and
+                                            here only while the line names something to show it for.
+                                            An empty column stands in its place for the reason the
+                                            degree's does: the row keeps its three. */}
+                                        {awardNamed ? (
+                                            <Field label="Документ" error={errors.award_document}>
+                                                <DocumentInput
+                                                    value={data.award_document}
+                                                    onChange={(file) => setData('award_document', file)}
+                                                    invalid={!!errors.award_document}
                                                 />
                                             </Field>
+                                        ) : (
+                                            <div />
+                                        )}
+                                        <div></div>
+                                    </FormGrid>
+                                </Section>
+
+                                <Section index={8} title={sections[8].title} hold={hold}>
+                                    {/* The status, and under it whom it is about: the spouse follows
+                                        the answer that says there is one, and the children follow
+                                        after both. Two questions on one line would read as one. */}
+                                    <FormGrid>
+                                        <Field label="Семейное положение" error={errors.marital_status}>
+                                            <SearchableSelect
+                                                value={data.marital_status}
+                                                onChange={(value) => setData('marital_status', value)}
+                                                options={[
+                                                    // Nothing chosen is an answer of its own: a card
+                                                    // nobody has asked must not read as «не женат».
+                                                    { value: '', label: 'Не выбрано' },
+                                                    { value: 'single', label: 'Не женат / не замужем' },
+                                                    { value: 'married', label: 'Женат / замужем' },
+                                                ]}
+                                                invalid={!!errors.marital_status}
+                                            />
+                                        </Field>
+                                        <div></div>
+                                        <div></div>
+                                    </FormGrid>
+
+                                    {data.marital_status === 'married' && (
+                                        <FormGrid>
+                                            {/* Both asked for: «женат» with nobody named is half an
+                                                answer, and the server says the same. */}
+                                            <Field label="ФИО супруга" className="flex-1" error={errors.spouse_name} required>
+                                                <Input
+                                                    aria-required
+                                                    value={data.spouse_name}
+                                                    onChange={(event) => setData('spouse_name', event.target.value)}
+                                                    aria-invalid={!!errors.spouse_name}
+                                                />
+                                            </Field>
+                                            <Field label="Дата рождения" error={errors.spouse_birth_date} required>
+                                                <DatePicker
+                                                    required
+                                                    value={data.spouse_birth_date}
+                                                    onChange={(value) => setData('spouse_birth_date', value)}
+                                                    toDate={new Date()}
+                                                    invalid={!!errors.spouse_birth_date}
+                                                />
+                                            </Field>
+                                            <div></div>
                                         </FormGrid>
-                                    </Section>
-                                )}
+                                    )}
+
+                                    <FormGrid>
+                                        {/* The refusal over an empty list is said here, where the
+                                            answer that asked for the list was given: «Есть» and no
+                                            rows is what the server will not take. */}
+                                        <Field label="Дети" error={errors.children}>
+                                            <SearchableSelect
+                                                invalid={!!errors.has_children || !!errors.children}
+                                                value={data.has_children}
+                                                onChange={(value) => setChildren(value as '' | 'yes' | 'no')}
+                                                options={[
+                                                    // «Детей нет» and «ещё не спрашивали» look the same
+                                                    // in an empty list, so the answer is one of three.
+                                                    { value: '', label: 'Не выбрано' },
+                                                    { value: 'yes', label: 'Есть' },
+                                                    { value: 'no', label: 'Нет' },
+                                                ]}
+                                            />
+                                        </Field>
+                                        <div></div>
+                                        <div></div>
+                                    </FormGrid>
+
+                                    {data.has_children === 'yes' && (
+                                        <Records
+                                            items={data.children}
+                                            addLabel="Добавить ребёнка"
+                                            onAdd={() => setData('children', [...data.children, { full_name: '', birth_date: '' }])}
+                                            onRemove={(index) =>
+                                                setData(
+                                                    'children',
+                                                    data.children.filter((_, position) => position !== index),
+                                                )
+                                            }
+                                        >
+                                            {(child, index) => (
+                                                /* A record apiece, as the rest of the family is kept: the
+                                                   strip at the top says which row this is and takes it
+                                                   away. Nobody has to be entered with children at all,
+                                                   but a row that has been added is a child, and a child
+                                                   has a name. */
+                                                <FormGrid>
+                                                    <Field label="ФИО ребёнка" error={at(errors, `children.${index}.full_name`)} required>
+                                                        <Input
+                                                            aria-required
+                                                            value={child.full_name}
+                                                            onChange={(event) =>
+                                                                setData(
+                                                                    'children',
+                                                                    data.children.map((item, position) =>
+                                                                        position === index ? { ...item, full_name: event.target.value } : item,
+                                                                    ),
+                                                                )
+                                                            }
+                                                            aria-invalid={!!at(errors, `children.${index}.full_name`)}
+                                                        />
+                                                    </Field>
+
+                                                    <Field label="Дата рождения" error={at(errors, `children.${index}.birth_date`)}>
+                                                        <DatePicker
+                                                            value={child.birth_date}
+                                                            onChange={(value) =>
+                                                                setData(
+                                                                    'children',
+                                                                    data.children.map((item, position) =>
+                                                                        position === index ? { ...item, birth_date: value } : item,
+                                                                    ),
+                                                                )
+                                                            }
+                                                            toDate={new Date()}
+                                                            invalid={!!at(errors, `children.${index}.birth_date`)}
+                                                        />
+                                                    </Field>
+                                                    <div></div>
+                                                </FormGrid>
+                                            )}
+                                        </Records>
+                                    )}
+
+                                    {/* The rest of the family the card names. The sheet prints them
+                                        in a table of four columns — who they are, what they are
+                                        called, the year, the work — and the card asks in the same
+                                        four. A record apiece, because four answers in a row would
+                                        be a row nobody can read. */}
+                                    <div className="flex flex-col gap-2">
+                                        <Label>Состав семьи</Label>
+
+                                        <Records
+                                            items={data.relatives}
+                                            addLabel="Добавить родственника"
+                                            onAdd={() => setData('relatives', [...data.relatives, { ...blankRelative }])}
+                                            onRemove={(index) =>
+                                                setData(
+                                                    'relatives',
+                                                    data.relatives.filter((_, position) => position !== index),
+                                                )
+                                            }
+                                        >
+                                            {(record, index) => (
+                                                /* The part may be left empty altogether, but a row added
+                                                   to it says at least who the person is and what they
+                                                   are called: a line that said «Мать» and no name would
+                                                   be a line nobody can do anything with. */
+                                                <FormGrid>
+                                                    <Field label="Родство" error={at(errors, `relatives.${index}.relation`)} required>
+                                                        <SearchableSelect
+                                                            options={offered(relations, record.relation)}
+                                                            value={record.relation}
+                                                            onChange={(value) => setRelative(index, { relation: value })}
+                                                            onCreate={(value) => setRelative(index, { relation: value })}
+                                                            placeholder="Выберите или впишите"
+                                                            searchPlaceholder="Родство"
+                                                            invalid={!!at(errors, `relatives.${index}.relation`)}
+                                                            required
+                                                        />
+                                                    </Field>
+
+                                                    <Field label="Фамилия, имя, отчество" error={at(errors, `relatives.${index}.full_name`)} required>
+                                                        <Input
+                                                            aria-required
+                                                            value={record.full_name}
+                                                            onChange={(event) => setRelative(index, { full_name: event.target.value })}
+                                                            aria-invalid={!!at(errors, `relatives.${index}.full_name`)}
+                                                        />
+                                                    </Field>
+
+                                                    {/* The year and not the day: a sheet prints the year,
+                                                        and the day a brother was born is not something a
+                                                        personnel department is told. */}
+                                                    <Field label="Год рождения" error={at(errors, `relatives.${index}.birth_year`)}>
+                                                        <SearchableSelect
+                                                            options={[
+                                                                { value: '', label: 'Не выбрано' },
+                                                                ...years(firstFamilyYear).map((year) => ({ value: year, label: year })),
+                                                            ]}
+                                                            value={record.birth_year}
+                                                            onChange={(value) => setRelative(index, { birth_year: value })}
+                                                            searchPlaceholder="Год"
+                                                            invalid={!!at(errors, `relatives.${index}.birth_year`)}
+                                                        />
+                                                    </Field>
+
+                                                    <Field label="Работа или учёба" error={at(errors, `relatives.${index}.occupation`)}>
+                                                        <Input
+                                                            value={record.occupation}
+                                                            onChange={(event) => setRelative(index, { occupation: event.target.value })}
+                                                            placeholder="Студент, ТТУ им. Осими"
+                                                            aria-invalid={!!at(errors, `relatives.${index}.occupation`)}
+                                                        />
+                                                    </Field>
+                                                </FormGrid>
+                                            )}
+                                        </Records>
+                                    </div>
+                                </Section>
+
+                                <Section index={9} title={sections[9].title} hold={hold}>
+                                    <FormGrid>
+                                        {/* One line of the card, as the card reads it: «A 01234567» is
+                                            how a passport says what it is, and the two columns behind
+                                            it are the application's business rather than the reader's.
+                                            Whichever of the two is refused is said under both, because
+                                            the line they stand on is one. */}
+                                        <Field label="Серия и номер" error={errors.passport_series ?? errors.passport_number}>
+                                            <div className="flex min-w-0 items-center gap-2">
+                                                <Input
+                                                    className="w-16 shrink-0"
+                                                    value={data.passport_series}
+                                                    onChange={(event) => setData('passport_series', event.target.value)}
+                                                    placeholder="A"
+                                                    aria-label="Серия паспорта"
+                                                    aria-invalid={!!errors.passport_series}
+                                                />
+                                                <Input
+                                                    className="min-w-0 flex-1"
+                                                    value={data.passport_number}
+                                                    onChange={(event) => setData('passport_number', event.target.value)}
+                                                    placeholder="01234567"
+                                                    aria-label="Номер паспорта"
+                                                    aria-invalid={!!errors.passport_number}
+                                                />
+                                            </div>
+                                        </Field>
+                                        <Field label="Дата выдачи" error={errors.passport_issued_at}>
+                                            <DatePicker
+                                                value={data.passport_issued_at}
+                                                onChange={(value) => setData('passport_issued_at', value)}
+                                                toDate={new Date()}
+                                                invalid={!!errors.passport_issued_at}
+                                            />
+                                        </Field>
+                                        <Field label="Кем выдан" error={errors.passport_issued_by}>
+                                            <Input
+                                                value={data.passport_issued_by}
+                                                onChange={(event) => setData('passport_issued_by', event.target.value)}
+                                                aria-invalid={!!errors.passport_issued_by}
+                                            />
+                                        </Field>
+
+                                        {/* The number the tax office files them under: read by the
+                                            people who read the passport and for the same errands, so
+                                            it stands with it rather than in a part of its own. */}
+                                        <Field label="ИНН" error={errors.tax_number}>
+                                            <Input
+                                                value={data.tax_number}
+                                                onChange={(event) => setData('tax_number', event.target.value)}
+                                                placeholder="012345678"
+                                                aria-invalid={!!errors.tax_number}
+                                            />
+                                        </Field>
+                                    </FormGrid>
+                                </Section>
+
+                                <Section index={10} title={sections[10].title} hold={hold}>
+                                    <FormGrid>
+                                        <Field label="Домашний адрес" error={errors.home_address}>
+                                            <Input
+                                                value={data.home_address}
+                                                onChange={(event) => setData('home_address', event.target.value)}
+                                                placeholder="г. Душанбе, улица, дом, квартира"
+                                                aria-invalid={!!errors.home_address}
+                                            />
+                                        </Field>
+
+                                        <Field label="Телефон" error={errors.phone}>
+                                            <Input
+                                                value={data.phone}
+                                                onChange={(event) => setData('phone', event.target.value)}
+                                                placeholder="+992 90 123 45 67"
+                                                aria-invalid={!!errors.phone}
+                                            />
+                                        </Field>
+                                        <Field label="Экстренный контакт" error={errors.sos_phone}>
+                                            <Input
+                                                value={data.sos_phone}
+                                                onChange={(event) => setData('sos_phone', event.target.value)}
+                                                placeholder="+992 90 765 43 21"
+                                                aria-invalid={!!errors.sos_phone}
+                                            />
+                                        </Field>
+                                        <Field label="Чей это номер" error={errors.sos_contact}>
+                                            <Input
+                                                value={data.sos_contact}
+                                                onChange={(event) => setData('sos_contact', event.target.value)}
+                                                placeholder="Супруга, Нигина"
+                                                aria-invalid={!!errors.sos_contact}
+                                            />
+                                        </Field>
+                                    </FormGrid>
+                                </Section>
+
+                                <Section index={11} title={sections[11].title} hold={hold}>
+                                    <FormGrid>
+                                        {/* One line, as the two above are: «военнообязанный, старший
+                                            лейтенант запаса» is one answer copied off a document, and
+                                            a list of the ways to stand with the army is not a list a
+                                            company keeps. */}
+                                        <Field label="Отношение к воинской обязанности" error={errors.military}>
+                                            <SearchableSelect
+                                                options={[
+                                                    { value: '', label: 'Не выбрано' },
+                                                    // Said rather than left empty, exactly as above.
+                                                    { value: 'Нет', label: 'Нет' },
+                                                    ...offered(options.militaries, data.military).filter(({ value }) => value !== 'Нет'),
+                                                ]}
+                                                value={data.military}
+                                                onChange={setMilitary}
+                                                onCreate={setMilitary}
+                                                placeholder="Выберите или впишите"
+                                                searchPlaceholder="Отношение к воинской обязанности"
+                                                invalid={!!errors.military}
+                                            />
+                                        </Field>
+
+                                        {/* The военный билет, or the page of it that says this —
+                                            here only while the line names something to show it for,
+                                            and an empty column in its place so the row keeps its
+                                            three. */}
+                                        {militaryNamed ? (
+                                            <Field label="Документ" error={errors.military_document}>
+                                                <DocumentInput
+                                                    value={data.military_document}
+                                                    onChange={(file) => setData('military_document', file)}
+                                                    invalid={!!errors.military_document}
+                                                />
+                                            </Field>
+                                        ) : (
+                                            <div />
+                                        )}
+                                        <div></div>
+                                    </FormGrid>
+                                </Section>
                             </>
                         }
                     />

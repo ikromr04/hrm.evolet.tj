@@ -8,6 +8,12 @@ export type Marital = 'single' | 'married';
 export interface PrivateDetails {
     birth_date: string | null;
     nationality: string | null;
+    /** «кандидат экономических наук, доцент», written out as one line. */
+    degree: string | null;
+    /** And what a state has given them, written out the same way. */
+    award: string | null;
+    /** And how they stand with the army: «военнообязанный», «снят с учёта», «Нет». */
+    military: string | null;
     /** Every country the person is a citizen of; there may be several. */
     citizenship: string[] | null;
     home_address: string | null;
@@ -23,6 +29,8 @@ export interface PrivateDetails {
     has_children: boolean | null;
     hired_at: string | null;
     children: { full_name: string; birth_date: string | null }[];
+    /** The rest of the family the card names: a line apiece, as the sheet prints them. */
+    relatives: { relation: string; full_name: string; birth_year: number | null; occupation: string | null }[];
 }
 
 export const sexLabels: Record<Sex, string> = { male: 'Мужской', female: 'Женский' };
@@ -89,16 +97,30 @@ export interface Education {
     document: { name: string | null; url: string } | null;
 }
 
+/**
+ * The document behind one of the card's two lines that keep one — the degree,
+ * the award: what it is called and where to ask for it.
+ *
+ * The name is the one the file arrived under — the line it belongs to already
+ * says what the paper is about, so nobody retypes it. A path on the disk is
+ * never sent: the address answers only somebody who may read this card.
+ */
+export interface CardDocument {
+    name: string;
+    url: string;
+}
+
 /** A previous job, known to the month; private. */
 export interface WorkExperience {
     organization: string;
     position: string;
-    country: string;
     started_month: number;
     started_year: number;
-    /** Both null while the person still works there. */
+    /** All three null while the person still works there. */
     ended_month: number | null;
     ended_year: number | null;
+    /** Why it ended, in the words of the labour book it was copied from. */
+    reason: string | null;
 }
 
 /**

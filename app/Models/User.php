@@ -188,7 +188,6 @@ class User extends Authenticatable
         return $this->belongsTo(EmploymentType::class);
     }
 
-
     /**
      * Private data (passport, address, contacts). Only load it for viewers
      * who are allowed to see it.
@@ -258,6 +257,18 @@ class User extends Authenticatable
     public function children(): HasMany
     {
         return $this->hasMany(UserChild::class)->orderBy('birth_date');
+    }
+
+    /**
+     * The family a card names besides the children — the mother, the father, a
+     * brother — in the order they were written down; private, like details.
+     *
+     * The order is the order because a card is filled in from the top of a
+     * sheet of paper, and whoever typed it put the parents first for a reason.
+     */
+    public function relatives(): HasMany
+    {
+        return $this->hasMany(UserRelative::class)->orderBy('id');
     }
 
     /**
