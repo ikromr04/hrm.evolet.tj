@@ -69,20 +69,28 @@ export function SectionNav({
                         <>
                             <span
                                 className={cn(
-                                    'font-mono text-sm tabular-nums',
+                                    'shrink-0 font-mono text-sm tabular-nums',
                                     open ? 'text-brand-strong dark:text-[#C5E27A]' : 'text-muted-foreground',
                                 )}
                             >
                                 {String(index + 1).padStart(2, '0')}
                             </span>
-                            <span className="min-w-0 lg:truncate">{item.title}</span>
+                            <span className="min-w-0">{item.title}</span>
                         </>
                     );
 
                     const shape = cn(
                         // The figure and the name are one size, so centring them
                         // puts them on one line and no coaxing is needed.
-                        'flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm whitespace-nowrap transition-colors',
+                        //
+                        // In the column the name wraps rather than being cut: a
+                        // part of a card can be called «Государственные награды,
+                        // поощрения», and a name ending in an ellipsis is a name
+                        // somebody has to guess at. Hence a floor under the
+                        // height instead of a height, and the padding that an
+                        // entry of two lines needs. In the strip the entries
+                        // scroll sideways, where one line each is the point.
+                        'flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors lg:whitespace-normal',
                         open ? 'bg-brand-soft text-foreground font-medium dark:bg-[#A8CF45]/15' : 'text-muted-foreground',
                     );
 
