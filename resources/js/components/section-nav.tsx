@@ -5,6 +5,17 @@ import { useEffect, useRef } from 'react';
 export interface SectionNavItem {
     title: string;
     note?: string;
+    /**
+     * The figure to show against it, where the part carries one of its own.
+     *
+     * Left out on a page whose parts are numbered by standing where they stand:
+     * the entry is then the first, the second, the third. Given where the number
+     * belongs to the thing rather than to the list — «Личный листок» keeps the
+     * numbering of the paper form, so a part closed to this reader leaves a gap
+     * in the sequence, and a column counting its own entries would say «03»
+     * beside a part the sheet itself calls «09».
+     */
+    number?: string;
 }
 
 /**
@@ -73,7 +84,7 @@ export function SectionNav({
                                     open ? 'text-brand-strong dark:text-[#C5E27A]' : 'text-muted-foreground',
                                 )}
                             >
-                                {String(index + 1).padStart(2, '0')}
+                                {item.number ?? String(index + 1).padStart(2, '0')}
                             </span>
                             <span className="min-w-0">{item.title}</span>
                         </>

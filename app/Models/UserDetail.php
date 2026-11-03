@@ -40,6 +40,8 @@ class UserDetail extends Model
         'spouse_name',
         'spouse_birth_date',
         'has_children',
+        'has_educations',
+        'has_experience',
         'home_address',
         'phone',
         'sos_phone',
@@ -58,6 +60,8 @@ class UserDetail extends Model
             'birth_date' => 'date',
             'spouse_birth_date' => 'date',
             'has_children' => 'boolean',
+            'has_educations' => 'boolean',
+            'has_experience' => 'boolean',
             'passport_issued_at' => 'date',
         ];
     }

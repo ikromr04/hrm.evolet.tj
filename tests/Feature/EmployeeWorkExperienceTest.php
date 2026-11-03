@@ -86,6 +86,93 @@ class EmployeeWorkExperienceTest extends TestCase
         $this->assertNotNull($kept->fresh());
     }
 
+    /**
+     * «Нет» is written down, because an empty list cannot say it.
+     *
+     * A list with no rows in it used to mean both «нигде не работал» and «ещё не
+     * спрашивали», and the sheet counted the two alike; the answer is asked
+     * outright now, through a door of its own because the records beside it are
+     * edited one at a time while this is said about all of them at once.
+     */
+    public function test_a_card_records_that_this_person_has_worked_nowhere_before()
+    {
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/experiences/answer", ['has_experience' => false])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $this->assertFalse($employee->refresh()->details->has_experience);
+
+        // And an answer taken back leaves the question open again rather than
+        // standing as «нет».
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/experiences/answer", ['has_experience' => null])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($employee->refresh()->details->has_experience);
+    }
+
+    /**
+     * «Есть» is not an answer this door takes: the rows are what say there are
+     * any, so a card claiming jobs it does not list would be the old ambiguity
+     * the other way up.
+     */
+    public function test_saying_there_are_some_without_naming_any_leaves_the_question_open()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->put("/employees/{$employee->id}/experiences/answer", ['has_experience' => true])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($employee->refresh()->details->has_experience);
+    }
+
+    /**
+     * A record filed answers the question, and the last record taken off asks
+     * it again — not «нет», because a record removed is a correction and nobody
+     * has said this person never worked anywhere.
+     */
+    public function test_a_record_filed_says_there_are_some_and_the_last_one_removed_asks_again()
+    {
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        // Answered «нет» first, so what follows is the answer changing rather
+        // than being given for the first time.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/experiences/answer", ['has_experience' => false]);
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/experiences", $this->payload())
+            ->assertSessionHasNoErrors();
+        $this->assertTrue($employee->refresh()->details->has_experience);
+
+        // A second record, so that the first one going is not the list emptying.
+        $this->actingAs($admin)->post("/employees/{$employee->id}/experiences", $this->payload(['organization' => 'ООО «Ориён»']));
+
+        $records = $employee->refresh()->workExperiences;
+        $this->actingAs($admin)->delete("/employees/{$employee->id}/experiences/{$records->first()->id}");
+        $this->assertTrue($employee->refresh()->details->has_experience);
+
+        $this->actingAs($admin)->delete("/employees/{$employee->id}/experiences/{$records->last()->id}");
+        $this->assertNull($employee->refresh()->details->has_experience);
+    }
+
+    /** And a list filed in one go answers it the same way. */
+    public function test_a_list_filed_in_one_go_says_there_are_some()
+    {
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/experiences/many", ['records' => [$this->payload()]])
+            ->assertSessionHasNoErrors();
+
+        $this->assertTrue($employee->refresh()->details->has_experience);
+    }
+
     public function test_a_job_the_person_still_holds_has_no_end()
     {
         $employee = $this->colleague();
@@ -236,6 +323,12 @@ class EmployeeWorkExperienceTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame('Фармацевт', $job->fresh()->position);
+
+        // And the answer about the list is left where it was on both cards: a
+        // record removed is what sets it, so a removal that did not happen must
+        // not have said anything either.
+        $this->assertNull($owner->refresh()->details?->has_experience);
+        $this->assertNull($stranger->refresh()->details?->has_experience);
     }
 
     public function test_an_employee_cannot_touch_anyones_work_experience()
@@ -248,5 +341,10 @@ class EmployeeWorkExperienceTest extends TestCase
         $this->post("/employees/{$employee->id}/experiences", $this->payload())->assertForbidden();
         $this->put("/employees/{$employee->id}/experiences/{$job->id}", $this->payload())->assertForbidden();
         $this->delete("/employees/{$employee->id}/experiences/{$job->id}")->assertForbidden();
+        // The answer about the list is behind the same gate as the records it is
+        // about: «нигде не работал» is a line of the card like the records.
+        $this->put("/employees/{$employee->id}/experiences/answer", ['has_experience' => false])->assertForbidden();
+
+        $this->assertNull($employee->refresh()->details?->has_experience);
     }
 }

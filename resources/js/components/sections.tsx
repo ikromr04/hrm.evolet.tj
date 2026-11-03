@@ -26,7 +26,7 @@ export function Sections({ nav, sections, className }: { nav: ReactNode; section
                 // its content by default, so one wide table or one long unbroken
                 // word inside would push the column past the grid and set the
                 // whole page scrolling sideways. The nought lets it shrink.
-                'grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start',
+                'grid grid-cols-1 gap-5 lg:grid-cols-[240px_minmax(0,1fr)] lg:items-start',
                 className,
             )}
         >

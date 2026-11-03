@@ -63,12 +63,24 @@ class StoreEmployeeRequest extends FormRequest
     /**
      * The citizenships arrive as a list to be tidied; the telephones arrive as
      * typed and are stored in E.164, the same way the card's own form stores them.
+     *
+     * And the three lists that are answered before they are filled arrive as
+     * empty where they did not arrive at all. On a card being written there is
+     * nothing for a missing list to mean but "none of them": nothing is on file
+     * to be left alone. Said here because «sometimes» drops every rule for a key
+     * that is not there, «required_if» among them — so a card that answered
+     * «есть» and sent no list at all would have had the answer quietly taken
+     * back instead of being told to name one.
      */
     protected function prepareForValidation(): void
     {
         $this->prepareCitizenships();
 
         $this->merge(EmployeeCard::normalizedPhones($this->all()));
+
+        foreach (['educations', 'experiences', 'children'] as $list) {
+            $this->merge([$list => $this->input($list, [])]);
+        }
     }
 
     /**
@@ -118,7 +130,9 @@ class StoreEmployeeRequest extends FormRequest
 
             /* Контакты и языки */
             ...EmployeeCard::contactRules(),
-            'languages' => ['sometimes', 'array'],
+            // At least one, because everybody speaks something: an empty list
+            // here is a part somebody skipped rather than an answer.
+            'languages' => ['present', 'array', 'min:1'],
             ...EmployeeCard::languageRules(),
 
             /* Семейное положение и состав семьи, и паспорт */
@@ -128,14 +142,18 @@ class StoreEmployeeRequest extends FormRequest
             'relatives' => $rows,
 
             /* Образование */
-            'educations' => $rows,
+            // Answered before it is filled, as the children are: an empty list
+            // means «нет» only where somebody said so.
+            'has_educations' => ['nullable', 'boolean'],
+            'educations' => [...$rows, EmployeeCard::EDUCATIONS_REQUIRED],
             ...EmployeeCard::educationRules('educations.*.'),
 
             /* Учёная степень, звание */
             ...EmployeeCard::degreeRules(),
 
             /* Трудовая деятельность */
-            'experiences' => $rows,
+            'has_experience' => ['nullable', 'boolean'],
+            'experiences' => [...$rows, EmployeeCard::EXPERIENCE_REQUIRED],
             ...EmployeeCard::experienceRules('experiences.*.'),
 
             /* Государственные награды, поощрения */
@@ -218,6 +236,7 @@ class StoreEmployeeRequest extends FormRequest
         return [
             ...EmployeeCard::contactMessages(),
             ...EmployeeCard::familyMessages(),
+            ...EmployeeCard::listMessages(),
         ];
     }
 }

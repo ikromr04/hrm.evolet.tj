@@ -211,9 +211,11 @@ class EmployeeDetailsController extends Controller
         $data = $request->validate([
             // The card edits the list whole, so it travels even when empty: a
             // form that forgot the field must not read as "take them away".
-            'languages' => ['present', 'array'],
+            // One language at the least, as the «Новый сотрудник» page asks for
+            // it: a card is not left saying nobody ever asked what they speak.
+            'languages' => ['present', 'array', 'min:1'],
             ...EmployeeCard::languageRules(),
-        ], attributes: EmployeeCard::languageAttributes());
+        ], EmployeeCard::listMessages(), EmployeeCard::languageAttributes());
 
         DB::transaction(fn () => EmployeeCard::saveLanguages($employee, $data['languages']));
 
@@ -237,7 +239,7 @@ class EmployeeDetailsController extends Controller
         $relatives = $data['relatives'] ?? null;
 
         if ($children !== null) {
-            $details['has_children'] = EmployeeCard::childrenFlag($data['has_children'] ?? null, $children);
+            $details['has_children'] = EmployeeCard::listFlag($data['has_children'] ?? null, $children);
         }
 
         DB::transaction(function () use ($employee, $details, $children, $relatives) {

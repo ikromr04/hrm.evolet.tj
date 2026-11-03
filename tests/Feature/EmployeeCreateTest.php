@@ -73,6 +73,10 @@ class EmployeeCreateTest extends TestCase
             // stands here: a card is not opened without one.
             'role' => 'specialist',
             'placements' => [],
+            // The one list of the card that is not optional: everybody speaks
+            // something, so an empty «Знание языков» is a part somebody skipped
+            // rather than an answer, and the page refuses the card without it.
+            'languages' => [['name' => 'Русский', 'level' => Language::LEVELS[0]]],
             ...$overrides,
         ];
     }
@@ -448,6 +452,131 @@ class EmployeeCreateTest extends TestCase
             ->assertSessionDoesntHaveErrors(['name', 'sos_phone', 'educations.0.institution', 'experiences.0.ended_year']);
 
         $this->assertSame(1, User::count());
+    }
+
+    /**
+     * «Есть» is an answer that needs a row behind it, on each of the three
+     * lists that are answered before they are filled.
+     *
+     * A card that says somebody studied somewhere and names no university is a
+     * card somebody has to go back and ask about, which is the whole thing the
+     * three-way answer was there to avoid. Each refusal lands on the list it is
+     * about, because that is the box the page has to show it under.
+     */
+    public function test_a_list_said_to_have_rows_and_given_none_is_refused_on_its_own_key()
+    {
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'has_educations' => true,
+            'educations' => [],
+            'has_experience' => true,
+            'experiences' => [],
+            'has_children' => true,
+            'children' => [],
+        ]))->assertSessionHasErrors([
+            'educations' => 'Добавьте хотя бы одно учебное заведение или ответьте «Нет».',
+            'experiences' => 'Добавьте хотя бы одно место работы или ответьте «Нет».',
+            'children' => 'Добавьте хотя бы одного ребёнка или ответьте «Нет».',
+        ]);
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+
+        // And the same answer sent as a form carrying a file sends it — «1»
+        // rather than true, which is the other half of the rule.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'has_educations' => '1',
+            'educations' => [],
+        ]))->assertSessionHasErrors('educations');
+    }
+
+    /**
+     * «Нет» with no rows is taken at its word, which is the whole point of the
+     * flag: an empty list cannot say it, so it is written down.
+     */
+    public function test_no_is_recorded_on_a_card_whose_lists_are_empty()
+    {
+        Notification::fake();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'has_educations' => false,
+            'educations' => [],
+            'has_experience' => false,
+            'experiences' => [],
+            'has_children' => false,
+            'children' => [],
+        ]))->assertSessionHasNoErrors();
+
+        $details = User::firstWhere('email', 'nilufar@evolet.tj')->details;
+
+        $this->assertFalse($details->has_educations);
+        $this->assertFalse($details->has_experience);
+        $this->assertFalse($details->has_children);
+    }
+
+    /**
+     * Rows with no answer say there are some, whatever the page sent.
+     *
+     * Worked out from the rows rather than taken as sent, so the flag and the
+     * list cannot come to disagree — a card naming two universities and saying
+     * there are none is a third thing nobody can read.
+     */
+    public function test_rows_sent_with_no_answer_say_there_are_some()
+    {
+        Notification::fake();
+
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'has_educations' => null,
+            'has_experience' => null,
+            'has_children' => null,
+        ]))->assertSessionHasNoErrors();
+
+        $details = User::firstWhere('email', 'nilufar@evolet.tj')->details;
+
+        $this->assertTrue($details->has_educations);
+        $this->assertTrue($details->has_experience);
+        $this->assertTrue($details->has_children);
+    }
+
+    /**
+     * And a card filed with neither an answer nor a row leaves all three
+     * questions open, which is the truth about it: nobody was asked.
+     */
+    public function test_no_answer_and_no_rows_leaves_the_three_questions_open()
+    {
+        Notification::fake();
+
+        // The plain card: it carries the account, the languages and nothing of
+        // the three lists at all, exactly as the page sends it for somebody who
+        // was put on the books in a hurry.
+        $this->actingAs($this->sysadmin())->post('/employees', $this->payload())
+            ->assertSessionHasNoErrors();
+
+        $details = User::firstWhere('email', 'nilufar@evolet.tj')->details;
+
+        $this->assertNull($details->has_educations);
+        $this->assertNull($details->has_experience);
+        $this->assertNull($details->has_children);
+    }
+
+    /**
+     * «Знание языков» is not one of the three: there is no «нет» to tick.
+     *
+     * Everybody speaks something, so an empty list there is a part of the page
+     * somebody skipped rather than an answer — and the sentence says what to do
+     * instead of offering a way out of it.
+     */
+    public function test_a_card_without_a_single_language_is_refused()
+    {
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->post('/employees', $this->payload(['languages' => []]))
+            ->assertSessionHasErrors(['languages' => 'Добавьте хотя бы один язык.']);
+
+        // And the field left out of the request altogether is the same thing:
+        // a form that forgot it has not answered either.
+        $this->actingAs($admin)->post('/employees', Arr::except($this->payload(), 'languages'))
+            ->assertSessionHasErrors('languages');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
 
     public function test_a_placement_without_a_position_is_refused()

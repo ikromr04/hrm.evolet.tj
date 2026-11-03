@@ -52,7 +52,15 @@ class EmployeeLanguagesTest extends TestCase
         );
     }
 
-    public function test_the_card_may_be_emptied()
+    /**
+     * The card cannot be emptied, because everybody speaks something.
+     *
+     * This is the one of the card's lists that is not asked «есть или нет»:
+     * there is no «нет» to tick, so an empty list is a part somebody skipped and
+     * the sentence says what to do rather than offering a way out of it. The
+     * save leaves what was on file alone, as every refused save does.
+     */
+    public function test_the_card_cannot_be_emptied()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = $this->colleague();
@@ -60,9 +68,9 @@ class EmployeeLanguagesTest extends TestCase
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/languages", ['languages' => []])
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasErrors(['languages' => 'Добавьте хотя бы один язык.']);
 
-        $this->assertCount(0, $employee->fresh()->languages);
+        $this->assertSame(['Английский'], $employee->fresh()->languages->pluck('name')->all());
     }
 
     public function test_invalid_data_is_rejected()

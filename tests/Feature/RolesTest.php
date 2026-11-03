@@ -134,6 +134,9 @@ class RolesTest extends TestCase
             'email' => 'daler@evolet.tj',
             'role' => Access::SPECIALIST,
             'placements' => [],
+            // «Знание языков» asks for at least one row, so a card without it
+            // never reaches the rules this test is about.
+            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
             ...$overrides,
         ];
     }

@@ -78,6 +78,19 @@ final class EmployeeCard
      */
     public const CHILDREN_REQUIRED = 'required_if:has_children,true,1';
 
+    /**
+     * The same, for the two lists that were being left empty and read as
+     * answered: where somebody studied and where they worked before.
+     *
+     * An empty list says two things — «нет» and «nobody asked» — so each of them
+     * is asked outright first, and only «есть» brings out the rows. The rule
+     * belongs to the list for the reason the children's does: the two places
+     * that take one describe it differently.
+     */
+    public const EDUCATIONS_REQUIRED = 'required_if:has_educations,true,1';
+
+    public const EXPERIENCE_REQUIRED = 'required_if:has_experience,true,1';
+
     /* ------------------------------------------------------------- паспорт */
 
     /**
@@ -404,16 +417,40 @@ final class EmployeeCard
     }
 
     /**
-     * What the «Дети» line comes to. «Не указано» and «детей нет» look the same
-     * in an empty list, so the flag keeps them apart; rows on file always mean
-     * there are children, whatever the flag was set to.
+     * The same sentence for the two other lists that are answered before they
+     * are filled, said where each of them is asked.
      *
-     * @param  array<array-key, mixed>  $children
+     * @return array<string, string>
      */
-    public static function childrenFlag(mixed $said, array $children): ?bool
+    public static function listMessages(): array
+    {
+        return [
+            'educations.required_if' => 'Добавьте хотя бы одно учебное заведение или ответьте «Нет».',
+            'experiences.required_if' => 'Добавьте хотя бы одно место работы или ответьте «Нет».',
+            // The languages are not asked «есть или нет» — one of them there has
+            // to be — so the sentence says what to do rather than offering a way
+            // out of it.
+            'languages.min' => 'Добавьте хотя бы один язык.',
+        ];
+    }
+
+    /**
+     * What a list that is answered before it is filled comes to.
+     *
+     * «Не указано» and «нет» look the same in an empty list, so a flag keeps
+     * them apart. Rows on file always mean «есть», whatever the flag was sent
+     * as, so the two cannot drift; only «нет» has to be taken at its word,
+     * because nothing else records it.
+     *
+     * The three lists asked this way — the children, the languages and the jobs
+     * held before — are the same question three times, so they get one answer.
+     *
+     * @param  array<array-key, mixed>  $rows
+     */
+    public static function listFlag(mixed $said, array $rows): ?bool
     {
         return match (true) {
-            $children !== [] => true,
+            $rows !== [] => true,
             $said === false => false,
             default => null,
         };

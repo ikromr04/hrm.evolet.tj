@@ -59,4 +59,34 @@ class RouteTableTest extends TestCase
 
         $this->assertSame('App\Http\Controllers\EquipmentController@store', $route->getActionName());
     }
+
+    /**
+     * «Есть или нет» about a whole list is a word where a record id goes, so the
+     * two addresses are told apart by the order they were written in.
+     *
+     * Both «educations/answer» and «educations/{education}» match the same path,
+     * and the rule above is the whole of what decides it: the first registered
+     * answers in a cached table, and a route written further down replaces an
+     * earlier claim in a built one. Written the right way round they agree —
+     * written the other way round the answer would be filed as a correction to
+     * a record numbered «answer», which is a 404 on the server and nowhere else.
+     */
+    public function test_the_answer_about_a_list_is_not_read_as_a_record_id_in_a_cached_table(): void
+    {
+        $router = app('router');
+        $router->setCompiledRoutes($router->getRoutes()->compile());
+
+        $doors = [
+            '/employees/1/educations/answer' => 'App\Http\Controllers\EmployeeEducationController@answer',
+            '/employees/1/experiences/answer' => 'App\Http\Controllers\EmployeeWorkExperienceController@answer',
+        ];
+
+        foreach ($doors as $address => $action) {
+            $this->assertSame(
+                $action,
+                $router->getRoutes()->match(Request::create($address, 'PUT'))->getActionName(),
+                "The answer about the list at {$address} is being read as the id of a record.",
+            );
+        }
+    }
 }

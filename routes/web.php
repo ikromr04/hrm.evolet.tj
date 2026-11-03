@@ -221,6 +221,10 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
         Route::post('educations', [EmployeeEducationController::class, 'store'])->name('educations.store');
         // Several records in one request: the steps of the "new colleague" wizard.
         Route::post('educations/many', [EmployeeEducationController::class, 'storeMany'])->name('educations.many');
+        // Whether there are any at all, said about the whole list at once — and
+        // before «educations/{education}», or «answer» would be read as the id
+        // of a record.
+        Route::put('educations/answer', [EmployeeEducationController::class, 'answer'])->name('educations.answer');
         Route::put('educations/{education}', [EmployeeEducationController::class, 'update'])->name('educations.update');
         Route::delete('educations/{education}', [EmployeeEducationController::class, 'destroy'])->name('educations.destroy');
     });
@@ -264,6 +268,11 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     Route::middleware('can:employees.edit.block.experience,employee')->group(function () {
         Route::post('experiences', [EmployeeWorkExperienceController::class, 'store'])->name('experiences.store');
         Route::post('experiences/many', [EmployeeWorkExperienceController::class, 'storeMany'])->name('experiences.many');
+        // Whether there are any at all, which is asked before the list is
+        // filled and said about all of them at once rather than record by
+        // record — before «experiences/{experience}», or «answer» would be
+        // read as the id of a record.
+        Route::put('experiences/answer', [EmployeeWorkExperienceController::class, 'answer'])->name('experiences.answer');
         Route::put('experiences/{experience}', [EmployeeWorkExperienceController::class, 'update'])->name('experiences.update');
         Route::delete('experiences/{experience}', [EmployeeWorkExperienceController::class, 'destroy'])->name('experiences.destroy');
     });

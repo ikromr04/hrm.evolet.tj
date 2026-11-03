@@ -15,6 +15,10 @@ import { Photos, type Photo } from '@/components/photo-viewer';
 import { mayHold, roleFromPositions, type Placement, type PlacementOptions } from '@/components/placements';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { SearchableSelect } from '@/components/searchable-select';
+import { Section as NumberedSection } from '@/components/section';
+import { SectionNav } from '@/components/section-nav';
+import { SectionTitle } from '@/components/section-title';
+import { Sections } from '@/components/sections';
 import { StatusBadge, statusTones, type StatusTone } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -33,8 +37,11 @@ import { useCan } from '@/lib/access';
 import {
     formatDate,
     formatPhone,
+    languageLevelLabels,
     languageLevels,
+    maritalLabels,
     monthNames,
+    sexLabels,
     tenure,
     type CardDocument,
     type Education,
@@ -52,7 +59,6 @@ import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     Camera,
-    Check,
     ChevronLeft,
     ChevronRight,
     FileText,
@@ -94,12 +100,21 @@ interface HeldUnit extends Equipment {
 
 interface ProfilePrivate extends PrivateDetails {
     educations: (Education & { id: number })[];
+    /**
+     * Whether anybody was asked about those, answered before the list is filled
+     * the way the children are: an empty list said both «нет» and «никто не
+     * спрашивал», and the sheet counted the two alike. It travels under the
+     * right to read the list it is about.
+     */
+    has_educations: boolean | null;
     /** The documents behind those two lines; the lines themselves are private details. */
     degree_document: CardDocument | null;
     award_document: CardDocument | null;
     military_document: CardDocument | null;
     /** The latest first. */
     work_experiences: (WorkExperience & { id: number })[];
+    /** The jobs' own answer, asked and read exactly as the schools' above. */
+    has_experience: boolean | null;
     /** Grouped by kind, which is resolved to its directory name here. */
     equipment: HeldUnit[];
     /** What has passed through their hands and what happened to it meanwhile. */
@@ -554,96 +569,103 @@ function KpiSection() {
 }
 
 /**
- * «Личный листок по учёту кадров»: the sheet a personnel office keeps, as the
- * design draws it. The design's answers too — nothing is kept or signed yet,
- * so the tab can be read and agreed on before there is anything behind it.
+ * How far this card has got through «Личный листок по учёту кадров»: the figure
+ * the band over the sheet reads, and the lines it is still short of.
+ *
+ * Counted on the server, over the lines this viewer may read and no others — a
+ * figure taken over the whole card would be a statement about the lines they
+ * may not see, and the list of what is wanted would name them outright. What
+ * is counted and what is not is App\Support\PersonnelSheet's to say.
  */
-const SHEET = {
-    filled: 94,
-    signedAt: '2026-10-12',
-    acceptedAt: '2026-10-12',
-    name: [
-        ['Фамилия', 'Рахимова'],
-        ['Имя', 'Нигина'],
-        ['Отчество', 'Саидовна'],
-    ],
-    general: [
-        ['Пол', 'Женский'],
-        ['Дата рождения', formatDate('1997-06-09')],
-        ['Место рождения', 'г. Душанбе'],
-        ['Национальность', 'Таджичка'],
-        ['Гражданство', 'Республика Таджикистан'],
-    ],
-    educations: [
-        ['ТГНУ', 'Прикладная математика, бакалавр', '2015–2019', 'Диплом № 0123456'],
-        ['ТТУ им. Осими', 'Информационные системы, магистр', '2019–2021', 'Диплом № 0234567'],
-    ],
-    degree: 'Нет',
-    languages: 'Английский (B2), китайский (A1)',
-    jobs: [
-        ['10.2023 — н. в.', 'Evolet, ДАС › ОРПП', 'Аналитик', '—'],
-        ['08.2021 — 09.2023', '«Сомон Групп»', 'Аналитик', 'По собственному желанию'],
-        ['07.2019 — 07.2021', '«ТехноПарк»', 'Младший аналитик', 'Переход на другую работу'],
-    ],
-    awards: 'Благодарность за вклад в проект «Дашборд KPI», 2025',
-    marital: 'Не замужем',
-    family: [
-        ['Мать', 'Рахимова Зарина Курбоновна', '1971', 'Пенсионерка'],
-        ['Брат', 'Рахимов Далер Саидович', '2001', 'Студент, ТТУ им. Осими'],
-    ],
-    passport: [
-        ['Серия и номер', 'A 00000000'],
-        ['Дата выдачи', formatDate('2020-01-01')],
-        ['Кем выдан', 'МВД Республики Таджикистан'],
-        ['ИНН', '000000000'],
-    ],
-    contacts: [
-        ['Домашний адрес', 'г. Душанбе, [улица, дом, кв.]'],
-        ['Телефон', '+992 90 000 00 01'],
-        ['Экстренный контакт · мама', '+992 90 000 00 02'],
-    ],
-    service: 'Не состоит на воинском учёте',
-    signatures: [
-        { note: 'Сведения достоверны. Обязуюсь сообщать об изменениях.', name: 'Н. Рахимова', role: 'Подпись сотрудника', at: '2026-10-12' },
-        { note: 'Принял: специалист по кадрам', name: 'Ш. Сафаров', role: 'Подпись, расшифровка', at: '2026-10-12' },
-    ],
-    missing: ['Копия трудовой книжки', 'Квалификационные сертификаты'],
-    files: [
-        { name: 'Скан паспорта.pdf', size: '1,1 МБ' },
-        { name: 'Диплом бакалавра.pdf', size: '820 КБ' },
-        { name: 'Диплом магистра.pdf', size: '790 КБ' },
-    ],
-    history: [
-        { what: 'Листок подписан сотрудником', when: '12 окт. 2026, 11:20', dot: 'bg-brand' },
-        { what: 'Обновлён адрес проживания', when: '10 окт. 2026, 16:05', dot: 'bg-[#3B82F6]' },
-        { what: 'Листок создан при приёме на работу', when: '16 окт. 2023', dot: 'bg-muted-foreground/60' },
-    ],
-};
+interface SheetProgress {
+    /** A whole number of per cent. */
+    filled: number;
+    /** The lines nobody has answered yet, as the sheet names them, in the order it asks. */
+    missing: string[];
+}
+
+/**
+ * One part of the sheet as the page plans it out, before any of it is drawn:
+ * what the paper form calls it and numbers it, whether this viewer may read it
+ * at all, what stands in it, and whatever answers for the whole of it.
+ *
+ * Planned as a list rather than written out one part after another because two
+ * things now have to agree about the parts — the sheet itself and the nav
+ * beside it — and a list is the only way of saying once which parts there are.
+ */
+interface SheetPartPlan {
+    /** Already padded as the form prints it — «03», not 3: the paper's figure, not the part's place in what is drawn. */
+    number: string;
+    title: string;
+    /** A part this viewer may not read is drawn nowhere and listed nowhere. */
+    shown: boolean;
+    /** Short enough to share a line with the short part after it. */
+    half?: boolean;
+    /** The control that answers for the whole part, where it has one. */
+    action?: ReactNode;
+    body: ReactNode;
+}
 
 /**
  * One numbered part of the sheet: its name, and everything said under the name.
  *
- * The body is indented by exactly the width of the figure in front of the name
- * plus the gap after it, so the name of the part and its answers stand on one
- * line down the page and the numbers read as a column of their own.
+ * The furniture is the application's own — the figure in a box of its own in
+ * front of the name, the body indented behind it — so that a part of this sheet
+ * and a part of «Новый сотрудник» are one thing drawn one way, down to the
+ * twenty-four points the answers stand in from. What is the sheet's own is the
+ * control at the end of the name, where a part is acted on rather than only
+ * read: it belongs to the whole part, as the action in the header strip of a
+ * block belongs to the whole block.
+ *
+ * The number is written onto the element as well as into the name, because the
+ * nav beside the sheet has to find this part to scroll to it and to watch it,
+ * and the paper's figure is the one name for a part that does not change when
+ * the part above it drops out.
  */
-function SheetPart({ number, title, className, children }: { number: string; title: string; className?: string; children: ReactNode }) {
+function SheetPart({
+    number,
+    title,
+    action,
+    active,
+    onOpen,
+    children,
+}: {
+    number: string;
+    title: string;
+    action?: ReactNode;
+    /** Whether the nav has this part marked; the title shows it too. */
+    active?: boolean;
+    /** Reading a part is being in it, so touching one marks it in the nav. */
+    onOpen?: () => void;
+    children: ReactNode;
+}) {
     return (
-        <section className={cn('flex min-w-0 flex-col gap-2', className)}>
-            <h3 className="flex items-baseline gap-1 text-[15px] font-semibold">
-                <span className="text-brand-strong w-4 shrink-0 font-mono text-sm font-medium tabular-nums dark:text-[#C5E27A]">{number}</span>
-                {title}
-            </h3>
-
-            <div className="min-w-0 pl-5">{children}</div>
-        </section>
+        <NumberedSection
+            data-part={number}
+            // Scrolled to from the nav, so the name of the part does not arrive
+            // flush against the top of the window.
+            className="scroll-mt-4 md:scroll-mt-6"
+            // Pressing anywhere in a part marks it, which is what somebody
+            // reading it has already done. Not a button and not focusable: it
+            // is the whole part, there is nothing to tab to, and the nav beside
+            // it is the way in for a keyboard.
+            onClick={onOpen}
+            title={
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <SectionTitle as="h3" number={number} title={title} active={active} className="min-w-0" />
+                    {action}
+                </div>
+            }
+            body={children}
+        />
     );
 }
 
 /**
  * The lines of a part: a label over its answer, in as many columns as fit. A
- * date comes through as nothing where there is no date, and the line says so
- * rather than standing empty.
+ * line nobody has answered is a dash in the colour of a label, the way every
+ * other line of the card writes one — the label is the question, and a sheet
+ * has to be able to show that it was asked and not answered.
  */
 function SheetFacts({ rows, columns = 3 }: { rows: (string | null)[][]; columns?: 3 | 4 }) {
     return (
@@ -651,7 +673,7 @@ function SheetFacts({ rows, columns = 3 }: { rows: (string | null)[][]; columns?
             {rows.map(([label, value]) => (
                 <div key={label ?? value} className="flex min-w-0 flex-col gap-1">
                     <dt className="text-muted-foreground text-xs">{label}</dt>
-                    <dd className="text-sm font-medium break-words">{value ?? '—'}</dd>
+                    <dd className="text-sm font-medium break-words">{value || <span className="text-muted-foreground font-normal">—</span>}</dd>
                 </div>
             ))}
         </dl>
@@ -688,8 +710,445 @@ function SheetTable({ head, rows }: { head: string[]; rows: string[][] }) {
     );
 }
 
+/**
+ * A part the card answers in one line, and the parts whose list is empty: what
+ * it says, or the same dash a line of «Основное» leaves where nobody has said
+ * anything. The question has still been asked, so the part is drawn either way.
+ */
+function SheetLine({ children }: { children?: ReactNode }) {
+    return <p className="text-sm font-medium">{children || <span className="text-muted-foreground font-normal">—</span>}</p>;
+}
+
+/**
+ * The answer to a part whose records are added one at a time: whether there are
+ * any at all. An empty part says «нет» and «никто не спрашивал» at once, which
+ * is the whole reason the card now keeps the answer, so somebody has to be able
+ * to say which of the two an empty part is.
+ *
+ * Only «Нет» and «Не выбрано» are offered. «Есть» is the records' own to say —
+ * the server reads it off them and refuses it from here — and a card claiming a
+ * list it does not show would be the old ambiguity the other way up.
+ */
+function SheetAnswer({ label, said, onSay }: { label: string; said: boolean | null; onSay: (said: boolean | null) => void }) {
+    return (
+        <Select value={said === false ? 'no' : 'unknown'} onValueChange={(value) => onSay(value === 'no' ? false : null)}>
+            {/* Shorter and smaller than a field of a form: it stands beside the
+                name of the part, not in a column of inputs. */}
+            <SelectTrigger aria-label={label} className="h-8 w-[10.5rem] shrink-0 text-xs font-normal">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="unknown">Не выбрано</SelectItem>
+                <SelectItem value="no">Нет</SelectItem>
+            </SelectContent>
+        </Select>
+    );
+}
+
 /** The sheet itself, and beside it what is still wanted for it. */
-function SheetTab() {
+function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgress }) {
+    const details = employee.private;
+    const shows = useShows();
+    const canEdit = useCanEdit();
+
+    /**
+     * Says there are none, or puts the question back to unanswered. Only those
+     * two: «есть» is read off the records, so the doors that take this refuse
+     * it. Scroll is kept because the answer is given halfway down a long sheet.
+     */
+    const say = (url: string, payload: Record<string, boolean | null>) => router.put(url, payload, { preserveScroll: true });
+
+    /**
+     * The lines of a part this viewer may read, in the order the sheet asks
+     * them. A line that is closed is dropped rather than drawn empty: a label
+     * over a dash says the line was asked and not answered, which about a line
+     * nobody may read is a statement that it is there to be read.
+     */
+    const lines = (rows: [label: string, field: string, value: string | null][]) =>
+        rows.filter(([, field]) => shows(field)).map(([label, , value]) => [label, value]);
+
+    const general = lines([
+        ['Пол', 'sex', employee.sex ? sexLabels[employee.sex] : null],
+        ['Дата рождения', 'birth_date', formatDate(details?.birth_date ?? null)],
+        ['Место рождения', 'birth_place', details?.birth_place ?? null],
+        ['Национальность', 'nationality', details?.nationality ?? null],
+        // There may be several, and the sheet asks the line once.
+        ['Гражданство', 'citizenship', (details?.citizenship ?? []).join(', ') || null],
+    ]);
+
+    const passport = lines([
+        // The series and the number are one line of the sheet, as they are one
+        // line of a passport.
+        ['Серия и номер', 'passport_number', [details?.passport.series, details?.passport.number].filter(Boolean).join(' ') || null],
+        ['Дата выдачи', 'passport_issued_at', formatDate(details?.passport.issued_at ?? null)],
+        ['Кем выдан', 'passport_issued_by', details?.passport.issued_by ?? null],
+        ['ИНН', 'tax_number', details?.passport.tax_number ?? null],
+    ]);
+
+    const contacts = lines([
+        ['Домашний адрес', 'home_address', details?.home_address ?? null],
+        ['Телефон', 'phone', details?.phone ? formatPhone(details.phone) : null],
+        [
+            // Whose number it is goes in the label with the number, the way the
+            // «Контакты» block of the card keeps the two together.
+            ['Экстренный контакт', details?.sos_contact].filter(Boolean).join(' · '),
+            'sos_phone',
+            details?.sos_phone ? formatPhone(details.sos_phone) : null,
+        ],
+    ]);
+
+    // Every language on one line, as a paper sheet asks for them: the level in
+    // words beside each, since the badge the sidebar uses is a line of its own.
+    const languages = (employee.languages ?? [])
+        .map((language) => `${language.name} (${languageLevelLabels[language.level].toLocaleLowerCase('ru')})`)
+        .join(', ');
+
+    // Said of the person it is about: «Не женат» and «Не замужем» are the same
+    // answer in two words. Where the card does not say which, the masculine
+    // form stands — Russian has no third one to fall back on.
+    const marital = details?.marital_status ? maritalLabels[employee.sex ?? 'male'][details.marital_status] : null;
+
+    const educations = (details?.educations ?? []).map((education) => [
+        education.institution,
+        [education.specialty, education.qualification].filter(Boolean).join(', '),
+        `${education.started_year}–${education.graduated_year ?? 'н. в.'}`,
+        // The diploma is a file rather than a number now, so the column names
+        // it and «Вложения» is where it is opened.
+        education.document?.name ?? '—',
+    ]);
+
+    /** "10.2023": the month and the year the card keeps apart, read as one. */
+    const month = (year: number, index: number) => `${String(index).padStart(2, '0')}.${year}`;
+
+    const jobs = (details?.work_experiences ?? []).map((job) => [
+        `${month(job.started_year, job.started_month)} — ${
+            job.ended_year !== null && job.ended_month !== null ? month(job.ended_year, job.ended_month) : 'н. в.'
+        }`,
+        job.organization,
+        job.position,
+        job.reason ?? '—',
+    ]);
+
+    /**
+     * The year off a date the card keeps to the day, which is all the table
+     * asks for. Read off the front of the written date rather than through a
+     * calendar: these are years of birth, and a date turned into a local moment
+     * to be asked its year can come back a year out either side of midnight.
+     */
+    const birthYear = (date: string | null) => (date ? date.slice(0, 4) : '—');
+
+    // Said of the spouse and not of the person whose sheet this is, so the word
+    // is the other one of the pair: a man's spouse is «Супруга». Where the card
+    // does not say which, the masculine card stands, as «Семейное положение»
+    // above settles the same question the same way.
+    const spouse = (employee.sex ?? 'male') === 'female' ? 'Супруг' : 'Супруга';
+
+    /**
+     * The whole household, as the paper sheet's one table lists it: the spouse,
+     * then the children, then the rest of the family the card names. The three
+     * are kept in three places and read under three rights, so each is let into
+     * the table only by its own — a viewer who may read the relatives and not
+     * the children sees the relatives alone.
+     *
+     * Nothing is on file about where a spouse or a child works or studies, so
+     * that column reads the dash an unfilled cell of this table already reads.
+     */
+    const family = [
+        ...(shows('spouse') && details?.spouse_name ? [[spouse, details.spouse_name, birthYear(details.spouse_birth_date), '—']] : []),
+        ...(shows('children')
+            ? // Nothing records whether a child is a son or a daughter, so the
+              // sheet says neither: «Ребёнок» is what the card actually knows.
+              (details?.children ?? []).map((child) => ['Ребёнок', child.full_name, birthYear(child.birth_date), '—'])
+            : []),
+        ...(shows('relatives')
+            ? (details?.relatives ?? []).map((relative) => [
+                  relative.relation,
+                  relative.full_name,
+                  relative.birth_year === null ? '—' : String(relative.birth_year),
+                  relative.occupation ?? '—',
+              ])
+            : []),
+    ];
+
+    // Every paper the card holds, in the order the sheet asks for the lines
+    // behind them. A line this viewer may not read sends no paper either, so
+    // there is nothing to keep out here.
+    const papers = [
+        ...(details?.educations ?? []).map((education) => education.document),
+        details?.degree_document,
+        details?.award_document,
+        details?.military_document,
+    ].flatMap((paper) => (paper ? [paper] : []));
+
+    /**
+     * The sheet part by part, in the order the paper form asks them: every part
+     * the form has, the ones this viewer may not read among them, marked as
+     * closed rather than left out so that the figures stay the form's own.
+     *
+     * A part nobody may read drops out of the sheet and out of the nav at once,
+     * and what is left may read 01, 02, 09, 10. That is the sheet being honest:
+     * the figure says which question of the form is being answered, not how far
+     * down the page the answer happens to stand.
+     */
+    const parts: SheetPartPlan[] = [
+        {
+            number: '01',
+            title: 'Фамилия, имя, отчество',
+            shown: true,
+            body: (
+                <SheetFacts
+                    rows={lines([
+                        ['Фамилия', 'surname', employee.surname],
+                        ['Имя', 'name', employee.name],
+                        ['Отчество', 'patronymic', employee.patronymic ?? null],
+                    ])}
+                />
+            ),
+        },
+        { number: '02', title: 'Общие сведения', shown: general.length > 0, body: <SheetFacts rows={general} /> },
+        {
+            number: '03',
+            title: 'Образование',
+            shown: shows('educations'),
+            action:
+                // Offered only while the part is empty: a record on file already
+                // says «есть», and nothing said here could contradict it.
+                educations.length === 0 && canEdit('educations') && (
+                    <SheetAnswer
+                        label="Образование: нет или не выбрано"
+                        said={details?.has_educations ?? null}
+                        onSay={(said) => say(route('employees.educations.answer', employee.id), { has_educations: said })}
+                    />
+                ),
+            body:
+                educations.length === 0 ? (
+                    // «Нет» is an answer here as it is under «Учёная степень»,
+                    // and only a part nobody has been asked about keeps the dash.
+                    <SheetLine>{details?.has_educations === false ? 'Нет' : null}</SheetLine>
+                ) : (
+                    <SheetTable head={['Учебное заведение', 'Специальность, квалификация', 'Годы', 'Документ']} rows={educations} />
+                ),
+        },
+        // These two answer in a word each, so they share a line rather than
+        // taking one of the sheet apiece.
+        { number: '04', title: 'Учёная степень, звание', shown: shows('degree'), half: true, body: <SheetLine>{details?.degree}</SheetLine> },
+        { number: '05', title: 'Знание иностранных языков', shown: shows('languages'), half: true, body: <SheetLine>{languages}</SheetLine> },
+        {
+            number: '06',
+            title: 'Трудовая деятельность',
+            shown: shows('work_experiences'),
+            action:
+                // The schools' answer, in the same place for the same reason: a
+                // first job and a job nobody asked about are not the same card.
+                jobs.length === 0 && canEdit('work_experiences') && (
+                    <SheetAnswer
+                        label="Трудовая деятельность: нет или не выбрано"
+                        said={details?.has_experience ?? null}
+                        onSay={(said) => say(route('employees.experiences.answer', employee.id), { has_experience: said })}
+                    />
+                ),
+            body:
+                jobs.length === 0 ? (
+                    <SheetLine>{details?.has_experience === false ? 'Нет' : null}</SheetLine>
+                ) : (
+                    <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={jobs} />
+                ),
+        },
+        { number: '07', title: 'Государственные награды, поощрения', shown: shows('award'), body: <SheetLine>{details?.award}</SheetLine> },
+        {
+            number: '08',
+            title: 'Семейное положение и состав семьи',
+            shown: shows('marital_status') || shows('spouse') || shows('children') || shows('relatives'),
+            body: (
+                <>
+                    {shows('marital_status') && <SheetFacts rows={[['Семейное положение', marital]]} />}
+                    {/* One table for the household, whichever of the three lists
+                        this viewer may read: the paper sheet prints the spouse
+                        and the children in the same table as the rest of the
+                        family. */}
+                    {(shows('spouse') || shows('children') || shows('relatives')) &&
+                        (family.length === 0 ? (
+                            <SheetLine />
+                        ) : (
+                            <SheetTable head={['Родство', 'Фамилия, имя, отчество', 'Год рождения', 'Работа, учёба']} rows={family} />
+                        ))}
+                </>
+            ),
+        },
+        { number: '09', title: 'Паспортные данные', shown: passport.length > 0, body: <SheetFacts rows={passport} columns={4} /> },
+        { number: '10', title: 'Адрес и контакты', shown: contacts.length > 0, body: <SheetFacts rows={contacts} /> },
+        { number: '11', title: 'Отношение к воинской обязанности', shown: shows('military'), body: <SheetLine>{details?.military}</SheetLine> },
+    ];
+
+    /**
+     * The parts actually drawn, in the order they stand on the page.
+     *
+     * This one list answers for the sheet and for the nav at the same time, so
+     * there is an entry for every part drawn and for no other. A part's place in
+     * this list is what the nav marks; the figure it carries stays the paper's,
+     * and the two being different numbers is the point.
+     */
+    const drawn = parts.filter((part) => part.shown);
+
+    /**
+     * Which parts those are, by figure, so the watching below is set up again if
+     * ever the set changes — a right withdrawn, a part whose every line closed.
+     */
+    const drawnNumbers = drawn.map((part) => part.number).join();
+
+    /**
+     * The drawn parts in the rows they stand in: one to a row, except where two
+     * short ones share a line. Paired here rather than in the plan above,
+     * because which parts end up beside each other depends on which of them
+     * this viewer may read at all.
+     */
+    const rows = drawn.reduce<SheetPartPlan[][]>((rows, part) => {
+        const last = rows[rows.length - 1];
+
+        if (part.half && last?.length === 1 && last[0].half) last.push(part);
+        else rows.push([part]);
+
+        return rows;
+    }, []);
+
+    const [current, setCurrent] = useState(0);
+
+    /**
+     * What the sheet is drawn inside, so that looking a part up finds the parts
+     * of this sheet and nothing else on the page that might carry a figure.
+     */
+    const holder = useRef<HTMLDivElement>(null);
+
+    /**
+     * A press holds the mark where it was pressed until the reader scrolls
+     * themselves, as it does on «Новый сотрудник» and for the same reason: the
+     * page can only scroll so far, so a short part at the foot of the sheet
+     * never reaches the line the watching goes by, and the mark would spring
+     * back to whatever is standing there instead.
+     */
+    const pressed = useRef(false);
+
+    /**
+     * Which entry the nav marks is a question about what is on screen, so the
+     * browser answers it rather than arithmetic on every scroll event. The
+     * window is cropped a quarter of the way down and watched from there, so the
+     * part marked is the first one still reaching past that line.
+     *
+     * The window and not the card: the sheet scrolls with the page whose tab it
+     * is, and has no box of its own to scroll inside. Which also means the parts
+     * do not tile what is watched the way a whole page of them would — the card
+     * above the sheet and the blocks beside it are parts of nothing — so with
+     * none of them in view the mark is left where it was.
+     */
+    useEffect(() => {
+        const numbers = drawnNumbers.split(',');
+        const inside = new Set<number>();
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    // The nav counts the parts that are drawn and the element
+                    // says which part of the form it is: this is where the two
+                    // numberings are made to agree, and the only place they meet.
+                    const index = numbers.indexOf((entry.target as HTMLElement).dataset.part ?? '');
+
+                    if (index < 0) continue;
+
+                    if (entry.isIntersecting) inside.add(index);
+                    else inside.delete(index);
+                }
+
+                // Worked out either way — the answer is wanted the moment the
+                // hold ends — but a press is not overruled while it stands.
+                if (pressed.current) return;
+
+                if (inside.size > 0) setCurrent(Math.min(...inside));
+            },
+            { rootMargin: '-25% 0px 0px 0px' },
+        );
+
+        for (const number of numbers) {
+            const node = holder.current?.querySelector<HTMLElement>(`[data-part="${number}"]`);
+
+            if (node) observer.observe(node);
+        }
+
+        return () => observer.disconnect();
+    }, [drawnNumbers]);
+
+    /**
+     * The hold ends the moment the page is scrolled by hand — a wheel, a finger,
+     * or one of the keys that scroll.
+     */
+    useEffect(() => {
+        const scrolls = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+        const release = () => {
+            pressed.current = false;
+        };
+
+        // Those keys are only scrolling while nothing is being answered with
+        // them: the one control the sheet carries is a list, and a reader
+        // picking «Нет» out of it with the arrows is not leaving the part.
+        const key = (event: KeyboardEvent) =>
+            scrolls.has(event.key) && !(event.target as HTMLElement | null)?.closest('[role="combobox"], [role="listbox"]') && release();
+
+        window.addEventListener('wheel', release, { passive: true });
+        window.addEventListener('touchmove', release, { passive: true });
+        window.addEventListener('keydown', key);
+
+        return () => {
+            window.removeEventListener('wheel', release);
+            window.removeEventListener('touchmove', release);
+            window.removeEventListener('keydown', key);
+        };
+    }, []);
+
+    /**
+     * Pressing an entry of the nav. The mark moves at once rather than waiting
+     * for the scrolling to arrive, so the press answers — and stays answered,
+     * because the page below may not be able to put that part under the line.
+     */
+    const show = (index: number) => {
+        mark(index);
+        holder.current?.querySelector<HTMLElement>(`[data-part="${drawn[index].number}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    /**
+     * Marking a part without going anywhere — what pressing the part itself
+     * does, since somebody touching a part is already in it.
+     *
+     * The mark is held against the watching for the same reason a press is: the
+     * part somebody chose stays chosen, rather than being overruled a moment
+     * later by whichever part the scrolling happens to be nearest.
+     */
+    const mark = (index: number) => {
+        pressed.current = true;
+        setCurrent(index);
+    };
+
+    // A set that has just lost a part could leave the mark past the end of what
+    // is left, for the one paint before the watching answers again.
+    const marked = Math.min(current, drawn.length - 1);
+
+    /** Drawing one planned part, wherever in the rows it ends up standing. */
+    const draw = (part: SheetPartPlan) => {
+        const index = drawn.indexOf(part);
+
+        return (
+            <SheetPart
+                key={part.number}
+                number={part.number}
+                title={part.title}
+                action={part.action}
+                active={index === marked}
+                onOpen={() => mark(index)}
+            >
+                {part.body}
+            </SheetPart>
+        );
+    };
+
     return (
         <div className={paneGrid}>
             <div className={pane}>
@@ -718,10 +1177,9 @@ function SheetTab() {
                         </span>
                     }
                 >
-                    {/* How much of the sheet is filled in and whether it has
-                        been signed: a band across the top of the block, drawn
-                        the way the regulation draws how far a department has
-                        got through reading it. */}
+                    {/* How much of the sheet is filled in: a band across the top
+                        of the block, drawn the way the regulation draws how far
+                        a department has got through reading it. */}
                     <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6">
                         <span className="text-muted-foreground text-[13px]">Заполнение</span>
 
@@ -729,159 +1187,133 @@ function SheetTab() {
                             down to the figure beside it: two places on one card
                             showing how far something has got have no business
                             looking like two different things. */}
-                        <Progress value={SHEET.filled} aria-label={`Заполнение: ${SHEET.filled}%`} className="h-1.5 w-[140px] shrink-0" />
+                        <Progress value={sheet.filled} aria-label={`Заполнение: ${sheet.filled}%`} className="h-1.5 w-[140px] shrink-0" />
 
-                        <span className="text-sm font-medium tabular-nums">{SHEET.filled}%</span>
-
-                        {/* Signed by the one it is about, and taken by the office
-                            that keeps it: two marks rather than one, because a
-                            sheet signed and not yet accepted is an ordinary state
-                            of it and the band has to be able to show just the one. */}
-                        <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[13px]">
-                            <Check className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]" />
-                            Подписан сотрудником · {formatDate(SHEET.signedAt)}
-                        </span>
-
-                        <span className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-[13px]">
-                            <Check className="text-brand-strong size-3.5 shrink-0 dark:text-[#C5E27A]" />
-                            Принято · {formatDate(SHEET.acceptedAt)}
-                        </span>
+                        <span className="text-sm font-medium tabular-nums">{sheet.filled}%</span>
                     </PaperBandRow>
 
-                    {/* The whole paper is one card: the band over it and the
-                        sheet under it, pulled out to the card's own edges so
-                        the rule under every part runs the width of it, the way
-                        the band's rule does. */}
-                    {/* The parts carry no padding of their own, so the card's is
-                        what insets them — which also keeps them in line with the
-                        band above, whose text starts at the same place. */}
-                    <div className="flex min-w-0 flex-col gap-6">
-                        <SheetPart number="01" title="Фамилия, имя, отчество">
-                            <SheetFacts rows={SHEET.name} />
-                        </SheetPart>
+                    {/* The sheet laid out the way «Новый сотрудник» lays out
+                        the parts of its own form: what the paper is made of down
+                        the left, and the parts themselves beside it, so that a
+                        sheet of eleven parts can be read from the one somebody
+                        came for. The band above keeps the whole width — how far
+                        the sheet has got is said of the sheet, not of any one
+                        part of it — and the nav and the parts sit under it. */}
+                    <div ref={holder} className="min-w-0">
+                        <Sections
+                            nav={
+                                // The whole column follows the page, not the nav
+                                // alone: a sticky nav with something under it
+                                // slides over that something as soon as it
+                                // sticks. So the two travel together, and the
+                                // nav inside stands where it is put — and the
+                                // column scrolls within itself where it is
+                                // taller than the window, or its last entries
+                                // would be unreachable.
+                                <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-y-auto lg:pb-2">
+                                    {/* Numbered from the paper and not from the
+                                        list: a part this reader may not open
+                                        leaves a gap in the sequence, and a column
+                                        counting its own entries would say «03»
+                                        beside what the sheet itself calls «09». */}
+                                    <SectionNav
+                                        className="lg:static"
+                                        label="Части листка"
+                                        items={drawn.map(({ number, title }) => ({ number, title }))}
+                                        current={marked}
+                                        onSelect={show}
+                                    />
 
-                        <SheetPart number="02" title="Общие сведения">
-                            <SheetFacts rows={SHEET.general} />
-                        </SheetPart>
+                                    {/* Under the parts rather than off to the
+                                        side: what is still wanted is a list of
+                                        the sheet's own lines, so it belongs in
+                                        the column that says what the sheet is
+                                        made of. */}
+                                    <section className="flex flex-col gap-2">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm font-semibold">
+                                                Не заполнено
+                                                <StatusBadge tone="neutral">{sheet.missing.length}</StatusBadge>
+                                            </h3>
 
-                        <SheetPart number="03" title="Образование">
-                            <SheetTable head={['Учебное заведение', 'Специальность, квалификация', 'Годы', 'Документ']} rows={SHEET.educations} />
-                        </SheetPart>
-
-                        {/* Two short answers share a line rather than taking one each. */}
-                        <div className="grid lg:grid-cols-2">
-                            <SheetPart number="04" title="Учёная степень, звание">
-                                <p className="text-sm font-medium">{SHEET.degree}</p>
-                            </SheetPart>
-                            <SheetPart number="05" title="Знание иностранных языков">
-                                <p className="text-sm font-medium">{SHEET.languages}</p>
-                            </SheetPart>
-                        </div>
-
-                        <SheetPart number="06" title="Трудовая деятельность">
-                            <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={SHEET.jobs} />
-                        </SheetPart>
-
-                        <SheetPart number="07" title="Государственные награды, поощрения">
-                            <p className="text-sm font-medium">{SHEET.awards}</p>
-                        </SheetPart>
-
-                        <SheetPart number="08" title="Семейное положение и состав семьи">
-                            <SheetFacts rows={[['Семейное положение', SHEET.marital]]} />
-                            <SheetTable head={['Родство', 'Фамилия, имя, отчество', 'Год рождения', 'Работа, учёба']} rows={SHEET.family} />
-                        </SheetPart>
-
-                        <SheetPart number="09" title="Паспортные данные">
-                            <SheetFacts rows={SHEET.passport} columns={4} />
-                        </SheetPart>
-
-                        <SheetPart number="10" title="Адрес и контакты">
-                            <SheetFacts rows={SHEET.contacts} />
-                        </SheetPart>
-
-                        <SheetPart number="11" title="Отношение к воинской обязанности">
-                            <p className="text-sm font-medium">{SHEET.service}</p>
-                        </SheetPart>
-
-                        <section aria-label="Подписи" className="grid gap-4 sm:grid-cols-2">
-                            {SHEET.signatures.map((signature) => (
-                                <div key={signature.name} className="bg-muted/40 flex flex-col gap-3 rounded-lg border p-4">
-                                    <p className="text-muted-foreground text-sm">{signature.note}</p>
-                                    <div className="flex flex-wrap items-end justify-between gap-4">
-                                        <div className="flex items-center gap-2.5">
-                                            <span className="bg-brand/15 text-brand-strong flex size-7 shrink-0 items-center justify-center rounded-full dark:text-[#C5E27A]">
-                                                <Check className="size-3.5" />
-                                            </span>
-                                            <span className="flex flex-col">
-                                                <span className="text-sm font-medium">{signature.name}</span>
-                                                <span className="text-muted-foreground text-xs">{signature.role}</span>
-                                            </span>
+                                            {/* Asking the person to finish their own sheet, which is
+                                                the one thing to be done about a list of lines nobody
+                                                has answered — and the reason the list is here rather
+                                                than only in the parts themselves. */}
+                                            <Button
+                                                variant="link"
+                                                className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
+                                            >
+                                                Запросить
+                                            </Button>
                                         </div>
-                                        <span className="text-muted-foreground text-sm tabular-nums">{formatDate(signature.at)}</span>
-                                    </div>
+
+                                        {sheet.missing.length === 0 ? (
+                                            <p className={emptyNote}>Все строки заполнены</p>
+                                        ) : (
+                                            <ul className="flex flex-col">
+                                                {sheet.missing.map((what) => (
+                                                    // In the colour the nav above writes an entry
+                                                    // nobody is on, since this is the same column
+                                                    // saying the same kind of thing: the names of
+                                                    // parts of the sheet, read and not pressed.
+                                                    <li
+                                                        key={what}
+                                                        className="text-muted-foreground flex items-center gap-2 border-b py-2 text-sm last:border-0"
+                                                    >
+                                                        <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
+                                                        <span className="min-w-0 break-words">{what}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </section>
                                 </div>
-                            ))}
-                        </section>
+                            }
+                            sections={rows.map((row) =>
+                                row.length === 1 ? (
+                                    draw(row[0])
+                                ) : (
+                                    // The pair of short parts, side by side from
+                                    // `lg` up — below it the column beside them
+                                    // has already lain down and there is no width
+                                    // left to share.
+                                    <div key={row[0].number} className="grid lg:grid-cols-2">
+                                        {row.map(draw)}
+                                    </div>
+                                ),
+                            )}
+                        />
                     </div>
                 </Section>
             </div>
 
             <aside className={pane}>
-                <Section title="Не заполнено" action={<StatusBadge tone="neutral">{SHEET.missing.length}</StatusBadge>}>
-                    <ul className="flex flex-col">
-                        {SHEET.missing.map((what) => (
-                            <li key={what} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-0">
-                                <span className="flex min-w-0 items-center gap-2">
-                                    <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
-                                    <span className="min-w-0 break-words">{what}</span>
-                                </span>
-                                <Button variant="link" className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]">
-                                    Запросить
-                                </Button>
-                            </li>
-                        ))}
-                    </ul>
-                </Section>
-
-                <Section
-                    title="Вложения"
-                    action={
-                        <Button variant="link" className="text-brand-strong h-auto gap-1 p-0 text-xs font-normal dark:text-[#C5E27A]">
-                            <Plus className="size-3.5" />
-                            Добавить
-                        </Button>
-                    }
-                >
-                    <ul className="flex flex-col gap-2">
-                        {SHEET.files.map((file) => (
-                            <li key={file.name}>
-                                <a
-                                    href="#"
-                                    className="bg-muted/40 hover:bg-muted flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors"
-                                >
-                                    <FileText className="text-muted-foreground size-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
-                                    <span className="text-muted-foreground shrink-0 text-xs tabular-nums">{file.size}</span>
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
-                </Section>
-
-                <Section title="История изменений">
-                    <ol className="flex flex-col">
-                        {SHEET.history.map((event, index) => (
-                            <li key={event.what} className="relative flex gap-3 pb-4 last:pb-0">
-                                {/* The thread between the dots, stopping at the last one. */}
-                                {index < SHEET.history.length - 1 && <span className="bg-border absolute top-3.5 bottom-0 left-[3px] w-0.5" />}
-                                <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', event.dot)} />
-                                <span className="flex min-w-0 flex-col gap-0.5">
-                                    <span className="text-sm">{event.what}</span>
-                                    <span className="text-muted-foreground text-xs tabular-nums">{event.when}</span>
-                                </span>
-                            </li>
-                        ))}
-                    </ol>
+                {/* The papers themselves, under the lines they were attached to:
+                    the diplomas, and the one document each of the three lines of
+                    the card that keeps one holds. Named as they were uploaded —
+                    the line they belong to already says what the paper is
+                    about. */}
+                <Section title="Вложения">
+                    {papers.length === 0 ? (
+                        <p className={emptyNote}>Документы не приложены</p>
+                    ) : (
+                        <ul className="flex flex-col gap-2">
+                            {papers.map((paper) => (
+                                <li key={paper.url}>
+                                    <a
+                                        href={paper.url}
+                                        target="_blank"
+                                        rel="noopener"
+                                        className="bg-muted/40 hover:bg-muted flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors"
+                                    >
+                                        <FileText className="text-muted-foreground size-4 shrink-0" />
+                                        <span className="min-w-0 flex-1 truncate text-sm">{paper.name}</span>
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                 </Section>
             </aside>
         </div>
@@ -2655,6 +3087,7 @@ export default function EmployeeProfile({
     picksRole,
     options,
     assigned,
+    sheet,
     visibleFields,
     editableFields,
 }: {
@@ -2685,6 +3118,8 @@ export default function EmployeeProfile({
     /** Choices for the edit dialogs; null for viewers who may not edit. */
     options: EditOptions | null;
     assigned: Assigned | null;
+    /** How far «Личный листок» has got, over the lines this viewer may read. */
+    sheet: SheetProgress;
 
     /** Which lines of this card the viewer reads; everything else is not drawn. */
     visibleFields: string[];
@@ -2854,7 +3289,7 @@ export default function EmployeeProfile({
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
                         <div className="flex flex-col gap-4">
-                            {tab === 'sheet' && <SheetTab />}
+                            {tab === 'sheet' && <SheetTab employee={employee} sheet={sheet} />}
 
                             {tab === 'equipment' && details && (
                                 // What they hold now on the left, what has been

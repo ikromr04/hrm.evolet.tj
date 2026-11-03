@@ -26,6 +26,7 @@ use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
 use App\Support\EquipmentHistory;
 use App\Support\EquipmentName;
+use App\Support\PersonnelSheet;
 use App\Support\Placements;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
@@ -420,7 +421,12 @@ class EmployeeController extends Controller
                 // "Детей нет" and "не указано" look the same in an empty list,
                 // so the answer is worked out rather than taken as sent — by the
                 // same call the card's own «Семья» form makes.
-                'has_children' => EmployeeCard::childrenFlag($data['has_children'] ?? null, $children),
+                'has_children' => EmployeeCard::listFlag($data['has_children'] ?? null, $children),
+                // And the same for the two other lists an empty answer used to
+                // leave ambiguous: a card says nobody taught this person and
+                // nobody employed them before, or says nothing about either.
+                'has_educations' => EmployeeCard::listFlag($data['has_educations'] ?? null, $data['educations'] ?? []),
+                'has_experience' => EmployeeCard::listFlag($data['has_experience'] ?? null, $data['experiences'] ?? []),
             ]);
             $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
 
@@ -578,6 +584,12 @@ class EmployeeController extends Controller
                         ])->all(),
                         'work_experiences' => fn () => $employee->workExperiences->map(fn (UserWorkExperience $w) => $this->workExperience($w))->all(),
                     ]),
+                    // Whether the two lists above were answered or merely left
+                    // empty. Each travels with its own line, under the right to
+                    // read that line: an empty list and «нет» look alike, and
+                    // the block that shows one has to know which it is showing.
+                    ...($shows('educations') ? ['has_educations' => $employee->details?->has_educations] : []),
+                    ...($shows('work_experiences') ? ['has_experience' => $employee->details?->has_experience] : []),
                     // The degree is one line, read with the rest of the private
                     // lines above; the document shown for it travels with that
                     // line and under the same answer.
@@ -643,6 +655,13 @@ class EmployeeController extends Controller
             // Whether this viewer picks the role and has the jobs narrow to it,
             // or picks the job and reads off the role it decided.
             'picksRole' => Access::picksRole($request->user()),
+            // How far the card has got through «Личный листок», and which of its
+            // lines are still wanted. Counted over the lines this viewer may
+            // read: see App\Support\PersonnelSheet.
+            'sheet' => [
+                'filled' => PersonnelSheet::filled($employee, $request->user()),
+                'missing' => PersonnelSheet::missing($employee, $request->user()),
+            ],
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
                 // other cards say is offered only to a reader of that line, and

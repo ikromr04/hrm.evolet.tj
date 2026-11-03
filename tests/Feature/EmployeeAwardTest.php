@@ -528,6 +528,9 @@ class EmployeeAwardTest extends TestCase
             'email' => 'nilufar@evolet.tj',
             'role' => 'specialist',
             'placements' => [],
+            // «Знание языков» asks for at least one row, so the card the page
+            // sends carries one — this test is about the document, not the list.
+            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
             'award' => 'Медаль „Хизмати шоиста“',
             'award_document' => $this->paper('Удостоверение к медали.pdf'),
         ])->assertSessionHasNoErrors()->assertRedirect();

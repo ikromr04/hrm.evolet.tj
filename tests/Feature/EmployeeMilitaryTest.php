@@ -511,6 +511,9 @@ class EmployeeMilitaryTest extends TestCase
             'email' => 'nilufar@evolet.tj',
             'role' => 'specialist',
             'placements' => [],
+            // «Знание языков» asks for at least one row, so the card the page
+            // sends carries one — this test is about the document, not the list.
+            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
             'military' => 'Военнообязанный, старший лейтенант запаса',
             'military_document' => $this->paper('Военный билет.pdf'),
         ])->assertSessionHasNoErrors()->assertRedirect();
