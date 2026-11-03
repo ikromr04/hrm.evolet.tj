@@ -25,7 +25,7 @@ use Illuminate\Validation\Validator;
  * What each block may hold is not written out here. It is described once, in
  * EmployeeCard, and the forms of the card validate against the same methods:
  * one rule, two callers, nothing to drift. Only the first block — the account
- * they sign in with, the roles they carry and where they stand — is this
+ * they sign in with, the one role they carry and where they stand — is this
  * request's own, because only this request creates an account.
  *
  * The lists are «sometimes» rather than «present», which is the one place the
@@ -103,10 +103,13 @@ class StoreEmployeeRequest extends FormRequest
 
             ...EmployeeCard::employmentRules(),
 
-            // One role, because there are four of them and they are an order
-            // rather than a set: a person is personnel, or a head, or neither.
-            'roles' => ['present', 'array', 'max:1'],
-            'roles.*' => ['string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
+            // The role, in the singular, because there are four of them and they
+            // are an order rather than a set: a person is personnel, or a head,
+            // or neither. Asked for and not worked out: what somebody may do
+            // here is not a thing to be left to a default, and the page always
+            // has an answer to send — the system administrator picks it, and for
+            // everybody else the job decides it.
+            'role' => ['required', 'string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
 
             // Where they stand in the company: a position, the department that
             // comes with it and the duties picked out of it, as many such chains
@@ -161,6 +164,9 @@ class StoreEmployeeRequest extends FormRequest
     {
         return [
             fn (Validator $validator) => Placements::check($validator),
+            // The role and the jobs have to agree, and on a card being written
+            // there is nothing older than this request for them to disagree with.
+            fn (Validator $validator) => $this->guardRoleAgainstPositions($validator),
             fn (Validator $validator) => collect((array) $this->input('experiences', []))
                 ->each(fn (mixed $record, int|string $index) => EmployeeCard::checkExperienceDates(
                     $validator,
@@ -187,7 +193,7 @@ class StoreEmployeeRequest extends FormRequest
             'nationality' => 'национальность',
             'home_address' => 'домашний адрес',
             'email' => 'электронная почта',
-            'roles' => 'роль',
+            'role' => 'роль',
             ...EmployeeCard::accountAttributes(),
             ...EmployeeCard::employmentAttributes(),
             ...Placements::attributes(),

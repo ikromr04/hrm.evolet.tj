@@ -65,8 +65,8 @@ interface EmployeeRow {
     patronymic?: string | null;
     sex?: Sex;
     email?: string;
-    /** Access roles, shown as «Роль». */
-    roles?: string[];
+    /** The one role they hold, shown as «Роль»; null until somebody is given one. */
+    role?: string | null;
     /** Positions, shown as «Должность»; an employee can hold several. */
     positions?: PositionRef[];
     /**
@@ -220,16 +220,14 @@ const fullName = (row: EmployeeRow) => [row.surname, row.name, row.patronymic].f
 const departmentOptions = (level: { id: number; name: string; full_name: string; depth: number }[]) =>
     level.map((d) => ({ value: d.id, label: d.name, hint: d.full_name === d.name ? undefined : d.full_name, depth: d.depth }));
 
-function RoleBadges({ titles }: { titles: string[] }) {
+function RoleBadge({ title }: { title: string }) {
     return (
         <div className="flex flex-wrap gap-1 whitespace-normal">
-            {titles.map((title) => (
-                // A badge long enough to outrun its column breaks onto a
-                // second line instead of being cut off at the edge of it.
-                <StatusBadge key={title} tone="info" className="h-auto flex-wrap py-[3px] whitespace-normal">
-                    {title}
-                </StatusBadge>
-            ))}
+            {/* A badge long enough to outrun its column breaks onto a second
+                line instead of being cut off at the edge of it. */}
+            <StatusBadge tone="info" className="h-auto flex-wrap py-[3px] whitespace-normal">
+                {title}
+            </StatusBadge>
         </div>
     );
 }
@@ -386,7 +384,7 @@ function Face({ row, visible, className }: { row: EmployeeRow; visible: string[]
 /**
  * The line under the name in the phone list: why somebody left the list of
  * working staff, if they did; otherwise what they do, falling back on the
- * e-mail when the viewer reads neither positions nor roles.
+ * e-mail when the viewer reads neither the positions nor the role.
  */
 function mobileSubtitle(row: EmployeeRow): string | undefined {
     if (row.status !== 'active') {
@@ -399,7 +397,7 @@ function mobileSubtitle(row: EmployeeRow): string | undefined {
 
     // A phone's row is one line of text, so the department rides in the
     // brackets rather than under the cursor.
-    return [row.positions?.map(positionTitle), row.roles].find((titles) => titles?.length)?.join(', ') || row.email || undefined;
+    return row.positions?.map(positionTitle).join(', ') || row.role || row.email || undefined;
 }
 
 function Empty() {
@@ -422,7 +420,6 @@ function Children({ items }: { items: PrivateDetails['children'] }) {
 
 /** The field behind a column, where the two are not called the same. */
 const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
-    role: 'roles',
     position: 'positions',
     department: 'departments',
     // Two columns over one field: a viewer who may not read where people are
@@ -538,7 +535,7 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 width: 240,
                 private: false,
                 filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
-                cell: (row) => (row.roles?.length ? <RoleBadges titles={row.roles} /> : <Empty />),
+                cell: (row) => (row.role ? <RoleBadge title={row.role} /> : <Empty />),
             },
             {
                 key: 'languages',

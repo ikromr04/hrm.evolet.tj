@@ -58,6 +58,56 @@ export const blankPlacement: Placement = { position_id: null, duty_ids: [] };
 export const placementsToSend = (placements: Placement[]): Placement[] =>
     placements.some((placement) => placement.position_id !== null) ? placements : [];
 
+/**
+ * The two roles a job decides between.
+ *
+ * There are four roles in all, and the other two are no job's to imply: the
+ * system administrator is handed to no card, and «HR-специалист» is a deliberate
+ * choice the system administrator makes and never a consequence of a job title.
+ * These two do follow from the position — whoever leads a department is a head —
+ * which is why one half of the pair is always read off the other instead of
+ * being asked for a second time.
+ */
+export const headRole = 'head';
+
+export const specialistRole = 'specialist';
+
+/**
+ * Which jobs a list offers under a role.
+ *
+ * A head is offered the leading jobs, because that is what picking «Руководитель»
+ * is for; a specialist is offered everything else, since holding a leading job
+ * would make them a head whatever the card says. «HR-специалист» is personnel
+ * wherever they sit, so nothing is narrowed.
+ *
+ * Narrower than the rule the server keeps, and deliberately so. The server asks
+ * only that a head lead something — an ordinary job beside the leading one is no
+ * contradiction, since heading a department is work a person does besides their
+ * own rather than instead of it — so a job already on the card is kept in the
+ * list by whoever calls this, and accepted on the save. What this decides is
+ * what a fresh choice offers, not what may stand.
+ */
+export const mayHold = (role: string, position: { is_head: boolean }): boolean => {
+    if (role === headRole) return position.is_head;
+
+    if (role === specialistRole) return !position.is_head;
+
+    return true;
+};
+
+/**
+ * And the same rule the other way about, for the form where the job is what is
+ * being chosen and the role is only recorded: whoever leads a department is a
+ * head, and everybody else is a specialist.
+ *
+ * An empty list of jobs reads as «Специалист», which is where the field stands
+ * before anybody picks anything: it is what most cards are, and it keeps a card
+ * with no job on it saveable rather than making the job compulsory by the back
+ * door — the role is the required line, not the position.
+ */
+export const roleFromPositions = (chosen: number[], positions: { id: number; is_head: boolean }[]): string =>
+    chosen.some((id) => positions.some((position) => position.id === id && position.is_head)) ? headRole : specialistRole;
+
 /** Errors come back as "placements.0.position_id"; a field shows its own and its items'. */
 const at = (errors: Record<string, string | undefined>, key: string) =>
     errors[key] ?? Object.entries(errors).find(([name]) => name.startsWith(`${key}.`))?.[1];

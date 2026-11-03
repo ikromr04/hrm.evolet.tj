@@ -509,7 +509,7 @@ class EmployeeMilitaryTest extends TestCase
             'surname' => 'Азимова',
             'name' => 'Нилуфар',
             'email' => 'nilufar@evolet.tj',
-            'roles' => [],
+            'role' => 'specialist',
             'placements' => [],
             'military' => 'Военнообязанный, старший лейтенант запаса',
             'military_document' => $this->paper('Военный билет.pdf'),

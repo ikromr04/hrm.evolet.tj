@@ -129,7 +129,7 @@ class EmployeeDirectoryTest extends TestCase
                 ])->all() === [['Переводчик', 'НО', 'Научный отдел']])
                 ->where('employees.data.0.private', null)
                 ->has('employees.data.0', fn (Assert $row) => $row
-                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'roles', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
+                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'role', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
                     ->missing('details')
                     ->missing('children')
                 )
@@ -454,8 +454,12 @@ class EmployeeDirectoryTest extends TestCase
                 // catalogue names them rather than the way the alphabet would.
                 ->has('options.roles', 3)
                 ->where('options.roles', fn ($roles) => collect($roles)->pluck('name')->all() === ['hr', 'head', 'specialist'])
-                // A person holds one role, so the column prints the one title.
-                ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $head->id)['roles'] === ['Руководитель'])
+                // A person holds one role, so the row carries the one title and
+                // the column prints it as it stands.
+                ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $head->id)['role'] === 'Руководитель')
+                // And a card nobody has given a role to carries nothing there,
+                // which is what the row of the viewer below says.
+                ->where('employees.data', fn ($rows) => collect($rows)->firstWhere('id', $viewer->id)['role'] === null)
             );
 
         $this->get('/employees?role[]=head')

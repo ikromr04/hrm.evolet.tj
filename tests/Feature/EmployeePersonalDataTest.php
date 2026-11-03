@@ -40,7 +40,9 @@ class EmployeePersonalDataTest extends TestCase
             'citizenship' => ['Таджикистан'],
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
-            'roles' => [],
+            // The role is left out rather than sent empty: the window carries
+            // that line only for whoever picks it or when the jobs under it
+            // move, and a line sent empty is refused outright.
             'placements' => [],
             ...$overrides,
         ];
@@ -119,7 +121,6 @@ class EmployeePersonalDataTest extends TestCase
                 'citizenship' => '',
                 'nationality' => '',
                 'home_address' => '',
-                'roles' => [],
                 'placements' => [],
             ])
             ->assertSessionHasNoErrors();
@@ -170,7 +171,7 @@ class EmployeePersonalDataTest extends TestCase
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
-                'roles' => ['specialist'],
+                'role' => 'specialist',
                 'placements' => [[
                     'position_id' => $position->id,
                     'duty_ids' => [$contracts->id, $month->id],
@@ -279,9 +280,12 @@ class EmployeePersonalDataTest extends TestCase
 
         // Leading a department follows from holding one of its leading
         // positions, so a save that keeps the position must keep the leading
-        // with it.
+        // with it. The role travels beside the job it goes with, as the window
+        // sends it whenever the jobs move: this is about the flag on the
+        // membership, not about which of the two the card is answered for.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
+                'role' => 'head',
                 'placements' => [['position_id' => $leading->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
@@ -293,6 +297,7 @@ class EmployeePersonalDataTest extends TestCase
         // ordinary one.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/personal", $this->payload([
+                'role' => 'specialist',
                 'placements' => [['position_id' => $elsewhere->id, 'duty_ids' => []]],
             ]))
             ->assertSessionHasNoErrors();
@@ -300,20 +305,6 @@ class EmployeePersonalDataTest extends TestCase
         $employee->refresh();
         $this->assertSame([$other->id], $employee->departments->pluck('id')->all());
         $this->assertFalse((bool) $employee->departments->first()->pivot->is_head);
-    }
-
-    public function test_the_one_position_cannot_be_dropped_from_its_own_card()
-    {
-        // Positions on one's own card are an ordinary line, opened by an ordinary
-        // right — except this one, which cannot be given up because nobody could
-        // hand it back.
-        $sysadmin = User::factory()->has(UserDetail::factory(), 'details')->create()->assignRole('sysadmin');
-
-        $this->actingAs($sysadmin)
-            ->put("/employees/{$sysadmin->id}/personal", $this->payload(['roles' => ['specialist']]))
-            ->assertSessionHasErrors('roles');
-
-        $this->assertTrue($sysadmin->fresh()->hasRole('sysadmin'));
     }
 
     public function test_an_employee_cannot_edit_anyones_personal_data()

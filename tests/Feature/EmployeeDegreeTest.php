@@ -527,7 +527,7 @@ class EmployeeDegreeTest extends TestCase
             'surname' => 'Азимова',
             'name' => 'Нилуфар',
             'email' => 'nilufar@evolet.tj',
-            'roles' => [],
+            'role' => 'specialist',
             'placements' => [],
             'degree' => 'кандидат экономических наук, доцент',
             'degree_document' => $this->paper('Диплом кандидата наук.pdf'),

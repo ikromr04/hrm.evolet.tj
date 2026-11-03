@@ -63,7 +63,8 @@ class FieldEditingTest extends TestCase
             'patronymic' => $employee->patronymic,
             'sex' => $employee->sex,
             'home_address' => $employee->details?->home_address,
-            'roles' => $employee->roles->pluck('name')->all(),
+            // No role: the window carries that line only for whoever picks it,
+            // and a line nobody sends is a line nobody is asked about.
             'placements' => [],
             ...$overrides,
         ];

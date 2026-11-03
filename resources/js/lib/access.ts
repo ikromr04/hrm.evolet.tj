@@ -20,7 +20,7 @@ export type Permission =
     | 'profile.field.avatar'
     | 'employees.field.departments'
     | 'employees.field.positions'
-    | 'employees.field.roles'
+    | 'employees.field.role'
     | 'employees.field.languages'
     | 'employees.field.citizenship'
     | 'employees.create'

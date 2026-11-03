@@ -274,19 +274,80 @@ final class Access
     /**
      * Why this card's role may not be changed, or null when it may.
      *
-     * One rule is left of the several there used to be: the system administrator's
-     * own role is nobody's to touch, including its own. Everything else follows
-     * from the catalogue — there are four roles, two of them pass every check, and
-     * only the system administrator may hand out the second of those.
+     * Two rules, both about the roles that pass every check. The system
+     * administrator's own role is nobody's to touch, its own holder included,
+     * since there would be nobody left who can reach everything. And a card
+     * holding «HR-специалист» answers to the system administrator alone: the
+     * right to hand that role out is the system administrator's, and taking it
+     * away is the same right read backwards — personnel who could demote
+     * personnel would be closing the system to each other.
      *
      * The reason is a sentence rather than a flag, because the card shows it
      * beside the locked field and the form repeats it if a request comes anyway.
      */
-    public static function rolesLockedReason(User $employee): ?string
+    public static function roleLockedReason(User $actor, User $employee): ?string
     {
-        return $employee->hasRole(self::SOLE_ROLE)
-            ? 'Роль системного администратора не меняется.'
+        if ($employee->hasRole(self::SOLE_ROLE)) {
+            return 'Роль системного администратора не меняется.';
+        }
+
+        return $employee->hasRole(self::HR) && ! $actor->hasRole(self::SOLE_ROLE)
+            ? 'Роль HR-специалиста меняет только системный администратор.'
             : null;
+    }
+
+    /**
+     * Why the jobs on this card are not this person's to rearrange, or null when
+     * they are.
+     *
+     * The same rule as the role above, for the same reason: what personnel may do
+     * follows from the role, and the job is half of what the role is worked out
+     * from. A card holding «HR-специалист» is the system administrator's — this
+     * one included, when personnel are looking at their own.
+     */
+    public static function positionsLockedReason(User $actor, User $employee): ?string
+    {
+        return $employee->hasRole(self::HR) && ! $actor->hasRole(self::SOLE_ROLE)
+            ? 'Должность HR-специалиста меняет только системный администратор.'
+            : null;
+    }
+
+    /**
+     * Whether this person picks a role, or reads the one the job decided.
+     *
+     * The system administrator picks, and the jobs on offer narrow to the ones
+     * that role may hold. Everybody else who may fill a card in — personnel —
+     * picks the job, and the role follows: a leading job makes a head and every
+     * other job a specialist. Which way round it goes is the difference between
+     * handing somebody authority and recording what they were hired to do.
+     */
+    public static function picksRole(User $actor): bool
+    {
+        return $actor->hasRole(self::SOLE_ROLE);
+    }
+
+    /**
+     * Why this role cannot stand over these jobs, or null when it can.
+     *
+     * A head leads something, so one of the jobs on the card is a leading one —
+     * and the rest need not be. Heading a department is work a person does
+     * besides their own, not instead of it, and a card that refused the pair
+     * would be telling a head of department they may not also be an analyst. A
+     * specialist is the other way about and admits of no exception: hold a
+     * leading job and you are a head, whatever the card says.
+     *
+     * «HR-специалист» is personnel wherever they sit, and the question does not
+     * arise.
+     *
+     * @param  bool  $anyLeading  whether one of the jobs leads a department
+     */
+    public static function roleAgainstJobs(string $role, bool $anyLeading): ?string
+    {
+        return match ($role) {
+            self::HEAD => $anyLeading ? null : 'Руководитель занимает хотя бы одну руководящую должность.',
+            self::SPECIALIST => $anyLeading ? 'Специалист не занимает руководящих должностей.' : null,
+            default => null,
+        };
     }
 
     public static function has(string $key): bool

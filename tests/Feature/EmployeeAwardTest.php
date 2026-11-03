@@ -526,7 +526,7 @@ class EmployeeAwardTest extends TestCase
             'surname' => 'Азимова',
             'name' => 'Нилуфар',
             'email' => 'nilufar@evolet.tj',
-            'roles' => [],
+            'role' => 'specialist',
             'placements' => [],
             'award' => 'Медаль „Хизмати шоиста“',
             'award_document' => $this->paper('Удостоверение к медали.pdf'),

@@ -85,7 +85,7 @@ final class EmployeeFields
         'citizenship' => ['main', 'Гражданство'],
         'nationality' => ['main', 'Национальность'],
         'home_address' => ['main', 'Домашний адрес'],
-        'roles' => ['main', 'Роль'],
+        'role' => ['main', 'Роль'],
         'positions' => ['main', 'Должность'],
         'departments' => ['main', 'Отдел'],
         // The company's own number for a person and the kind of work they were
@@ -131,7 +131,7 @@ final class EmployeeFields
      *
      * @var list<string>
      */
-    public const PUBLIC_FIELDS = ['avatar', 'patronymic', 'sex', 'roles', 'positions', 'departments', 'email', 'languages'];
+    public const PUBLIC_FIELDS = ['avatar', 'patronymic', 'sex', 'role', 'positions', 'departments', 'email', 'languages'];
 
     /**
      * The fields kept beside the account rather than on it: the row a card loads

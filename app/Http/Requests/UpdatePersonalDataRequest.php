@@ -15,7 +15,7 @@ use Illuminate\Validation\Validator;
 
 /**
  * The "Основное" card of the profile: the name and personal facts, plus
- * the roles the employee carries and where they stand in the company.
+ * the one role the employee carries and where they stand in the company.
  */
 class UpdatePersonalDataRequest extends FormRequest
 {
@@ -88,9 +88,12 @@ class UpdatePersonalDataRequest extends FormRequest
                 ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))
                 ->all(),
 
-            // One role, as on the «Новый сотрудник» page.
-            'roles' => $sent(['present', 'array', 'max:1']),
-            'roles.*' => ['string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()],
+            // The role, in the singular and on the terms the «Новый сотрудник»
+            // page asks for it: a name, and a name there has to be. A window
+            // that does not carry the line is not changing it and is not asked
+            // — but one that carries it empty is sending an answer, and «no
+            // role» is not one anybody may give.
+            'role' => $sent(['required', 'string', Rule::exists('roles', 'name'), $this->privilegedRoleGuard()]),
 
             ...collect($this->places() ? Placements::rules() : ['placements' => ['nullable']])
                 ->map(fn (array $rules, string $key) => $key === 'placements' ? $sent($rules) : $rules)
@@ -139,6 +142,13 @@ class UpdatePersonalDataRequest extends FormRequest
 
         return [
             fn (Validator $validator) => $this->guardPrivilegedChanges($validator, $employee),
+            fn (Validator $validator) => $this->guardPositionChanges($validator, $employee),
+            // Only where one of the two is actually being moved: a card whose
+            // role and job disagreed before there was a rule about it is not
+            // argued with every time somebody saves a surname beside them.
+            fn (Validator $validator) => $this->changesRoleOrPositions($employee)
+                ? $this->guardRoleAgainstPositions($validator, $employee)
+                : null,
             // Nothing to say about a placement this viewer cannot change: it is
             // dropped from the save rather than argued with.
             fn (Validator $validator) => $this->places() ? Placements::check($validator) : null,
@@ -163,7 +173,7 @@ class UpdatePersonalDataRequest extends FormRequest
             'home_address' => 'домашний адрес',
             ...EmployeeCard::employmentAttributes(),
             ...EmployeeCard::accountAttributes(),
-            'roles' => 'роль',
+            'role' => 'роль',
             ...Placements::attributes(),
         ];
     }

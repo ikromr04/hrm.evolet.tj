@@ -12,7 +12,7 @@ import { PaperBandRow } from '@/components/paper-band';
 import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
-import { type Placement, type PlacementOptions } from '@/components/placements';
+import { mayHold, roleFromPositions, type Placement, type PlacementOptions } from '@/components/placements';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
 import { SearchableSelect } from '@/components/searchable-select';
 import { StatusBadge, statusTones, type StatusTone } from '@/components/status-badge';
@@ -135,8 +135,8 @@ interface Employee {
     patronymic?: string | null;
     sex?: Sex;
     email?: string;
-    /** Access roles, shown as «Роль». */
-    roles?: string[];
+    /** The one role they hold, shown as «Роль»; null until somebody gives them one. */
+    role?: string | null;
     /**
      * Positions, shown as «Должность»; an employee can hold several. Each is
      * numbered for whoever may open the job and left a word for everybody else,
@@ -165,6 +165,11 @@ interface Employee {
 
 /** What the card already holds, as the window of «Основное» addresses it. */
 interface Assigned {
+    /**
+     * The role held, by name rather than by title: a name is what the picker
+     * submits, and null is a card nobody has given a role to yet.
+     */
+    role: string | null;
     /**
      * Where they stand: the jobs held, and the duties picked out of each. The
      * window changes the jobs and leaves the duties as they were.
@@ -266,7 +271,7 @@ interface EditOptions extends PlacementOptions {
     units: Unit[];
     /** The two short lists a card points at one entry of, by name. */
     employment_types: string[];
-    /** Access roles, chosen by name. */
+    /** The roles this viewer may hand out, chosen by name. */
     roles: { name: string; title: string }[];
     languages: { id: number; name: string }[];
     /** Why jobs have ended before, as suggestions for a previous job. */
@@ -1368,12 +1373,25 @@ function MainDialog({
     details,
     options,
     assigned,
+    roleLocked,
+    positionsLocked,
+    picksRole,
     onClose,
 }: {
     employee: Employee;
     details: ProfilePrivate | null;
     options: EditOptions;
     assigned: Assigned;
+    /** Why the role on this card is nobody's to change, or null when it is somebody's. */
+    roleLocked: string | null;
+    /** And why the jobs on it are not, on the same terms. */
+    positionsLocked: string | null;
+    /**
+     * Which way round the window asks the pair: the system administrator picks
+     * the role and the jobs narrow to the ones it may hold, while personnel pick
+     * the job and the role is read off it.
+     */
+    picksRole: boolean;
     onClose: () => void;
 }) {
     const canEdit = useCanEdit();
@@ -1381,8 +1399,36 @@ function MainDialog({
     // only where both are this viewer's to change: half a placement would file
     // somebody in a department the save is not allowed to write.
     const places = canEdit('positions') && canEdit('departments');
+    // The role is a line like the others, except that one card is nobody's to
+    // reassign — the system administrator's own — and there it is shown as it
+    // stands rather than offered: the box is closed and the reason stands
+    // beside it, instead of being found out by pressing «Сохранить».
+    const assigns = canEdit('role') && roleLocked === null;
+    // And the jobs on a card that belongs to the system administrator alone are
+    // shown the same way: the list is closed and says why, and the window leaves
+    // that line out of the save rather than letting a refusal announce the lock.
+    const rearranges = places && positionsLocked === null;
+
+    /**
+     * Whether the jobs in the window are no longer the ones the card holds.
+     *
+     * Read as a set and not as a list, because the order a window happens to
+     * put them in is not a change to anybody's job.
+     */
+    const moved = (chosen: Placement[]) => {
+        const ids = (placements: Placement[]) =>
+            placements
+                .map((placement) => placement.position_id)
+                .sort()
+                .join(',');
+
+        return ids(chosen) !== ids(assigned.placements);
+    };
 
     const form = useClearingForm({
+        // By name, which is what the box submits; an empty box is a card with
+        // no role on it yet, and the server reads the job for one.
+        role: assigned.role ?? '',
         placements: assigned.placements,
         employee_number: employee.employee_number ?? '',
         employment_type: employee.employment_type ?? '',
@@ -1397,7 +1443,14 @@ function MainDialog({
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
         form.transform((data) => ({
-            ...(places ? { placements: data.placements } : {}),
+            // Where the jobs decide the role, the closed box shows what they
+            // decided and that is what travels: the value left in the form
+            // behind it was never anybody's answer here. But only once the jobs
+            // have actually moved — a card written before the two were made to
+            // agree must not have its role quietly rewritten by somebody who
+            // came to this window to fix a telephone number.
+            ...(assigns && (picksRole || moved(data.placements)) ? { role: picksRole ? data.role : impliedRole } : {}),
+            ...(rearranges ? { placements: data.placements } : {}),
             ...(canEdit('employee_number') ? { employee_number: data.employee_number } : {}),
             ...(canEdit('employment_type') ? { employment_type: data.employment_type } : {}),
             ...(hire ? { hired_at: data.hired_at } : {}),
@@ -1427,6 +1480,27 @@ function MainDialog({
     const placementError = form.errors.placements ?? Object.entries(form.errors).find(([key]) => key.startsWith('placements.'))?.[1];
 
     /**
+     * The role the jobs imply, shown in place of the answer where the answer is
+     * not this viewer's to give. A card that is locked is a different matter
+     * altogether: there the box shows the role the card actually holds, because
+     * a closed field reading «Специалист» over «HR-специалист» would be telling
+     * the reader something untrue about somebody.
+     */
+    const impliedRole = roleFromPositions(held, options.positions);
+
+    /**
+     * The jobs on offer. Where the role was picked they narrow to the ones it
+     * may hold, and whatever the card already carries stays on the list besides,
+     * even after the role has changed under it: a job the new role may not hold
+     * is what the server is about to refuse, and it has to be in view for the
+     * refusal to be about anything. Where the job decides the role, nothing is
+     * narrowed — the job is the answer.
+     */
+    const offered = options.positions
+        .filter((post) => post.department_id !== null)
+        .filter((post) => !picksRole || mayHold(form.data.role, post) || held.includes(post.id));
+
+    /**
      * One of the two short lists, as its box offers it: what is on the list,
      * whatever the card already says — an entry since renamed or deleted is
      * still the answer on file — and an empty line, since neither is required.
@@ -1436,6 +1510,23 @@ function MainDialog({
         ...[...new Set([...list, ...(value === '' ? [] : [value])])]
             .sort((a, b) => a.localeCompare(b, 'ru'))
             .map((name) => ({ value: name, label: name })),
+    ];
+
+    /**
+     * The roles on offer: the ones the server says this viewer may hand out,
+     * and the one the card already holds where that is not among them.
+     *
+     * The second half is what keeps a locked card readable. The card nobody may
+     * reassign is the system administrator's own, and «Системный администратор»
+     * is a role nobody is handed — so the list it arrives with does not name it,
+     * and a box offered only that list would say «Не выбрано» about somebody who
+     * plainly holds a role.
+     */
+    const roles = [
+        ...options.roles.map((role) => ({ value: role.name, label: role.title })),
+        ...(assigned.role !== null && !options.roles.some((role) => role.name === assigned.role)
+            ? [{ value: assigned.role, label: employee.role ?? assigned.role }]
+            : []),
     ];
 
     return (
@@ -1450,14 +1541,42 @@ function MainDialog({
                     </DialogHeader>
 
                     <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2">
+                        {/* What they may do in the system, as against the job they
+                            do in the company — the pair «Новый сотрудник» asks for
+                            together, and the pair this window opens on. */}
+                        {canEdit('role') && (
+                            <div className="grid content-start gap-2 sm:col-span-2">
+                                <Label htmlFor="main-role" required>
+                                    Роль
+                                </Label>
+                                <SearchableSelect
+                                    id="main-role"
+                                    options={roles}
+                                    value={picksRole || roleLocked !== null ? form.data.role : impliedRole}
+                                    onChange={(value) => form.setData('role', value)}
+                                    invalid={!!form.errors.role}
+                                    disabled={roleLocked !== null || !picksRole}
+                                />
+                                {roleLocked !== null && <p className="text-muted-foreground text-sm">{roleLocked}</p>}
+                                <InputError message={form.errors.role} />
+                            </div>
+                        )}
+
                         {places && (
                             <div className="grid content-start gap-2 sm:col-span-2">
                                 <Label htmlFor="main-positions">Должность</Label>
                                 <MultiSelect
                                     id="main-positions"
-                                    options={options.positions
-                                        .filter((post) => post.department_id !== null)
-                                        .map((post) => ({ value: post.id, label: post.display_name }))}
+                                    options={offered.map((post) => ({
+                                        value: post.id,
+                                        label: post.display_name,
+                                        // As «Новый сотрудник» offers them, and for its reason:
+                                        // three letters in brackets say nothing by themselves, so
+                                        // the department stands under the job in full — but only
+                                        // where it says something the brackets do not, or a unit
+                                        // with no short form would print its name twice over.
+                                        hint: post.unit && post.unit.full_name !== post.unit.name ? post.unit.full_name : undefined,
+                                    }))}
                                     value={held}
                                     onChange={(chosen) =>
                                         form.setData(
@@ -1472,7 +1591,9 @@ function MainDialog({
                                             ),
                                         )
                                     }
+                                    disabled={positionsLocked !== null}
                                 />
+                                {positionsLocked !== null && <p className="text-muted-foreground text-sm">{positionsLocked}</p>}
                                 <InputError message={placementError} />
                             </div>
                         )}
@@ -1875,9 +1996,10 @@ const EditableFields = createContext<string[] | null>(null);
  * of that block's lines can be changed.
  */
 const BLOCK_FIELDS = {
-    // «Основное»: where somebody stands, the number they are filed under, the
-    // terms they work on and when they were born.
-    personal: ['positions', 'departments', 'employee_number', 'employment_type', 'hired_at'],
+    // «Основное»: what they may do in the system, where somebody stands, the
+    // number they are filed under, the terms they work on and when they were
+    // born.
+    personal: ['role', 'positions', 'departments', 'employee_number', 'employment_type', 'hired_at'],
     passport: ['passport_number', 'passport_issued_at', 'passport_issued_by'],
     contacts: ['email', 'phone', 'sos_phone'],
     family: ['marital_status', 'spouse', 'children'],
@@ -2528,6 +2650,9 @@ export default function EmployeeProfile({
     canIssue,
     stock,
     equipmentTypes,
+    roleLocked,
+    positionsLocked,
+    picksRole,
     options,
     assigned,
     visibleFields,
@@ -2548,8 +2673,15 @@ export default function EmployeeProfile({
      * on the books from here. Empty for anybody who may not enter a unit.
      */
     equipmentTypes: EquipmentFormProps['options']['types'];
-    /** Why the positions of this card are locked, or null when they are not. */
-
+    /** Why the role on this card is nobody's to change, or null when it is somebody's. */
+    roleLocked: string | null;
+    /** And why the jobs on it are not — a card holding «HR-специалист» is the system administrator's. */
+    positionsLocked: string | null;
+    /**
+     * Whether this viewer picks the role and has the jobs narrow to it, or picks
+     * the job and reads off the role it decided.
+     */
+    picksRole: boolean;
     /** Choices for the edit dialogs; null for viewers who may not edit. */
     options: EditOptions | null;
     assigned: Assigned | null;
@@ -2641,13 +2773,13 @@ export default function EmployeeProfile({
                                 things — "Аналитик" and "Ведущий специалист" — and the header
                                 said only the second. Told apart by colour, in the order the
                                 card and the table read them. */}
-                            {((employee.roles ?? []).length > 0 || (employee.positions ?? []).length > 0) && (
+                            {(employee.role || (employee.positions ?? []).length > 0) && (
                                 <div className="flex flex-wrap gap-2 max-md:justify-center max-md:gap-1.5">
-                                    {(employee.roles ?? []).map((title) => (
-                                        <StatusBadge key={title} tone="info" className={wrappingBadge}>
-                                            {title}
+                                    {employee.role && (
+                                        <StatusBadge tone="info" className={wrappingBadge}>
+                                            {employee.role}
                                         </StatusBadge>
-                                    ))}
+                                    )}
                                     {(employee.positions ?? []).map((position) => {
                                         const badge = (
                                             <StatusBadge tone="success" className={wrappingBadge}>
@@ -2775,27 +2907,24 @@ export default function EmployeeProfile({
                                             {/* What they may do in the system, as against the job they
                                                 do in the company. Next to the job because that is the
                                                 pair somebody fills in together on «Новый сотрудник». */}
-                                            <Fact label="Роль" field="roles">
-                                                {(employee.roles ?? []).length > 0 && (
-                                                    <span className="flex flex-col gap-1">
-                                                        {(employee.roles ?? []).map((title) => (
-                                                            <span key={title}>{title}</span>
-                                                        ))}
-                                                    </span>
-                                                )}
+                                            <Fact label="Роль" field="role">
+                                                {employee.role}
                                             </Fact>
 
                                             <Fact label="Отдел" field="departments">
                                                 {(employee.departments ?? []).length > 0 && (
                                                     <span className="flex flex-col gap-1">
                                                         {(employee.departments ?? []).map((department) => (
-                                                            // As wide as the chain it names: a link the
-                                                            // width of the column would be a line of
-                                                            // empty space to click on.
+                                                            // As wide as the chain it names, and never
+                                                            // wider than the column: a link the width of
+                                                            // the column would be a line of empty space
+                                                            // to click on, and one the width of its own
+                                                            // text alone would run a long name off the
+                                                            // card rather than let it wrap.
                                                             <Link
                                                                 key={department.id}
                                                                 href={route('departments.show', department.id)}
-                                                                className="w-max hover:underline"
+                                                                className="w-max max-w-full hover:underline"
                                                             >
                                                                 <DepartmentName name={department.path} full={department.full_path} />
                                                             </Link>
@@ -2816,7 +2945,7 @@ export default function EmployeeProfile({
                                                                 <Link
                                                                     key={position.id}
                                                                     href={route('positions.show', position.id)}
-                                                                    className="w-max hover:underline"
+                                                                    className="w-max max-w-full hover:underline"
                                                                 >
                                                                     <PositionName name={position.name} unit={position.unit} />
                                                                 </Link>
@@ -2833,7 +2962,7 @@ export default function EmployeeProfile({
                                                             <Link
                                                                 key={head.id}
                                                                 href={route('employees.show', head.id)}
-                                                                className="w-max hover:underline"
+                                                                className="w-max max-w-full hover:underline"
                                                             >
                                                                 {head.name}
                                                             </Link>
@@ -2988,7 +3117,16 @@ export default function EmployeeProfile({
                 {/* Not gated on the private lines: the block may be open to this
                     viewer by its public ones alone. */}
                 {editing === 'personal' && options && assigned && (
-                    <MainDialog employee={employee} details={details} options={options} assigned={assigned} onClose={() => setEditing(null)} />
+                    <MainDialog
+                        employee={employee}
+                        details={details}
+                        options={options}
+                        assigned={assigned}
+                        roleLocked={roleLocked}
+                        positionsLocked={positionsLocked}
+                        picksRole={picksRole}
+                        onClose={() => setEditing(null)}
+                    />
                 )}
 
                 {editing === 'contacts' && details && <ContactsDialog employee={employee} details={details} onClose={() => setEditing(null)} />}

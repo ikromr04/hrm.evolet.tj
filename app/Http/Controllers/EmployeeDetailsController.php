@@ -8,7 +8,6 @@ use App\Http\Requests\UpdatePersonalDataRequest;
 use App\Models\Citizenship;
 use App\Models\EmploymentType;
 use App\Models\User;
-use App\Support\Access;
 use App\Support\AccessMemo;
 use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
@@ -41,8 +40,8 @@ class EmployeeDetailsController extends Controller
         'employment_type' => EmploymentType::class,
     ];
 
-    /** What the card saves beside the details row: the roles, and where they stand. */
-    private const RELATIONS = ['roles', 'placements'];
+    /** What the card saves beside the details row: the role, and where they stand. */
+    private const RELATIONS = ['role', 'placements'];
 
     /**
      * What a line of these two blocks is called in the request, where that is not
@@ -66,7 +65,7 @@ class EmployeeDetailsController extends Controller
         'home_address' => ['home_address'],
         'employee_number' => ['employee_number'],
         'employment_type' => ['employment_type'],
-        'roles' => ['roles'],
+        'role' => ['role'],
         // One answer behind two lines of the card: a department, a position of
         // that department and the duties picked out of it. Changing where
         // somebody stands means changing both lines at once, so a viewer who
@@ -117,11 +116,11 @@ class EmployeeDetailsController extends Controller
             }
 
             // A line left out of the form is left as it is, rather than being
-            // emptied by a save that was never allowed to touch it. Saved after
-            // the positions, so that a card left without a role named is given
-            // the one the positions it now holds imply.
-            if (array_key_exists('roles', $data)) {
-                $employee->syncRoles([$data['roles'][0] ?? Access::derive($employee)]);
+            // emptied by a save that was never allowed to touch it — which is
+            // also how a window that shows the role without offering it leaves
+            // the card's own role alone while the jobs under it stay put.
+            if (array_key_exists('role', $data)) {
+                $employee->syncRoles([$data['role']]);
                 // This is the one save that can rewrite the rights of whoever is
                 // making it — a person may edit their own card — so whatever
                 // this request had already worked out about what they may read

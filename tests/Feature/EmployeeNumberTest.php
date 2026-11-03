@@ -37,7 +37,8 @@ class EmployeeNumberTest extends TestCase
             'surname' => 'Азимова',
             'name' => 'Нилуфар',
             'sex' => 'female',
-            'roles' => [],
+            // The role is left out rather than sent empty: this window carries
+            // it only for whoever picks it, and an empty one is refused.
             'placements' => [],
             ...$overrides,
         ];
@@ -97,7 +98,7 @@ class EmployeeNumberTest extends TestCase
         $employee->details()->update(['nationality' => 'таджичка']);
         $this->actingAs($admin);
 
-        // «Основное» carries neither the name nor the roles, and a save from it
+        // «Основное» carries neither the name nor the role, and a save from it
         // leaves both as they were rather than emptying them.
         $this->put("/employees/{$employee->id}/personal", ['employee_number' => '004217'])->assertSessionHasNoErrors();
 

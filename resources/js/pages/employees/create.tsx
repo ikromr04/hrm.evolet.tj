@@ -5,7 +5,7 @@ import { MonthPicker } from '@/components/month-picker';
 import { MultiSelect } from '@/components/multi-select';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
-import { placementsToSend, type Placement, type PlacementOptions } from '@/components/placements';
+import { mayHold, placementsToSend, roleFromPositions, specialistRole, type Placement, type PlacementOptions } from '@/components/placements';
 import { SearchableSelect } from '@/components/searchable-select';
 import { SectionNav } from '@/components/section-nav';
 import { SectionTitle } from '@/components/section-title';
@@ -44,20 +44,6 @@ interface Options extends PlacementOptions {
 }
 
 /**
- * The two roles a job decides between.
- *
- * There are four roles in all, and the other two are nobody's to pick here: the
- * system administrator is handed to no card, and «HR-специалист» is a deliberate
- * choice the system administrator makes and never a consequence of a job title.
- * These two follow from the position — whoever leads a department is a head —
- * which is why the page fills the field in rather than leaving it blank for
- * somebody to answer a second time.
- */
-const head = 'head';
-
-const specialist = 'specialist';
-
-/**
  * The parts of the card, in the order the page lays them out, each with the
  * fields the server may name an error on.
  *
@@ -72,7 +58,7 @@ const sections = [
     // Empty on purpose for now: the part is kept so the page has a place for
     // what belongs at the top of a card, and so the numbering below does not
     // shift a second time when it is filled.
-    { title: 'Основное', note: 'Чем занят', fields: ['roles', 'placements', 'employee_number', 'employment_type', 'hired_at', 'email'] },
+    { title: 'Основное', note: 'Чем занят', fields: ['role', 'placements', 'employee_number', 'employment_type', 'hired_at', 'email'] },
     { title: 'ФИО', note: 'Как зовут', fields: ['surname', 'name', 'patronymic'] },
     {
         title: 'Общие сведения',
@@ -400,7 +386,23 @@ type NewEmployee = { id: number; name: string };
  * which entry it marks follows what is on screen. A page rather than a dialog
  * because it is long, and half-filled work should survive a stray key.
  */
-export default function CreateEmployee({ options }: { options: Options }) {
+export default function CreateEmployee({
+    options,
+    picksRole,
+}: {
+    options: Options;
+    /**
+     * Which way round the page asks for the role and the job.
+     *
+     * A system administrator picks the role, and the jobs on offer narrow to the
+     * ones that role may hold: handing somebody authority is the answer, and the
+     * job is what it is given over. Personnel pick the job and the role is read
+     * off it, because what they are filling in is what the person was hired to
+     * do — and the field that would let them appoint a head by hand is theirs to
+     * read, not to answer.
+     */
+    picksRole: boolean;
+}) {
     // A position nobody has filed in a department yet would put the person
     // nowhere, so it is not one of the posts on offer.
     const posts = options.positions.filter((position) => position.department_id !== null);
@@ -410,9 +412,11 @@ export default function CreateEmployee({ options }: { options: Options }) {
 
     const form = useClearingForm({
         /* Основное */
-        // A card is never filed with no role at all, so the form opens on the one
-        // most of them get and the job may change it before anybody looks.
-        roles: [specialist] as string[],
+        // What most cards are, which is where the field stands until somebody
+        // says otherwise. «Не выбрано» is in the list all the same — the save
+        // asks for a role and refuses the card without one — so the box can say
+        // that nothing has been decided, it just does not start there.
+        role: specialistRole,
         employee_number: '',
         employment_type: '',
         // Empty rather than today: the day somebody started is a fact to be
@@ -618,6 +622,9 @@ export default function CreateEmployee({ options }: { options: Options }) {
      */
     const toSend = (card: typeof data) => ({
         ...card,
+        // The role as the field shows it: where the jobs decide it, the box is
+        // closed and what is in the form behind it was never anybody's answer.
+        role: picksRole ? card.role : impliedRole,
         placements: placementsToSend(card.placements),
         languages: card.languages
             .filter((spoken) => spoken.id !== '')
@@ -680,6 +687,26 @@ export default function CreateEmployee({ options }: { options: Options }) {
      */
     const placementError = errors.placements ?? Object.entries(errors).find(([key]) => key.startsWith('placements.'))?.[1];
 
+    /** The jobs chosen so far, which the pair of fields is read against. */
+    const chosen = data.placements.map((placement) => placement.position_id).filter((id): id is number => id !== null);
+
+    /**
+     * The role those jobs imply, shown in place of the answer where the answer
+     * is not this viewer's to give. It is also what travels as «role» then: the
+     * field is closed, and a closed field still has to say something true.
+     */
+    const impliedRole = roleFromPositions(chosen, options.positions);
+
+    /**
+     * The jobs on offer. Where the role was picked they narrow to the ones it
+     * may hold — a head leads and a specialist does not — and whatever is
+     * already chosen stays on the list besides, even once the role has changed
+     * under it: a job the new role may not hold is what the server is about to
+     * refuse, and it has to be in view for the refusal to be about anything.
+     * Where the job is what decides, nothing is narrowed: the job is the answer.
+     */
+    const offeredPosts = picksRole ? posts.filter((post) => mayHold(data.role, post) || chosen.includes(post.id)) : posts;
+
     /** A row of one of the two lists, edited a field at a time. */
     const setEducation = (index: number, patch: Partial<Education>) =>
         setData(
@@ -701,30 +728,6 @@ export default function CreateEmployee({ options }: { options: Options }) {
      * form under «Нет» would travel with the card unseen and be refused on a
      * field nobody can see any more.
      */
-    /**
-     * The role, which the job answers until somebody answers it themselves.
-     *
-     * Whoever leads a department is a head and everybody else is a specialist, so
-     * picking the job fills the field in and there is nothing to say twice. Once
-     * the field has been touched it is left alone: that is the whole reason it is
-     * a field and not a line of the card that reads itself off the position.
-     */
-    const roleChosen = useRef(false);
-
-    const setRole = (value: string) => {
-        roleChosen.current = true;
-
-        setData('roles', value === '' ? [] : [value]);
-    };
-
-    const fillRoleFrom = (positions: number[]) => {
-        if (roleChosen.current) return;
-
-        const leads = positions.some((id) => options.positions.some((post) => post.id === id && post.is_head));
-
-        setData('roles', [leads ? head : specialist]);
-    };
-
     const setDegree = (value: string) => {
         setData('degree', value);
 
@@ -827,12 +830,19 @@ export default function CreateEmployee({ options }: { options: Options }) {
                             <>
                                 <Section index={0} title={sections[0].title} hold={hold}>
                                     <FormGrid>
-                                        <Field label="Роль" error={at(errors, 'roles')}>
+                                        {/* Picked, or read off the jobs and closed. The closed box
+                                            is the same control as the open one rather than a line
+                                            of text: the field stands in a row with its neighbours,
+                                            and a reader who cannot change it is still reading an
+                                            answer to the same question. */}
+                                        <Field label="Роль" error={at(errors, 'role')} required>
                                             <SearchableSelect
                                                 options={options.roles.map((role) => ({ value: role.name, label: role.title }))}
-                                                value={data.roles[0] ?? ''}
-                                                onChange={setRole}
-                                                invalid={!!at(errors, 'roles')}
+                                                value={picksRole ? data.role : impliedRole}
+                                                onChange={(value) => setData('role', value)}
+                                                invalid={!!at(errors, 'role')}
+                                                disabled={!picksRole}
+                                                required
                                             />
                                         </Field>
 
@@ -842,7 +852,7 @@ export default function CreateEmployee({ options }: { options: Options }) {
                                             card: it can be skipped here. */}
                                         <Field label="Должность" error={placementError}>
                                             <MultiSelect
-                                                options={posts.map((post) => ({
+                                                options={offeredPosts.map((post) => ({
                                                     value: post.id,
                                                     label: post.display_name,
                                                     // Only where it says something the brackets do not:
@@ -850,21 +860,19 @@ export default function CreateEmployee({ options }: { options: Options }) {
                                                     // otherwise print its name twice over.
                                                     hint: post.unit && post.unit.full_name !== post.unit.name ? post.unit.full_name : undefined,
                                                 }))}
-                                                value={data.placements
-                                                    .map((placement) => placement.position_id)
-                                                    .filter((id): id is number => id !== null)}
-                                                onChange={(chosen) => {
-                                                    const placements = chosen.map((id) => {
-                                                        // A job already chosen keeps whatever
-                                                        // duties were picked out of it on the card.
-                                                        const held = data.placements.find((placement) => placement.position_id === id);
+                                                value={chosen}
+                                                onChange={(picked) =>
+                                                    setData(
+                                                        'placements',
+                                                        picked.map((id) => {
+                                                            // A job already chosen keeps whatever
+                                                            // duties were picked out of it on the card.
+                                                            const held = data.placements.find((placement) => placement.position_id === id);
 
-                                                        return held ?? { position_id: id, duty_ids: [] };
-                                                    });
-
-                                                    setData('placements', placements);
-                                                    fillRoleFrom(chosen);
-                                                }}
+                                                            return held ?? { position_id: id, duty_ids: [] };
+                                                        }),
+                                                    )
+                                                }
                                             />
                                         </Field>
 

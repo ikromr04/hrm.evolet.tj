@@ -94,7 +94,7 @@ class EmployeeController extends Controller
      *
      * @var array<string, string>
      */
-    private const SORT_FIELDS = ['role' => 'roles', 'position' => 'positions', 'department' => 'departments', 'unit' => 'departments'];
+    private const SORT_FIELDS = ['position' => 'positions', 'department' => 'departments', 'unit' => 'departments'];
 
     private const PRIVATE_SORTS = [
         'birth_date', 'nationality', 'citizenship', 'home_address', 'phone', 'marital_status', 'children', 'hired_at',
@@ -133,7 +133,11 @@ class EmployeeController extends Controller
             // once, and a title belongs to as many departments as file it.
             'position_name' => $private('positions', ['nullable', 'array']),
             'position_name.*' => ['string', Rule::exists('positions', 'name')],
-            'role' => $private('roles', ['nullable', 'array']),
+            // Several at once, although a person holds one: narrowing a list to
+            // the heads and the specialists together is reading and not
+            // assigning, so the question stays in the plural even though the
+            // answer on a card never is.
+            'role' => $private('role', ['nullable', 'array']),
             'role.*' => ['string', Rule::exists('roles', 'name')],
             'department' => $private('departments', ['nullable', 'array']),
             // A department, or the word for being in none.
@@ -238,7 +242,7 @@ class EmployeeController extends Controller
                 'patronymic' => fn () => $user->patronymic,
                 'sex' => fn () => $user->sex,
                 'email' => fn () => $user->email,
-                'roles' => fn () => $this->roleTitles($user),
+                'role' => fn () => $this->roleTitle($user),
                 'positions' => fn () => $this->positionNames($user),
                 'departments' => fn () => $this->departmentList($user),
                 'languages' => fn () => $this->languageList($user),
@@ -322,6 +326,10 @@ class EmployeeController extends Controller
 
         return Inertia::render('employees/create', [
             'canIssue' => $canIssue,
+            // Which way round the page asks the pair: the system administrator
+            // picks the role and the jobs narrow to the ones it may hold, while
+            // personnel pick the job and the role reads itself off it.
+            'picksRole' => Access::picksRole($request->user()),
             'options' => [
                 'roles' => Access::offeredRoles($request->user())->get(['name', 'title']),
                 // Every position with the department it belongs to and every
@@ -421,10 +429,10 @@ class EmployeeController extends Controller
             // builds a chain at a time.
             Placements::save($employee, $data['placements']);
 
-            // The role: the one the form named, or — when it named none — the one
-            // the positions just saved imply. Nobody is left holding no role at
-            // all, since a role is what decides whether the site opens.
-            $employee->syncRoles([$data['roles'][0] ?? Access::derive($employee)]);
+            // The role the form named, which it always does: what somebody may
+            // do here is asked for outright rather than defaulted, and the rules
+            // have already made sure it and the jobs above agree.
+            $employee->syncRoles([$data['role']]);
 
             // A language the directory has not heard of is added to it on the
             // way in, which is the one thing about saving them that is not a
@@ -543,7 +551,7 @@ class EmployeeController extends Controller
                     'patronymic' => fn () => $employee->patronymic,
                     'sex' => fn () => $employee->sex,
                     'email' => fn () => $employee->email,
-                    'roles' => fn () => $this->roleTitles($employee),
+                    'role' => fn () => $this->roleTitle($employee),
                     'positions' => fn () => $this->positionNames($employee),
                     'departments' => fn () => $this->departmentList($employee),
                     'languages' => fn () => $this->languageList($employee),
@@ -626,10 +634,15 @@ class EmployeeController extends Controller
             // asks about travel with it — and only for somebody who may both
             // enter a unit and hand it over.
             'equipmentTypes' => $canIssue && $request->user()->can('equipment.create') ? EquipmentType::formOptions() : [],
-            // Why the role on this card is not anybody's to change, if it is not:
-            // the form shows the sentence beside the locked field instead of
-            // letting somebody find out by saving.
-            'rolesLocked' => Access::rolesLockedReason($employee),
+            // Why the role on this card is not anybody's to change, and why the
+            // jobs are not, where they are not: the form shows the sentence
+            // beside the locked field instead of letting somebody find out by
+            // saving.
+            'roleLocked' => Access::roleLockedReason($request->user(), $employee),
+            'positionsLocked' => Access::positionsLockedReason($request->user(), $employee),
+            // Whether this viewer picks the role and has the jobs narrow to it,
+            // or picks the job and reads off the role it decided.
+            'picksRole' => Access::picksRole($request->user()),
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
                 // other cards say is offered only to a reader of that line, and
@@ -662,7 +675,9 @@ class EmployeeController extends Controller
             ] : null,
             // The dialog edits these by id or name, not by the labels shown above.
             'assigned' => $canEdit ? [
-                'roles' => $employee->roles->pluck('name'),
+                // The role by the name the picker submits rather than the title
+                // the card prints, and null while a card has not been given one.
+                'role' => $employee->roles->first()?->name,
                 // Where they stand, chain by chain, as the dialog shows it: a
                 // department, the position held there and the duties carried in
                 // it. A department with no position is one of these too.
@@ -737,7 +752,7 @@ class EmployeeController extends Controller
                     }
                 }
 
-                foreach (['roles' => ['roles', 'title'], 'positions' => ['positions', 'name'], 'languages' => ['languages', 'name'], 'departments' => ['departments', 'name'], 'citizenship' => ['citizenships', 'name']] as $field => [$relation, $column]) {
+                foreach (['role' => ['roles', 'title'], 'positions' => ['positions', 'name'], 'languages' => ['languages', 'name'], 'departments' => ['departments', 'name'], 'citizenship' => ['citizenships', 'name']] as $field => [$relation, $column]) {
                     if ($shows($field)) {
                         $q->orWhereHas($relation, fn (Builder $q) => $q->where($column, 'like', $like));
                     }
@@ -1154,13 +1169,16 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Access roles shown as «Роль»; titles in alphabetical order.
+     * The role, as «Роль» shows it: one name, or nothing while a card is being
+     * written and has not been given one yet.
      *
-     * @return list<string>
+     * A person holds one role. The table behind it could hold several — it is
+     * the one the permission package ships — so this reads the first and not a
+     * list, and the rules make sure there is never a second to lose.
      */
-    private function roleTitles(User $user): array
+    private function roleTitle(User $user): ?string
     {
-        return $user->roles->pluck('title')->sort()->values()->all();
+        return $user->roles->first()?->title;
     }
 
     /**

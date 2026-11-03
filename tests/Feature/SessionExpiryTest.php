@@ -55,7 +55,8 @@ class SessionExpiryTest extends TestCase
             'citizenship' => ['Таджикистан'],
             'nationality' => 'таджичка',
             'home_address' => 'г. Душанбе, ул. Рудаки, 25',
-            'roles' => [],
+            // The role is left out rather than sent empty: an empty one is
+            // refused, and nothing here is about the role.
             'placements' => [],
             ...$overrides,
         ];

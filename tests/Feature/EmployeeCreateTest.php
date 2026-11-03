@@ -20,6 +20,7 @@ use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia;
@@ -68,7 +69,9 @@ class EmployeeCreateTest extends TestCase
             'birth_place' => 'г. Худжанд',
             'citizenship' => ['Таджикистан'],
             'hired_at' => '2026-03-02',
-            'roles' => [],
+            // The role is asked for outright, so the plainest of the four
+            // stands here: a card is not opened without one.
+            'role' => 'specialist',
             'placements' => [],
             ...$overrides,
         ];
@@ -203,7 +206,7 @@ class EmployeeCreateTest extends TestCase
         [$department, $position, $duty] = $this->chain();
 
         $response = $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
-            'roles' => ['specialist'],
+            'role' => 'specialist',
             'placements' => [
                 ['position_id' => $position->id, 'duty_ids' => [$duty->id]],
             ],
@@ -284,7 +287,7 @@ class EmployeeCreateTest extends TestCase
         $laptop = Equipment::factory()->ofType(EquipmentType::firstWhere('name', 'Ноутбуки'))->create();
 
         $response = $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
-            'roles' => ['specialist'],
+            'role' => 'specialist',
             'placements' => [['position_id' => $position->id, 'duty_ids' => [$duty->id]]],
             'equipment' => [$laptop->id],
             'issued_at' => '2026-03-02',
@@ -663,21 +666,44 @@ class EmployeeCreateTest extends TestCase
     {
         Notification::fake();
 
+        $department = Department::create(['name' => 'Отдел разработки']);
+        $lead = $department->positions()->create(['name' => 'Начальник отдела', 'is_head' => true]);
+
         // The ordinary choice: a head of a department, or everybody else who
-        // works here. Whoever may add a colleague picks between these two.
-        foreach (['head', 'specialist'] as $role) {
+        // works here. Whoever may add a colleague picks between these two — and
+        // a head comes with the job they head, since the role is the department
+        // they lead and not a rank beside it.
+        $jobs = [
+            'head' => [['position_id' => $lead->id, 'duty_ids' => []]],
+            'specialist' => [],
+        ];
+
+        foreach ($jobs as $role => $placements) {
             $this->actingAs($this->sysadmin())
-                ->post('/employees', $this->payload(['roles' => [$role], 'email' => "{$role}@evolet.tj"]))
+                ->post('/employees', $this->payload([
+                    'role' => $role,
+                    'email' => "{$role}@evolet.tj",
+                    'placements' => $placements,
+                ]))
                 ->assertSessionHasNoErrors();
 
-            $this->assertTrue(User::firstWhere('email', "{$role}@evolet.tj")->hasRole($role));
+            $this->assertSame([$role], User::firstWhere('email', "{$role}@evolet.tj")->getRoleNames()->all());
         }
+
+        // «Руководитель» with no job at all is refused, which is the whole of
+        // what that role means: there is no department such a card leads, so
+        // nothing would answer for the authority it carries.
+        $this->actingAs($this->sysadmin())
+            ->post('/employees', $this->payload(['role' => 'head']))
+            ->assertSessionHasErrors(['placements' => 'Руководитель занимает хотя бы одну руководящую должность.']);
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
 
         // And one is given to nobody: there is a single system administrator and
         // never a second, not even at the hands of the account holding it.
         $this->actingAs($this->sysadmin())
-            ->post('/employees', $this->payload(['roles' => ['sysadmin']]))
-            ->assertSessionHasErrors(['roles.0' => 'Роль системного администратора не выдаётся: она одна и уже занята.']);
+            ->post('/employees', $this->payload(['role' => 'sysadmin']))
+            ->assertSessionHasErrors(['role' => 'Роль системного администратора не выдаётся: она одна и уже занята.']);
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
 
@@ -685,66 +711,89 @@ class EmployeeCreateTest extends TestCase
         // administrator's alone to give: personnel who could appoint personnel
         // would be the whole of the access system in one person's gift.
         $this->actingAs($this->withRights('employees.create'))
-            ->post('/employees', $this->payload(['roles' => ['hr']]))
-            ->assertSessionHasErrors(['roles.0' => 'Роль HR-специалиста выдаёт только системный администратор.']);
+            ->post('/employees', $this->payload(['role' => 'hr']))
+            ->assertSessionHasErrors(['role' => 'Роль HR-специалиста выдаёт только системный администратор.']);
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
 
         $this->actingAs($this->sysadmin())
-            ->post('/employees', $this->payload(['roles' => ['hr']]))
+            ->post('/employees', $this->payload(['role' => 'hr']))
             ->assertSessionHasNoErrors();
 
-        $this->assertTrue(User::firstWhere('email', 'nilufar@evolet.tj')->hasRole('hr'));
+        $this->assertSame(['hr'], User::firstWhere('email', 'nilufar@evolet.tj')->getRoleNames()->all());
     }
 
     /**
-     * A person holds one role, so a card arriving with two is refused.
+     * The role is one name and not a list of them.
      *
-     * The field travels as a list because the picker has always sent one, but the
-     * four roles are an order rather than a set: somebody is personnel, or a
-     * head, or neither, and no two of those at once.
+     * The four are an order rather than a set: somebody is personnel, or a head,
+     * or neither, and no two of those at once. So the field takes a name, and a
+     * form still sending the list the picker used to send is refused rather than
+     * quietly having its first entry taken.
      */
-    public function test_a_card_carrying_two_roles_is_refused()
+    public function test_a_card_carrying_a_list_of_roles_is_refused()
     {
         $this->actingAs($this->sysadmin())
-            ->post('/employees', $this->payload(['roles' => ['head', 'specialist']]))
-            ->assertSessionHasErrors('roles');
+            ->post('/employees', $this->payload(['role' => ['head', 'specialist']]))
+            ->assertSessionHasErrors('role');
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+
+        // One of them on its own, sent as a list of one, is no better: there is
+        // no list here to hold one thing.
+        $this->actingAs($this->sysadmin())
+            ->post('/employees', $this->payload(['role' => ['head']]))
+            ->assertSessionHasErrors('role');
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
 
     /**
-     * A card that picks no role is given the one its positions imply.
+     * A card is not opened without a role on it.
      *
-     * Nobody is left holding no role at all, since a role is what decides whether
-     * the site opens for somebody — so the empty list the page sends when nothing
-     * was picked means «whatever the jobs say» rather than «none». It is read
-     * after the placements are written, so what it reads is the job just saved.
+     * The role is what decides whether the site opens for somebody, so nobody is
+     * put on the books holding none — and the page asks for it outright rather
+     * than working one out from the jobs behind the person's back. An empty box
+     * is a question that was not answered, not an answer meaning «the plainest
+     * of the four».
      */
-    public function test_a_card_that_picks_no_role_takes_the_one_its_jobs_imply()
+    public function test_a_card_opened_without_a_role_is_refused()
     {
         Notification::fake();
         $department = Department::create(['name' => 'Отдел разработки']);
         $lead = $department->positions()->create(['name' => 'Начальник отдела', 'is_head' => true]);
+        $admin = $this->sysadmin();
 
-        // No job and no role: an ordinary specialist.
-        $this->actingAs($this->sysadmin())->post('/employees', $this->payload())->assertSessionHasNoErrors();
-        $this->assertTrue(User::firstWhere('email', 'nilufar@evolet.tj')->hasRole('specialist'));
+        // The box sent empty, and the line left out of the request altogether:
+        // one unanswered question, said three ways.
+        $unanswered = [
+            $this->payload(['role' => '']),
+            $this->payload(['role' => null]),
+            Arr::except($this->payload(), ['role']),
+        ];
 
-        // The leading position of a department makes a head of whoever holds it.
-        $this->actingAs($this->sysadmin())->post('/employees', $this->payload([
+        foreach ($unanswered as $sent) {
+            $this->actingAs($admin)->post('/employees', $sent)->assertSessionHasErrors('role');
+
+            $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
+        }
+
+        // Named, and the card is opened under it — including the one that comes
+        // with leading a department, which the page fills in from the job.
+        $this->actingAs($admin)->post('/employees', $this->payload([
             'email' => 'rustam@evolet.tj',
+            'role' => 'head',
             'placements' => [['position_id' => $lead->id, 'duty_ids' => []]],
         ]))->assertSessionHasNoErrors();
 
-        $this->assertTrue(User::firstWhere('email', 'rustam@evolet.tj')->hasRole('head'));
+        $this->assertSame(['head'], User::firstWhere('email', 'rustam@evolet.tj')->getRoleNames()->all());
     }
 
     public function test_an_unknown_role_position_or_department_is_refused()
     {
         $admin = $this->sysadmin();
 
-        $this->actingAs($admin)->post('/employees', $this->payload(['roles' => ['ceo']]))->assertSessionHasErrors('roles.0');
+        $this->actingAs($admin)->post('/employees', $this->payload(['role' => 'ceo']))->assertSessionHasErrors('role');
         $this->actingAs($admin)->post('/employees', $this->payload([
             'placements' => [['position_id' => 9999, 'duty_ids' => []]],
         ]))->assertSessionHasErrors('placements.0.position_id');
@@ -840,7 +889,7 @@ class EmployeeCreateTest extends TestCase
         );
 
         $this->actingAs($creator)->post('/employees', $this->wholeCard([
-            'roles' => ['specialist'],
+            'role' => 'specialist',
             'placements' => [['position_id' => $position->id, 'duty_ids' => [$duty->id]]],
         ]))->assertSessionHasNoErrors();
 
