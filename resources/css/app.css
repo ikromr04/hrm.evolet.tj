@@ -271,3 +271,76 @@
         color: var(--destructive);
     }
 }
+
+/*
+ * Печать: what a sheet looks like when it leaves the screen.
+ *
+ * The application is not a document and must not be printed as one — a sidebar,
+ * a row of tabs and a column of links come out as furniture nobody asked for.
+ * So nothing prints by default, and a page says what of it is the document by
+ * marking that part `data-print`.
+ *
+ * Hidden rather than removed, because taking the rest out of the flow would
+ * reflow the document itself as it goes to paper; the marked part is then lifted
+ * to the top of the first page so the hidden boxes above it leave no gap.
+ */
+@media print {
+    @page {
+        size: A4;
+        margin: 14mm;
+    }
+
+    body * {
+        visibility: hidden;
+    }
+
+    [data-print],
+    [data-print] * {
+        visibility: visible;
+    }
+
+    [data-print] {
+        /* Block, because the marked wrapper lays itself out as "contents" on a
+           wide screen, and a sheet of paper is wide: a box that is not there
+           cannot be lifted to the top of the page. */
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+
+        /*
+         * On paper in the colours of paper, whatever the screen was set to: a
+         * card read in the dark theme would otherwise print white on black, or
+         * — with backgrounds dropped, as printers drop them — grey on white.
+         * The light values of the theme, so everything built on them follows.
+         */
+        --background: hsl(0, 0%, 100%);
+        --foreground: #2a2d31;
+        --card: hsl(0, 0%, 100%);
+        --card-foreground: #2a2d31;
+        --muted: #f4f4f5;
+        --muted-foreground: #44474c;
+        --border: #d4d4d8;
+
+        color: var(--foreground);
+        background: var(--background);
+    }
+
+    /* A rule a printer would lay down in ink of its own, and a shadow it cannot. */
+    [data-print] * {
+        box-shadow: none !important;
+    }
+
+    /*
+     * A part of the document is not torn across two sheets where it can be
+     * helped, and a table never leaves its heading behind on the page before.
+     */
+    [data-print] section {
+        break-inside: avoid;
+    }
+
+    [data-print] thead {
+        display: table-header-group;
+    }
+}

@@ -301,6 +301,17 @@ const paneGrid = 'grid gap-4 max-md:gap-4 lg:grid-cols-[1fr_24rem]';
 const pane = 'flex min-w-0 flex-col gap-4 max-md:gap-4';
 
 /**
+ * The narrower of the two, which follows the page the way the nav of a long
+ * sheet does: what stands in it is read beside whatever part of the main column
+ * somebody has scrolled to, so it has no business scrolling away.
+ *
+ * `self-start` because a grid stretches its items to the height of the row, and
+ * a box already as tall as the row has nowhere to stick to. It scrolls within
+ * itself where it is taller than the window, or its foot would be unreachable.
+ */
+const sidePane = `${pane} lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:self-start lg:overflow-y-auto lg:pb-2`;
+
+/**
  * Contacts are dialled and written to, so they carry the brand colour and an
  * icon rather than looking like the plain text of the fields around them.
  */
@@ -932,7 +943,7 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
         // These two answer in a word each, so they share a line rather than
         // taking one of the sheet apiece.
         { number: '04', title: 'Учёная степень, звание', shown: shows('degree'), half: true, body: <SheetLine>{details?.degree}</SheetLine> },
-        { number: '05', title: 'Знание иностранных языков', shown: shows('languages'), half: true, body: <SheetLine>{languages}</SheetLine> },
+        { number: '05', title: 'Знание языков', shown: shows('languages'), half: true, body: <SheetLine>{languages}</SheetLine> },
         {
             number: '06',
             title: 'Трудовая деятельность',
@@ -1157,20 +1168,25 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
                     the document's own — the sheet is read here as part of a
                     card, and printed as a document elsewhere. */}
                 <Section
+                    // What the browser is to put on paper: this block and
+                    // nothing else of the application around it.
+                    data-print=""
                     title="Личный листок по учёту кадров"
                     action={
                         // What can be done with the sheet, in the header of the
                         // block it belongs to — the way every other block of
-                        // this card carries its own one action.
-                        <span className="flex flex-wrap items-center gap-4">
+                        // this card carries its own one action. Not printed: a
+                        // sheet on paper has nothing to press.
+                        <span className="flex flex-wrap items-center gap-4 print:hidden">
                             {/* Taking a copy away is not changing anything, so
                                 the two read in the colour of the page and only
                                 «Изменить» is written in the brand's. */}
-                            {['Печать', 'Скачать'].map((label) => (
-                                <Button key={label} variant="link" className="text-foreground h-auto p-0 text-xs font-normal">
-                                    {label}
-                                </Button>
-                            ))}
+                            <Button variant="link" onClick={() => window.print()} className="text-foreground h-auto p-0 text-xs font-normal">
+                                Печать
+                            </Button>
+                            <Button variant="link" className="text-foreground h-auto p-0 text-xs font-normal">
+                                Скачать
+                            </Button>
                             <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
                                 Изменить
                             </Button>
@@ -1180,7 +1196,9 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
                     {/* How much of the sheet is filled in: a band across the top
                         of the block, drawn the way the regulation draws how far
                         a department has got through reading it. */}
-                    <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6">
+                    {/* Not printed: how far the filling in has got is something
+                        the office keeps, not something the sheet says of itself. */}
+                    <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6 print:hidden">
                         <span className="text-muted-foreground text-[13px]">Заполнение</span>
 
                         {/* The same bar the KPI block reads its indicators with,
@@ -1191,6 +1209,13 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
 
                         <span className="text-sm font-medium tabular-nums">{sheet.filled}%</span>
                     </PaperBandRow>
+
+                    {/* Only on paper: the block's own name says what the document
+                        is, and a sheet off somebody's card has to say whose it
+                        is as well — on screen the card around it already does. */}
+                    <p className="hidden text-sm font-semibold print:block">
+                        {[employee.surname, employee.name, employee.patronymic].filter(Boolean).join(' ')}
+                    </p>
 
                     {/* The sheet laid out the way «Новый сотрудник» lays out
                         the parts of its own form: what the paper is made of down
@@ -1210,7 +1235,10 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
                                 // column scrolls within itself where it is
                                 // taller than the window, or its last entries
                                 // would be unreachable.
-                                <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-y-auto lg:pb-2">
+                                // Not printed: a way about the page is of no use
+                                // on paper, and neither is a list of what the
+                                // office still has to ask for.
+                                <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-y-auto lg:pb-2 print:hidden">
                                     {/* Numbered from the paper and not from the
                                         list: a part this reader may not open
                                         leaves a gap in the sequence, and a column
@@ -1288,7 +1316,7 @@ function SheetTab({ employee, sheet }: { employee: Employee; sheet: SheetProgres
                 </Section>
             </div>
 
-            <aside className={pane}>
+            <aside className={sidePane}>
                 {/* The papers themselves, under the lines they were attached to:
                     the diplomas, and the one document each of the three lines of
                     the card that keeps one holds. Named as they were uploaded —
@@ -2311,6 +2339,7 @@ function Section({
     className,
     action,
     fields,
+    ...rest
 }: {
     title?: string;
     /** What stands in the block; a block still being designed holds nothing. */
@@ -2319,7 +2348,7 @@ function Section({
     action?: ReactNode;
     /** The fields this block is made of; without any of them there is no block. */
     fields?: string[];
-}) {
+} & Omit<React.ComponentPropsWithoutRef<'div'>, 'title' | 'children'>) {
     const shows = useShows();
 
     if (fields !== undefined && !fields.some(shows)) {
@@ -2330,8 +2359,11 @@ function Section({
     // sit above the card, as a native settings screen has them, and the card
     // holds nothing but rows. From `md` up the wrapper steps aside (contents)
     // and the card with its header strip is exactly what it was.
+    //
+    // Whatever else was passed lands on the wrapper — `data-print`, where a
+    // block is the one thing on the page meant to go to paper.
     return (
-        <div className="flex min-w-0 flex-col md:contents">
+        <div className="flex min-w-0 flex-col md:contents" {...rest}>
             {title && (
                 <div className="mb-1.5 flex min-h-6 flex-wrap items-end justify-between gap-x-3 gap-y-1 px-1 md:hidden">
                     <h2 className="text-muted-foreground min-w-0 text-[13px] font-semibold tracking-wide uppercase">{title}</h2>
@@ -3452,7 +3484,7 @@ export default function EmployeeProfile({
                                     </div>
                                 </div>
 
-                                <aside className={pane}>
+                                <aside className={sidePane}>
                                     <Section
                                         fields={['languages']}
                                         title="Знание языков"
@@ -3528,7 +3560,7 @@ export default function EmployeeProfile({
 
                                 {/* Hire date, phones and the rest are private, so a colleague's sidebar
                             holds languages alone — those are public. */}
-                                <aside className={pane}>
+                                <aside className={sidePane}>
                                     <Section
                                         fields={['languages']}
                                         title="Знание языков"
