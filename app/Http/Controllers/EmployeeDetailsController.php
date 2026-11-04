@@ -234,7 +234,7 @@ class EmployeeDetailsController extends Controller
     public function family(UpdateFamilyRequest $request, User $employee): RedirectResponse
     {
         $data = $request->validated();
-        $details = Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date']);
+        $details = Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date', 'spouse_occupation']);
         $children = $data['children'] ?? null;
         $relatives = $data['relatives'] ?? null;
 

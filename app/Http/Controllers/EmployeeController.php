@@ -417,7 +417,7 @@ class EmployeeController extends Controller
                 ...EmployeeCard::lineColumns($employee, $data, 'military'),
                 ...Arr::only($data, ['phone', 'sos_phone', 'sos_contact']),
                 ...Arr::only($data, ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number']),
-                ...Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date']),
+                ...Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date', 'spouse_occupation']),
                 // "Детей нет" and "не указано" look the same in an empty list,
                 // so the answer is worked out rather than taken as sent — by the
                 // same call the card's own «Семья» form makes.
@@ -576,10 +576,15 @@ class EmployeeController extends Controller
                         // prints them. Read on the card and not in the list:
                         // the list has no column for it, and twenty mothers
                         // and brothers a page is a payload nobody draws.
+                        //
+                        // The month and the year, because that is the whole of
+                        // what was asked: the column keeps the first of the
+                        // month, and sending the day back would be offering
+                        // the form a figure to save that nobody typed.
                         'relatives' => fn () => $employee->relatives->map(fn (UserRelative $r) => [
                             'relation' => $r->relation,
                             'full_name' => $r->full_name,
-                            'birth_year' => $r->birth_year,
+                            'birth_date' => $r->birth_date?->format('Y-m'),
                             'occupation' => $r->occupation,
                         ])->all(),
                         'work_experiences' => fn () => $employee->workExperiences->map(fn (UserWorkExperience $w) => $this->workExperience($w))->all(),
@@ -661,6 +666,10 @@ class EmployeeController extends Controller
             'sheet' => [
                 'filled' => PersonnelSheet::filled($employee, $request->user()),
                 'missing' => PersonnelSheet::missing($employee, $request->user()),
+                // And the lines those two were counted over, so that the sheet
+                // being retyped can say what is still wanted from what is in
+                // the boxes rather than from what was last saved.
+                'lines' => PersonnelSheet::lines($employee, $request->user()),
             ],
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
@@ -691,6 +700,22 @@ class EmployeeController extends Controller
                 // — the usual wordings to anybody, the ones on file only to
                 // somebody who may read the jobs a card lists.
                 'reasons' => $this->leavingReasons($shows('work_experiences')),
+                // What diplomas have made of people here, and what is written on
+                // the three lines a card keeps as free text: offered rather than
+                // imposed, because a diploma may name something no list has
+                // heard of and a line of free text is free. «Личный листок» is
+                // retyped on this page now, and these four boxes were taking
+                // whatever was typed while suggesting nothing — the very same
+                // boxes on «Новый сотрудник» have always offered what the other
+                // cards say.
+                //
+                // On that page's terms too: they are read off other people's
+                // private lines, so a viewer who may not read the line is
+                // offered nothing and still types whatever they like.
+                'qualifications' => $this->qualifications($shows('educations')),
+                'degrees' => $shows('degree') ? $this->distinctDetail('degree') : [],
+                'awards' => $shows('award') ? $this->distinctDetail('award') : [],
+                'militaries' => $shows('military') ? $this->distinctDetail('military') : [],
             ] : null,
             // The dialog edits these by id or name, not by the labels shown above.
             'assigned' => $canEdit ? [
@@ -1614,21 +1639,29 @@ class EmployeeController extends Controller
                 'hired_at' => fn () => $details?->hired_at?->toDateString(),
             ]),
             // Three fields that read as one line each on the card but are kept as
-            // two columns: the number and whom to call, the spouse and their
-            // birthday, whether there are children and who they are.
+            // several columns: the number and whom to call, the spouse and the
+            // two things asked about them, whether there are children and who
+            // they are.
+            //
+            // The spouse and the children are given back the month they were
+            // born in and not the date of it, as the rest of the family is:
+            // only the month was ever asked for, and the first of it is a day
+            // the card invented to have something to put in the column.
             ...($shows('sos_phone') ? [
                 'sos_phone' => $details?->sos_phone,
                 'sos_contact' => $details?->sos_contact,
             ] : []),
             ...($shows('spouse') ? [
                 'spouse_name' => $details?->spouse_name,
-                'spouse_birth_date' => $details?->spouse_birth_date?->toDateString(),
+                'spouse_birth_date' => $details?->spouse_birth_date?->format('Y-m'),
+                'spouse_occupation' => $details?->spouse_occupation,
             ] : []),
             ...($shows('children') ? [
                 'has_children' => $details?->has_children,
                 'children' => $user->children->map(fn ($child) => [
                     'full_name' => $child->full_name,
-                    'birth_date' => $child->birth_date?->toDateString(),
+                    'birth_date' => $child->birth_date?->format('Y-m'),
+                    'occupation' => $child->occupation,
                 ])->all(),
             ] : []),
         ];

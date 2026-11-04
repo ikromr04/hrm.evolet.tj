@@ -543,4 +543,55 @@ class EmployeeDegreeTest extends TestCase
         Storage::disk('documents')->assertExists($details->degree_document_path);
         $this->assertCount(1, Storage::disk('documents')->allFiles());
     }
+
+    /**
+     * The sheet takes the paper off when it is asked to, and this window takes
+     * no notice of the asking.
+     *
+     * The two doors keep the document on different terms, and deliberately.
+     * Here a save replaces it and a DELETE of its own takes it away, which is
+     * the whole of what this block's form can do; «Личный листок» writes
+     * nothing until «Сохранить», so a removal there has to wait with everything
+     * else and travels as an answer among the answers. A flag sent to this
+     * window is not one of the things it asks about, and what it does not ask
+     * about it does not read.
+     *
+     * And either way the line stays. Somebody may hold a degree whose аттестат
+     * was scanned badly, and losing the degree along with the scan would be
+     * losing the answer over the paperwork — which is what answering «Нет» did
+     * before the asking existed.
+     */
+    public function test_the_sheet_takes_the_paper_off_when_asked_and_this_window_does_not()
+    {
+        Storage::fake('documents');
+        $employee = $this->employee('кандидат наук, доцент');
+        $was = $this->attach($employee, 'Аттестат доцента.pdf');
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->put("/employees/{$employee->id}/degree", [
+            'degree' => 'кандидат наук, доцент',
+            'degree_document_remove' => true,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame($was, $employee->details->fresh()->degree_document_path);
+        Storage::disk('documents')->assertExists($was);
+
+        // The same asking on the sheet, where it is an answer the door takes.
+        // Only the three lines this block's own form would show are sent with
+        // it: the sheet insists on a name and a language, and nothing else.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/sheet", [
+            'surname' => $employee->surname,
+            'name' => $employee->name,
+            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
+            'degree' => 'кандидат наук, доцент',
+            'degree_document_remove' => true,
+        ])->assertSessionHasNoErrors();
+
+        $details = $employee->details->fresh();
+
+        $this->assertNull($details->degree_document_path);
+        $this->assertNull($details->degree_document_name);
+        $this->assertSame('кандидат наук, доцент', $details->degree);
+        Storage::disk('documents')->assertMissing($was);
+    }
 }

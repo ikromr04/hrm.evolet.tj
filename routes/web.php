@@ -13,6 +13,7 @@ use App\Http\Controllers\EmployeeDetailsController;
 use App\Http\Controllers\EmployeeEducationController;
 use App\Http\Controllers\EmployeeEquipmentController;
 use App\Http\Controllers\EmployeeMilitaryController;
+use App\Http\Controllers\EmployeeSheetController;
 use App\Http\Controllers\EmployeeStatusController;
 use App\Http\Controllers\EmployeeWorkExperienceController;
 use App\Http\Controllers\EquipmentController;
@@ -212,6 +213,16 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     Route::put('contacts', [EmployeeDetailsController::class, 'contacts'])->middleware('can:employees.edit.block.contacts,employee')->name('contacts');
     Route::put('languages', [EmployeeDetailsController::class, 'languages'])->middleware('can:employees.edit.block.languages,employee')->name('languages');
     Route::put('employment', [EmployeeDetailsController::class, 'employment'])->middleware('can:employees.edit.block.employment,employee')->name('employment');
+
+    // «Личный листок» retyped as the one paper it is: eleven of the blocks
+    // above in a single request, so that the sheet is never «сохранён
+    // наполовину». Behind «auth» alone, and that is deliberate — a route has
+    // one gate to give, and asking whether somebody may change the passport in
+    // order to decide whether they may retype a surname would be the wrong
+    // question. The rights are weighed line by line inside, in
+    // UpdateSheetRequest, which is also what refuses a viewer who may change
+    // none of them.
+    Route::put('sheet', [EmployeeSheetController::class, 'update'])->name('sheet');
 
     // Education is kept record by record. The controller checks that the record
     // belongs to the employee in the URL, so one person's id cannot reach

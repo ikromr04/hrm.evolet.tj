@@ -66,19 +66,26 @@ class UpdatePersonalDataRequest extends FormRequest
          */
         $sent = fn (array $rules) => ['sometimes', ...$rules];
 
+        // The eight plain lines of the block, described in EmployeeCard with
+        // everything else this window and «Новый сотрудник» ask for in common.
+        // Read a line at a time rather than spread in one go, because the three
+        // the window offers as a choice rather than as a box are weighed against
+        // what this viewer may change and the five beside them are not.
+        $main = EmployeeCard::mainRules();
+
         return [
-            'surname' => $sent($line('surname', ['required', 'string', 'max:100'])),
-            'name' => $sent($line('name', ['required', 'string', 'max:100'])),
-            'patronymic' => $sent(['nullable', 'string', 'max:100']),
-            'sex' => $sent($line('sex', ['nullable', Rule::in(['male', 'female'])])),
-            'birth_date' => $sent(['nullable', 'date', 'before_or_equal:today']),
+            'surname' => $sent($line('surname', $main['surname'])),
+            'name' => $sent($line('name', $main['name'])),
+            'patronymic' => $sent($main['patronymic']),
+            'sex' => $sent($line('sex', $main['sex'])),
+            'birth_date' => $sent($main['birth_date']),
             ...collect(EmployeeCard::employmentRules())
                 ->map(fn (array $rules, string $field) => $sent($line($field, $rules)))
                 ->all(),
-            'birth_place' => $sent(['nullable', 'string', 'max:255']),
+            'birth_place' => $sent($main['birth_place']),
             ...collect($this->citizenshipRules())->map(fn (array $rules) => $sent($rules))->all(),
-            'nationality' => $sent(['nullable', 'string', 'max:255']),
-            'home_address' => $sent(['nullable', 'string', 'max:255']),
+            'nationality' => $sent($main['nationality']),
+            'home_address' => $sent($main['home_address']),
 
             // The number, the kind of work and the branch, described once in
             // EmployeeCard and asked for here line by line, because this window
@@ -161,16 +168,9 @@ class UpdatePersonalDataRequest extends FormRequest
     public function attributes(): array
     {
         return [
-            'surname' => 'фамилия',
-            'name' => 'имя',
-            'patronymic' => 'отчество',
-            'sex' => 'пол',
-            'birth_date' => 'дата рождения',
-            'birth_place' => 'место рождения',
+            ...EmployeeCard::mainAttributes(),
             'citizenship' => 'гражданство',
             'citizenship.*' => 'гражданство',
-            'nationality' => 'национальность',
-            'home_address' => 'домашний адрес',
             ...EmployeeCard::employmentAttributes(),
             ...EmployeeCard::accountAttributes(),
             'role' => 'роль',

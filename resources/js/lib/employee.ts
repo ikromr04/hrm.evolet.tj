@@ -24,13 +24,21 @@ export interface PrivateDetails {
     marital_status: Marital | null;
     /** At most one, so it sits here rather than in a list like the children. */
     spouse_name: string | null;
+    /**
+     * «1971-03»: the month, as every date of birth the family is asked for is
+     * kept. A personnel department is told the month somebody was born and
+     * seldom the day, and a day nobody was asked for would print as a fact.
+     */
     spouse_birth_date: string | null;
+    /** Where they work or study, written out as one line, as a relative's is. */
+    spouse_occupation: string | null;
     /** null until anyone filled the card in, false once HR states there are none. */
     has_children: boolean | null;
     hired_at: string | null;
-    children: { full_name: string; birth_date: string | null }[];
+    /** The same three answers the rest of the family is named by; the month again. */
+    children: { full_name: string; birth_date: string | null; occupation: string | null }[];
     /** The rest of the family the card names: a line apiece, as the sheet prints them. */
-    relatives: { relation: string; full_name: string; birth_year: number | null; occupation: string | null }[];
+    relatives: { relation: string; full_name: string; birth_date: string | null; occupation: string | null }[];
 }
 
 export const sexLabels: Record<Sex, string> = { male: 'Мужской', female: 'Женский' };
@@ -53,6 +61,43 @@ export function formatDate(value: string | null): string | null {
     const date = parseISO(value);
 
     return `${String(date.getDate()).padStart(2, '0')} ${shortMonths[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/**
+ * "2024-10" -> "10.2024": one end of a span, in figures.
+ *
+ * For the months a period is counted between — «10.2024 — 01.2025» — where the
+ * two ends are read against each other rather than as dates in their own right,
+ * and figures of one width line up where names of five letters and three would
+ * not.
+ *
+ * Read off the written month rather than through a calendar: a month turned
+ * into a local moment to be asked its name can come back the month before it
+ * either side of midnight.
+ */
+export function formatPeriod(value: string | null): string | null {
+    const [year, month] = (value ?? '').split('-');
+
+    return year && month ? `${month.padStart(2, '0')}.${year}` : null;
+}
+
+/**
+ * "1971-03" -> "мар. 1971": a date the card knows only to the month.
+ *
+ * Said the way every other date here is said, with the name of the month, and
+ * not in figures: a date of birth in «Состав семьи» answers the same question
+ * as the one at the head of the sheet, and «03.1971» standing under «13 янв.
+ * 2005» would be one question written two ways. A period of work is the other
+ * thing and keeps its figures — see formatPeriod.
+ */
+export function formatMonth(value: string | null): string | null {
+    const [year, month] = (value ?? '').split('-');
+    // The months above are cut for standing after a day — «05 мая 2026» — and
+    // one of them is a whole word in that case rather than a short form. On its
+    // own a month is named and not counted from, so May is «май» here.
+    const name = Number(month) === 5 ? 'май' : shortMonths[Number(month) - 1];
+
+    return year && name ? `${name} ${year}` : null;
 }
 
 export const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);

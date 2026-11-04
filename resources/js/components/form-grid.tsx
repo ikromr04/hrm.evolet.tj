@@ -2,26 +2,22 @@ import { cn } from '@/lib/utils';
 import { type ReactNode } from 'react';
 
 /**
- * Fields laid side by side: as many to a row as fit with room to type in.
+ * Fields laid side by side: one to a row, two, or three, by how much room the
+ * row itself has.
  *
- * The row is not told how many columns to have. Each column asks for at least
- * 360px — as narrow as a box may get before a date or a long position stops
- * fitting in it — and the row takes as many as that allows, sharing what is
- * left over between them. So one field to a row on a phone, two on a laptop,
- * three on a monitor, and nothing to keep in step by hand as the page changes.
+ * Three widths, counted on the grid and not on the window: up to 720px a field
+ * has the row to itself, from 721px two share it, and from 1101px three do. The
+ * steps are stated rather than worked out from a minimum column width, so that
+ * «two columns» means two at the same width on every page that has the room —
+ * a grid that fits as many as it can gives a dialog and a full page different
+ * answers at the same measure, and two forms of the same card then disagree
+ * about where their fields sit.
  *
- * From 1920px up the columns stop growing and stand at 400px: a box twice as
- * wide as the longest thing anybody types in it is harder to read, not easier,
- * because the eye loses which label the far end of it belongs to. A very wide
- * page is left with room to spare on the right rather than three stretched
- * boxes across it.
- *
- * A field inside may say `@min-[46rem]:col-span-2` to take a whole row, and
- * that figure is this grid's own arithmetic rather than a guess: 360·2 + 16 of
- * gap = 736px is the width at which a second column appears, so the field
- * begins spanning two at the very moment there are two. They must not
- * disagree — a field spanning two columns of a row that has one makes a second
- * column out of nothing, and the row ends up two uneven halves.
+ * A field may say `@min-[721px]:col-span-2` to take a whole row of a two-column
+ * grid, or `@min-[1101px]:col-span-3` for a three-column one. Those figures are
+ * these, and they must go on being these: a field spanning two columns of a row
+ * that has one makes a second column out of nothing, and the row ends up two
+ * uneven halves.
  */
 export function FormGrid({ children, className }: { children: ReactNode; className?: string }) {
     return (
@@ -29,26 +25,10 @@ export function FormGrid({ children, className }: { children: ReactNode; classNa
         // the whole reason the wrapper is here: an element cannot be asked for its
         // own width, and the form is wider than these columns by its own padding,
         // by the indent of the part, and by the 240px of nav standing inside it.
-        // Read against the form, a threshold meaning «two columns of 320px» let
-        // two columns of 211px through on a 768px page. Read here, it means what
-        // it says.
+        // Read against the form, a threshold meaning «two columns» let two narrow
+        // ones through on a 768px page. Read here, it means what it says.
         <div className="@container">
-            <div
-                className={cn(
-                    // min(360px,100%) and not a bare 360px: a floor is a promise the
-                    // grid keeps by overflowing, so in a box narrower than one column
-                    // — a cramped dialog — a bare figure would push the column out of
-                    // the page. Against 100% the floor gives way instead.
-                    //
-                    // minmax(0,400px) above: with no stretching to do, the nought lets
-                    // a column shrink where a hundredth of a pixel is missing, and the
-                    // ceiling is what the column is actually worth.
-                    'grid grid-cols-[repeat(auto-fit,minmax(min(360px,100%),1fr))] gap-4 min-[1921px]:grid-cols-[repeat(auto-fit,minmax(0,400px))]',
-                    className,
-                )}
-            >
-                {children}
-            </div>
+            <div className={cn('grid grid-cols-1 gap-4 @min-[721px]:grid-cols-2 @min-[1101px]:grid-cols-3', className)}>{children}</div>
         </div>
     );
 }

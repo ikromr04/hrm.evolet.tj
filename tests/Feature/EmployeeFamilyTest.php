@@ -10,6 +10,9 @@ use App\Support\EmployeeFields;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -32,8 +35,11 @@ class EmployeeFamilyTest extends TestCase
     {
         return [
             'marital_status' => 'married',
+            // A month and a year: the day is not asked for of anybody in the
+            // block, and «1992-03» is the whole of what the form sends.
+            'spouse_birth_date' => '1992-03',
             'spouse_name' => 'Азимова Нигина',
-            'spouse_birth_date' => '1992-03-08',
+            'spouse_occupation' => 'Учитель, СОШ № 12',
             'has_children' => null,
             'children' => [],
             // Both lists are replaced wholesale, so both travel even when empty
@@ -47,14 +53,17 @@ class EmployeeFamilyTest extends TestCase
      * The rest of the family as the form sends it: who they are to this person,
      * what they are called, and the two lines that may be left unanswered.
      *
+     * The month and the year, as the spouse and the children now send them:
+     * «Состав семьи» is one list of people, asked the same three things.
+     *
      * @return list<array<string, mixed>>
      */
     private function relatives(): array
     {
         return [
-            ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_year' => 1971, 'occupation' => 'Пенсионерка'],
-            // Nobody remembered the year, and a student's line says enough.
-            ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_year' => '', 'occupation' => ''],
+            ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_date' => '1971-03', 'occupation' => 'Пенсионерка'],
+            // Nobody remembered the month, and a student's line says enough.
+            ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_date' => '', 'occupation' => ''],
         ];
     }
 
@@ -90,7 +99,7 @@ class EmployeeFamilyTest extends TestCase
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
                 'has_children' => false,
-                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => '2015-09-01']],
+                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => '2015-09']],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -105,9 +114,9 @@ class EmployeeFamilyTest extends TestCase
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
                 'children' => [
-                    ['full_name' => 'Азимов Далер', 'birth_date' => '2015-09-01'],
-                    // A child whose birthday nobody wrote down.
-                    ['full_name' => 'Азимова Мадина', 'birth_date' => ''],
+                    ['full_name' => 'Азимов Далер', 'birth_date' => '2015-09', 'occupation' => '3 класс, СОШ № 12'],
+                    // A child nobody wrote a month or a school down for.
+                    ['full_name' => 'Азимова Мадина', 'birth_date' => '', 'occupation' => ''],
                 ],
             ]))
             ->assertSessionHasNoErrors()
@@ -116,11 +125,15 @@ class EmployeeFamilyTest extends TestCase
         $employee->refresh();
         $this->assertSame('married', $employee->details->marital_status);
         $this->assertSame('Азимова Нигина', $employee->details->spouse_name);
-        $this->assertSame('1992-03-08', $employee->details->spouse_birth_date->toDateString());
+        // «1992-03» went in and the first of March came out: the column is a
+        // date because there is none for a month, and the first of it is the
+        // day the card keeps rather than one anybody was told.
+        $this->assertSame('1992-03-01', $employee->details->spouse_birth_date->toDateString());
+        $this->assertSame('Учитель, СОШ № 12', $employee->details->spouse_occupation);
         // The relation orders by birth date, and a missing one sorts first.
         $this->assertSame(
-            [['Азимова Мадина', null], ['Азимов Далер', '2015-09-01']],
-            $employee->children->map(fn (UserChild $c) => [$c->full_name, $c->birth_date?->toDateString()])->all(),
+            [['Азимова Мадина', null, null], ['Азимов Далер', '2015-09-01', '3 класс, СОШ № 12']],
+            $employee->children->map(fn (UserChild $c) => [$c->full_name, $c->birth_date?->toDateString(), $c->occupation])->all(),
         );
     }
 
@@ -132,7 +145,7 @@ class EmployeeFamilyTest extends TestCase
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
-                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => '2015-09-01']],
+                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => '2015-09']],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -149,6 +162,7 @@ class EmployeeFamilyTest extends TestCase
                 'marital_status' => '',
                 'spouse_name' => '',
                 'spouse_birth_date' => '',
+                'spouse_occupation' => '',
                 'children' => [],
                 'relatives' => [],
             ])
@@ -157,6 +171,7 @@ class EmployeeFamilyTest extends TestCase
         $employee->refresh();
         $this->assertNull($employee->details->marital_status);
         $this->assertNull($employee->details->spouse_name);
+        $this->assertNull($employee->details->spouse_occupation);
         $this->assertCount(0, $employee->children);
         $this->assertCount(0, $employee->relatives);
     }
@@ -228,11 +243,11 @@ class EmployeeFamilyTest extends TestCase
 
         $this->assertSame(
             [
-                ['Мать', 'Рахимова Зарина Курбоновна', 1971, 'Пенсионерка'],
+                ['Мать', 'Рахимова Зарина Курбоновна', '1971-03', 'Пенсионерка'],
                 ['Брат', 'Рахимов Далер Саидович', null, null],
             ],
             $employee->refresh()->relatives
-                ->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_year, $r->occupation])
+                ->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_date?->format('Y-m'), $r->occupation])
                 ->all(),
         );
     }
@@ -264,7 +279,7 @@ class EmployeeFamilyTest extends TestCase
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
-                'relatives' => [['relation' => '', 'full_name' => '', 'birth_year' => 1971]],
+                'relatives' => [['relation' => '', 'full_name' => '', 'birth_date' => '1971-03']],
             ]))
             ->assertSessionHasErrors(['relatives.0.relation', 'relatives.0.full_name']);
 
@@ -272,42 +287,197 @@ class EmployeeFamilyTest extends TestCase
     }
 
     /**
-     * The year is a year somebody was born in: this one at the latest, and no
-     * earlier than a grandmother could have been.
+     * A month and a year, written «1971-03», and nothing else.
+     *
+     * The day is not asked for of anybody in the block, so a full date is a
+     * form built against a page that no longer exists — and «1971-03-05» would
+     * leave the card holding a day nobody will ever be asked to confirm, which
+     * is the whole thing the month was there to avoid. A bare year is half the
+     * answer, and nobody is born in a month still to come.
+     *
+     * Asked of all three at once, because all three are asked the same way.
      */
-    public function test_a_year_nobody_was_born_in_is_refused()
+    public function test_a_date_of_birth_that_is_not_a_month_is_refused()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
 
-        foreach ([1899, (int) date('Y') + 1] as $year) {
+        foreach (['1971-03-05', '03.1971', '1971', now()->addMonth()->format('Y-m')] as $said) {
             $this->actingAs($admin)
                 ->put("/employees/{$employee->id}/family", $this->payload([
-                    'relatives' => [['relation' => 'Мать', 'full_name' => 'Рахимова Зарина', 'birth_year' => $year]],
+                    'spouse_birth_date' => $said,
+                    'children' => [['full_name' => 'Азимов Далер', 'birth_date' => $said]],
+                    'relatives' => [['relation' => 'Мать', 'full_name' => 'Рахимова Зарина', 'birth_date' => $said]],
                 ]))
-                ->assertSessionHasErrors('relatives.0.birth_year');
+                ->assertSessionHasErrors([
+                    'spouse_birth_date',
+                    'children.0.birth_date',
+                    'relatives.0.birth_date',
+                ]);
         }
 
-        $this->assertCount(0, $employee->refresh()->relatives);
+        $employee->refresh();
+        $this->assertCount(0, $employee->children);
+        $this->assertCount(0, $employee->relatives);
     }
 
-    /** What they do is one line of the sheet, not a page of one. */
-    public function test_an_occupation_longer_than_the_column_is_refused()
+    /**
+     * And this month is as late as anybody can have been born, which is a month
+     * the card does accept: a ceiling of «today» would have turned the first of
+     * this month away for the rest of it.
+     */
+    public function test_the_month_now_running_is_accepted_and_kept_as_its_first_day()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $month = now()->format('Y-m');
+        $first = now()->startOfMonth()->toDateString();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'spouse_birth_date' => $month,
+                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => $month]],
+                'relatives' => [['relation' => 'Мать', 'full_name' => 'Рахимова Зарина', 'birth_date' => $month]],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame($first, $employee->details->spouse_birth_date->toDateString());
+        $this->assertSame($first, $employee->children->first()->birth_date->toDateString());
+        $this->assertSame($first, $employee->relatives->first()->birth_date->toDateString());
+    }
+
+    /**
+     * The cards already on the books keep what they said.
+     *
+     * The block changed shape under them: a relative had a bare year where the
+     * date now is, and the spouse and the children had full dates where only a
+     * month is now asked for. So the card is wound back one step, filled in the
+     * way it used to be, and brought forward again — which is the only way to
+     * read a migration that carries data, and the one thing a fresh database
+     * can never show.
+     *
+     * A year becomes the first of January of it, because that is the only
+     * honest reading of a year when a month is wanted. The two full dates keep
+     * their month and lose their day, which is the one thing this cannot undo
+     * and is meant not to: nobody ever confirmed that day and nobody will ever
+     * be asked to again.
+     */
+    public function test_the_card_keeps_what_it_said_through_the_change_of_shape()
+    {
+        // Filed before the card is wound back, because a row written through
+        // the models would reach for columns the old shape has not got.
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+
+        Artisan::call('migrate:rollback', ['--step' => 1]);
+
+        DB::table('user_relatives')->insert([
+            'user_id' => $employee->id,
+            'relation' => 'Мать',
+            'full_name' => 'Рахимова Зарина Курбоновна',
+            'birth_year' => 1971,
+            'occupation' => 'Пенсионерка',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('user_children')->insert([
+            'user_id' => $employee->id,
+            'full_name' => 'Азимов Далер',
+            'birth_date' => '2015-09-14',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('user_details')
+            ->where('user_id', $employee->id)
+            ->update(['spouse_birth_date' => '1992-03-08']);
+
+        Artisan::call('migrate');
+
+        $month = fn (string $table, string $column) => Carbon::parse(
+            DB::table($table)->where('user_id', $employee->id)->value($column),
+        )->toDateString();
+
+        $this->assertSame('1971-01-01', $month('user_relatives', 'birth_date'));
+        $this->assertSame('1992-03-01', $month('user_details', 'spouse_birth_date'));
+        $this->assertSame('2015-09-01', $month('user_children', 'birth_date'));
+
+        // And the rows are still the rows they were: a date was carried across,
+        // not filed again in place of what was there.
+        $this->assertSame('Рахимова Зарина Курбоновна', DB::table('user_relatives')->value('full_name'));
+        $this->assertSame('Пенсионерка', DB::table('user_relatives')->value('occupation'));
+    }
+
+    /**
+     * Where each of them works or studies: one line, asked of all three and
+     * read back off the card as the form sent it.
+     *
+     * «Состав семьи» is one list of people, so the line that used to be only
+     * the relatives' is now the spouse's and the children's too — and a child
+     * answers it with a class at school as readily as a brother answers it with
+     * a place of work.
+     */
+    public function test_the_whole_family_says_where_it_works_or_studies()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
 
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
+                'spouse_occupation' => 'Врач, городская поликлиника № 3',
+                'children' => [['full_name' => 'Азимов Далер', 'birth_date' => '2015-09', 'occupation' => '3 класс, СОШ № 12']],
+                'relatives' => [['relation' => 'Мать', 'full_name' => 'Рахимова Зарина', 'birth_date' => '1971-03', 'occupation' => 'Пенсионерка']],
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $employee->refresh();
+        $this->assertSame('Врач, городская поликлиника № 3', $employee->details->spouse_occupation);
+        $this->assertSame('3 класс, СОШ № 12', $employee->children->first()->occupation);
+        $this->assertSame('Пенсионерка', $employee->relatives->first()->occupation);
+
+        // And the card gives back the month it was sent rather than the day it
+        // had to store it under.
+        $this->actingAs($admin)
+            ->get("/employees/{$employee->id}")
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->where('employee.private.spouse_birth_date', '1992-03')
+                ->where('employee.private.spouse_occupation', 'Врач, городская поликлиника № 3')
+                ->where('employee.private.children.0.birth_date', '2015-09')
+                ->where('employee.private.children.0.occupation', '3 класс, СОШ № 12')
+                ->where('employee.private.relatives.0.birth_date', '1971-03')
+                ->where('employee.private.relatives.0.occupation', 'Пенсионерка'));
+    }
+
+    /**
+     * What any of them does is one line of the sheet, not a page of one — and
+     * the same line, so the three are capped alike.
+     */
+    public function test_an_occupation_longer_than_the_column_is_refused()
+    {
+        $admin = User::factory()->create()->assignRole('sysadmin');
+        $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
+        $tooLong = str_repeat('я', 201);
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/family", $this->payload([
+                'spouse_occupation' => $tooLong,
+                'children' => [['full_name' => 'Азимов Далер', 'occupation' => $tooLong]],
                 'relatives' => [[
                     'relation' => 'Мать',
                     'full_name' => 'Рахимова Зарина',
-                    'occupation' => str_repeat('я', 201),
+                    'occupation' => $tooLong,
                 ]],
             ]))
-            ->assertSessionHasErrors('relatives.0.occupation');
+            ->assertSessionHasErrors([
+                'spouse_occupation',
+                'children.0.occupation',
+                'relatives.0.occupation',
+            ]);
 
-        $this->assertCount(0, $employee->refresh()->relatives);
+        $employee->refresh();
+        $this->assertCount(0, $employee->children);
+        $this->assertCount(0, $employee->relatives);
     }
 
     public function test_invalid_data_is_rejected()
@@ -318,9 +488,9 @@ class EmployeeFamilyTest extends TestCase
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/family", $this->payload([
                 'marital_status' => 'divorced',
-                // Nobody is born tomorrow.
-                'spouse_birth_date' => now()->addDay()->toDateString(),
-                'children' => [['full_name' => '', 'birth_date' => now()->addDay()->toDateString()]],
+                // Nobody is born next month.
+                'spouse_birth_date' => now()->addMonth()->format('Y-m'),
+                'children' => [['full_name' => '', 'birth_date' => now()->addMonth()->format('Y-m')]],
             ]))
             ->assertSessionHasErrors([
                 'marital_status',
@@ -383,7 +553,9 @@ class EmployeeFamilyTest extends TestCase
         $employee->details()->update([
             'marital_status' => 'married',
             'spouse_name' => 'Азимова Нигина',
-            'spouse_birth_date' => '1992-03-08',
+            // The first of the month, as every date of the block is kept.
+            'spouse_birth_date' => '1992-03-01',
+            'spouse_occupation' => 'Учитель, СОШ № 12',
             'has_children' => true,
         ]);
         UserChild::factory()->for($employee)->create(['full_name' => 'Азимов Далер', 'birth_date' => '2015-09-01']);
@@ -395,7 +567,8 @@ class EmployeeFamilyTest extends TestCase
     private function assertSpouseKept(User $employee): void
     {
         $this->assertSame('Азимова Нигина', $employee->details->spouse_name);
-        $this->assertSame('1992-03-08', $employee->details->spouse_birth_date->toDateString());
+        $this->assertSame('1992-03', $employee->details->spouse_birth_date->format('Y-m'));
+        $this->assertSame('Учитель, СОШ № 12', $employee->details->spouse_occupation);
     }
 
     private function assertChildrenKept(User $employee): void
@@ -424,6 +597,7 @@ class EmployeeFamilyTest extends TestCase
                 'marital_status' => 'single',
                 'spouse_name' => '',
                 'spouse_birth_date' => '',
+                'spouse_occupation' => '',
                 'has_children' => false,
                 'children' => [],
                 'relatives' => [],
@@ -452,7 +626,7 @@ class EmployeeFamilyTest extends TestCase
             ->put("/employees/{$employee->id}/family", [
                 'marital_status' => '',
                 'spouse_name' => '',
-                'children' => [['full_name' => 'Азимова Мадина', 'birth_date' => '2018-05-12']],
+                'children' => [['full_name' => 'Азимова Мадина', 'birth_date' => '2018-05']],
                 'relatives' => [],
             ])
             ->assertSessionHasNoErrors();
@@ -514,6 +688,7 @@ class EmployeeFamilyTest extends TestCase
                 'marital_status' => '',
                 'spouse_name' => '',
                 'spouse_birth_date' => '',
+                'spouse_occupation' => '',
                 'has_children' => null,
                 'children' => [],
                 'relatives' => [],
@@ -524,6 +699,7 @@ class EmployeeFamilyTest extends TestCase
         $this->assertNull($employee->details->marital_status);
         $this->assertNull($employee->details->spouse_name);
         $this->assertNull($employee->details->spouse_birth_date);
+        $this->assertNull($employee->details->spouse_occupation);
         $this->assertNull($employee->details->has_children);
         $this->assertCount(0, $employee->children);
         $this->assertCount(0, $employee->relatives);

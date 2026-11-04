@@ -38,6 +38,13 @@ final class PersonnelSheet
      * line countable at all — a line of the sheet with no field behind it is one
      * the card cannot answer.
      *
+     * In the order the sheet asks them, part by part, because that order is what
+     * is shown: «Не заполнено» is read beside the sheet itself, and a list that
+     * named the military standing before the schooling would send somebody up
+     * the page to look for a part that is below. The parts the sheet draws and
+     * does not count — the languages, the relatives — leave gaps in the run, and
+     * that is all they leave.
+     *
      * @var array<string, string>
      */
     public const LINES = [
@@ -49,11 +56,10 @@ final class PersonnelSheet
         'birth_place' => 'Место рождения',
         'nationality' => 'Национальность',
         'citizenship' => 'Гражданство',
-        'degree' => 'Учёная степень, звание',
-        'award' => 'Государственные награды, поощрения',
-        'military' => 'Отношение к воинской обязанности',
         'educations' => 'Образование',
+        'degree' => 'Учёная степень, звание',
         'work_experiences' => 'Трудовая деятельность',
+        'award' => 'Государственные награды, поощрения',
         'marital_status' => 'Семейное положение',
         'children' => 'Дети',
         'passport_number' => 'Серия и номер паспорта',
@@ -63,6 +69,7 @@ final class PersonnelSheet
         'home_address' => 'Домашний адрес',
         'phone' => 'Телефон',
         'sos_phone' => 'Экстренный контакт',
+        'military' => 'Отношение к воинской обязанности',
     ];
 
     /**
@@ -98,6 +105,31 @@ final class PersonnelSheet
         $answered = self::answers($employee);
 
         return (int) round(count(array_filter($counted, fn (string $line) => $answered[$line])) / count($counted) * 100);
+    }
+
+    /**
+     * The counted lines themselves, each as its key and the name the sheet
+     * gives it, in the order it asks them.
+     *
+     * The two figures above are the saved truth, and that is all the card needs
+     * while nobody is touching it. But the sheet is now retyped in place, and
+     * somebody halfway through filling it in wants «Не заполнено» to answer for
+     * what they have just typed rather than for what is still on file — so the
+     * page repeats the «is this line answered» test over the form's own values
+     * while the sheet is open, and falls back to filled() and missing() the
+     * moment it is closed. To repeat that test it has to know which lines are
+     * this reader's to count, which is what this hands over: the same list
+     * counted() works out, surfaced rather than worked out a second time in the
+     * browser, where a line that quietly joined the sheet would be missed.
+     *
+     * @return list<array{key: string, title: string}>
+     */
+    public static function lines(User $employee, User $viewer): array
+    {
+        return array_map(
+            fn (string $line) => ['key' => $line, 'title' => self::LINES[$line]],
+            self::counted($employee, $viewer),
+        );
     }
 
     /**

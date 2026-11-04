@@ -91,6 +91,59 @@ final class EmployeeCard
 
     public const EXPERIENCE_REQUIRED = 'required_if:has_experience,true,1';
 
+    /* ------------------------------------------------------------ основное */
+
+    /**
+     * The eight plain lines of the first block: who the person is.
+     *
+     * Here for the reason everything else in this class is here — three forms
+     * ask for them now. The card's own «Основное» window, «Новый сотрудник» and
+     * «Личный листок» each wrote the eight out in full, and three copies of a
+     * rule is two copies somebody will not change.
+     *
+     * Only the name is insisted on, and only because a card with no name on it
+     * answers nothing. The rest of a card is filled in from what somebody
+     * remembers, over however many conversations that takes.
+     *
+     * The citizenships are not here: they are a list rather than a line, tidied
+     * before the rules look at them, and they live with the tidying — see
+     * App\Http\Requests\Concerns\ListsCitizenships.
+     *
+     * @return array<string, mixed>
+     */
+    public static function mainRules(): array
+    {
+        return [
+            'surname' => ['required', 'string', 'max:100'],
+            'name' => ['required', 'string', 'max:100'],
+            'patronymic' => ['nullable', 'string', 'max:100'],
+            // Said where it is known and left out where it is not: one of the
+            // two values or nothing at all, never a third thing.
+            'sex' => ['nullable', Rule::in(['male', 'female'])],
+            'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'birth_place' => ['nullable', 'string', 'max:255'],
+            'nationality' => ['nullable', 'string', 'max:255'],
+            'home_address' => ['nullable', 'string', 'max:255'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function mainAttributes(): array
+    {
+        return [
+            'surname' => 'фамилия',
+            'name' => 'имя',
+            'patronymic' => 'отчество',
+            'sex' => 'пол',
+            'birth_date' => 'дата рождения',
+            'birth_place' => 'место рождения',
+            'nationality' => 'национальность',
+            'home_address' => 'домашний адрес',
+        ];
+    }
+
     /* ------------------------------------------------------------- паспорт */
 
     /**
@@ -328,13 +381,21 @@ final class EmployeeCard
     /* --------------------------------------------------------------- семья */
 
     /**
-     * Marital status, the spouse and the children. The block is given out line
-     * by line, so a line the caller was not handed has no rules here at all:
-     * that keeps it out of validated() and so out of the save, and an empty
-     * spouse sent by somebody who may only set the marital status cannot wipe
-     * what HR has on file.
+     * Marital status, the spouse, the children and the rest of the family. The
+     * block is given out line by line, so a line the caller was not handed has
+     * no rules here at all: that keeps it out of validated() and so out of the
+     * save, and an empty spouse sent by somebody who may only set the marital
+     * status cannot wipe what HR has on file.
      *
-     * The list of children is wrapped by the caller — see MAX_ROWS.
+     * The three kinds of people the block names are asked the same three
+     * things — what they are called, when they were born, where they work or
+     * study — because «Состав семьи» is one list of people and the sheet reads
+     * it as one. Only a relative is asked what they are to this person: a
+     * spouse and a child are already what they are, and a row that said so
+     * would be saying it twice.
+     *
+     * The lists of children and of relatives are wrapped by the caller — see
+     * MAX_ROWS.
      *
      * @param  list<string>  $lines
      * @return array<string, mixed>
@@ -351,9 +412,12 @@ final class EmployeeCard
             // Asked for once the card says there is a spouse, and not before:
             // «женат» with nobody named is half an answer, and a card that
             // insisted on a name from everybody else would be asking the
-            // unmarried to invent one.
+            // unmarried to invent one. What they do for a living is not asked
+            // for that way — a wife who keeps the house is an answer nobody
+            // writes down, and the line stays empty where it is not known.
             $rules['spouse_name'] = ['nullable', 'required_if:marital_status,married', 'string', 'max:150'];
-            $rules['spouse_birth_date'] = ['nullable', 'required_if:marital_status,married', 'date', 'before_or_equal:today'];
+            $rules['spouse_birth_date'] = ['nullable', 'required_if:marital_status,married', ...self::monthOfBirth()];
+            $rules['spouse_occupation'] = ['nullable', 'string', 'max:200'];
         }
 
         if (in_array('children', $lines, true)) {
@@ -361,22 +425,49 @@ final class EmployeeCard
             // case is derived from the rows, so the two cannot drift.
             $rules['has_children'] = ['nullable', 'boolean'];
             $rules['children.*.full_name'] = ['required', 'string', 'max:150'];
-            $rules['children.*.birth_date'] = ['nullable', 'date', 'before_or_equal:today'];
+            $rules['children.*.birth_date'] = ['nullable', ...self::monthOfBirth()];
+            // «3 класс, СОШ № 12» as readily as «Студент, ТТУ им. Осими»: the
+            // line says where somebody spends their days, and a schoolchild
+            // spends them somewhere too.
+            $rules['children.*.occupation'] = ['nullable', 'string', 'max:200'];
         }
 
         if (in_array('relatives', $lines, true)) {
-            // What they are to this person and what they are called make the
-            // row a row; the year and the work are asked for and not insisted
-            // on, because a card is filled in from what somebody remembers.
+            // What they are to this person makes the row a row along with the
+            // name, and it is the one question the spouse and the children are
+            // not asked. The month and the work are asked for and not insisted
+            // on, here as for the other two: a card is filled in from what
+            // somebody remembers.
             $rules['relatives.*.relation'] = ['required', 'string', 'max:50'];
             $rules['relatives.*.full_name'] = ['required', 'string', 'max:150'];
-            // A grandmother may well have been born in the twenties, so the
-            // floor is lower here than the one the places of study go by.
-            $rules['relatives.*.birth_year'] = ['nullable', 'integer', 'min:1900', 'max:'.date('Y')];
+            $rules['relatives.*.birth_date'] = ['nullable', ...self::monthOfBirth()];
             $rules['relatives.*.occupation'] = ['nullable', 'string', 'max:200'];
         }
 
         return $rules;
+    }
+
+    /**
+     * When somebody of the family was born, as every line of the block now asks
+     * it: a month and a year, written «1971-03», with no day at all.
+     *
+     * Said in one place because it is asked of the spouse, of every child and
+     * of every relative, and three copies of a date format is two somebody will
+     * not change. A personnel office is told the month a brother was born in
+     * and is never told the day of it; a card that insisted on the day would be
+     * given one somebody made up, which reads as having been checked and was
+     * not. Carbon takes «1971-03» for the first of March, so the column goes on
+     * being a date — there is none for a month — and keeps the first of it.
+     *
+     * The ceiling is this month rather than today, because the value is a
+     * month: holding it against a day would need the day the answer does not
+     * have.
+     *
+     * @return list<string>
+     */
+    private static function monthOfBirth(): array
+    {
+        return ['date_format:Y-m', 'before_or_equal:'.date('Y-m')];
     }
 
     /**
@@ -388,12 +479,14 @@ final class EmployeeCard
             'marital_status' => 'семейное положение',
             'spouse_name' => 'ФИО супруга',
             'spouse_birth_date' => 'дата рождения супруга',
+            'spouse_occupation' => 'работа или учёба супруга',
             'children.*.full_name' => 'ФИО ребёнка',
             'children.*.birth_date' => 'дата рождения ребёнка',
+            'children.*.occupation' => 'работа или учёба ребёнка',
             'relatives.*.relation' => 'родство',
             'relatives.*.full_name' => 'ФИО родственника',
-            'relatives.*.birth_year' => 'год рождения',
-            'relatives.*.occupation' => 'работа или учёба',
+            'relatives.*.birth_date' => 'дата рождения родственника',
+            'relatives.*.occupation' => 'работа или учёба родственника',
         ];
     }
 
@@ -460,15 +553,20 @@ final class EmployeeCard
      * The children on file, replaced by the list that was sent: both the card's
      * dialog and the create page edit them wholesale.
      *
+     * The month arrives as «2015-05» and is written as the first of May, which
+     * is what the column has held for every line of the block since it stopped
+     * asking for the day — see monthOfBirth().
+     *
      * @param  array<array-key, array<string, mixed>>  $children
      */
     public static function saveChildren(User $employee, array $children): void
     {
         $employee->children()->delete();
-        $employee->children()->createMany(array_map(
-            fn (array $child) => ['full_name' => $child['full_name'], 'birth_date' => $child['birth_date'] ?? null],
-            $children,
-        ));
+        $employee->children()->createMany(array_map(fn (array $child) => [
+            'full_name' => $child['full_name'],
+            'birth_date' => $child['birth_date'] ?? null,
+            'occupation' => $child['occupation'] ?? null,
+        ], $children));
     }
 
     /**
@@ -484,7 +582,7 @@ final class EmployeeCard
         $employee->relatives()->createMany(array_map(fn (array $relative) => [
             'relation' => $relative['relation'],
             'full_name' => $relative['full_name'],
-            'birth_year' => $relative['birth_year'] ?? null,
+            'birth_date' => $relative['birth_date'] ?? null,
             'occupation' => $relative['occupation'] ?? null,
         ], $relatives));
     }
@@ -641,7 +739,24 @@ final class EmployeeCard
      * A save that brings none leaves whatever is on file alone — not every save
      * is about the document, and absent is not «take it away».
      *
-     * @param  array<string, mixed>  $data  as validated, the file included
+     * There are three ways for a paper to go, then, and the third is the one
+     * somebody has to ask for in so many words. Until it existed, a scan
+     * attached by mistake could only be got rid of by answering the line «Нет»,
+     * which threw the answer away along with it: a badly scanned аттестат cost
+     * the card the degree it was proof of. The flag says the paper is to go and
+     * says nothing about the line, so the degree stays where it is.
+     *
+     * A file beats a removal asked for in the same request. Somebody who
+     * attached one plainly wants it, whatever they pressed before reaching for
+     * it, and a save that honoured the removal instead would be throwing away
+     * the one thing in the request nobody can doubt was meant.
+     *
+     * Only the callers that asked about the flag are answered on it: this reads
+     * validated data, so a form that sent one to a door whose rules do not name
+     * it — the block's own window, which has a request of its own for taking a
+     * paper off — is not sending anything at all.
+     *
+     * @param  array<string, mixed>  $data  as validated, the file and the flag included
      * @return array<string, mixed> the columns to write
      */
     public static function lineColumns(User $employee, array $data, string $line): array
@@ -649,16 +764,18 @@ final class EmployeeCard
         $columns = Arr::only($data, [$line]);
         $file = $data["{$line}_document"] ?? null;
         $said = $columns[$line] ?? null;
+        $asked = (bool) ($data["{$line}_document_remove"] ?? false);
 
         if ($file instanceof UploadedFile) {
             $columns["{$line}_document_path"] = DocumentStore::keep($file, $employee->id);
             $columns["{$line}_document_name"] = $file->getClientOriginalName();
-        } elseif (array_key_exists($line, $columns) && ($said === null || $said === self::NONE)) {
-            // An answer taken back, or one that says there is none, takes the
-            // paper with it. The rules refuse a document sent under «Нет», and
-            // this is the same thing a save later: a card that said «нет» and
-            // showed a scan of it would be two answers contradicting each
-            // other, reached by two saves instead of one.
+        } elseif ($asked || (array_key_exists($line, $columns) && ($said === null || $said === self::NONE))) {
+            // Asked for outright; or an answer taken back, or one that says
+            // there is none, which take the paper with them. The rules refuse a
+            // document sent under «Нет», and those two are the same thing a
+            // save later: a card that said «нет» and showed a scan of it would
+            // be two answers contradicting each other, reached by two saves
+            // instead of one.
             $columns["{$line}_document_path"] = null;
             $columns["{$line}_document_name"] = null;
         }

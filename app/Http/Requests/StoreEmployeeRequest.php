@@ -92,17 +92,11 @@ class StoreEmployeeRequest extends FormRequest
 
         return [
             /* Основное */
-            'surname' => ['required', 'string', 'max:100'],
-            'name' => ['required', 'string', 'max:100'],
-            'patronymic' => ['nullable', 'string', 'max:100'],
-            // Said where it is known and left out where it is not: one of the
-            // two values or nothing at all, never a third thing.
-            'sex' => ['nullable', Rule::in(['male', 'female'])],
-            'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
-            'birth_place' => ['nullable', 'string', 'max:255'],
+            // The eight plain lines of the block, described in EmployeeCard
+            // with everything else the card's own windows and this page ask
+            // for in common.
+            ...EmployeeCard::mainRules(),
             ...$this->citizenshipRules(),
-            'nationality' => ['nullable', 'string', 'max:255'],
-            'home_address' => ['nullable', 'string', 'max:255'],
 
             // The address they sign in with, so it belongs to one person only.
             // The password is not asked for: one is generated and mailed there.
@@ -200,16 +194,9 @@ class StoreEmployeeRequest extends FormRequest
     public function attributes(): array
     {
         return [
-            'surname' => 'фамилия',
-            'name' => 'имя',
-            'patronymic' => 'отчество',
-            'sex' => 'пол',
-            'birth_date' => 'дата рождения',
-            'birth_place' => 'место рождения',
+            ...EmployeeCard::mainAttributes(),
             'citizenship' => 'гражданство',
             'citizenship.*' => 'гражданство',
-            'nationality' => 'национальность',
-            'home_address' => 'домашний адрес',
             'email' => 'электронная почта',
             'role' => 'роль',
             ...EmployeeCard::accountAttributes(),

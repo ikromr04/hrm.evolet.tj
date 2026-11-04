@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Models\User;
 use App\Models\UserChild;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Carbon;
 
 /**
  * @extends Factory<UserChild>
@@ -16,6 +17,15 @@ class UserChildFactory extends Factory
     private const GIRLS = ['Сумая', 'Асал', 'Мехрона', 'Рухшона', 'Самира', 'Мадина', 'Нигора', 'Зарина', 'Малика', 'Ойша'];
 
     /**
+     * Where a child spends their days, in the words a card uses for it.
+     *
+     * The line is the one the rest of the family answers, so it reads the same
+     * way; null among them because it is the honest answer about a toddler, and
+     * because half the children on any card have nothing written there.
+     */
+    private const OCCUPATIONS = [null, null, 'Школьник', 'Школьница', '3 класс, СОШ № 12', 'Студент, ТНУ', 'Не учится'];
+
+    /**
      * Define the model's default state.
      *
      * @return array<string, mixed>
@@ -25,7 +35,10 @@ class UserChildFactory extends Factory
         return [
             'user_id' => User::factory(),
             'full_name' => fake()->randomElement([...self::BOYS, ...self::GIRLS]),
-            'birth_date' => fake()->dateTimeBetween('-25 years', '-1 month'),
+            // A month and a year, kept as the first of the month, as every
+            // date in «Состав семьи» is.
+            'birth_date' => Carbon::parse(fake()->dateTimeBetween('-25 years', '-1 month'))->startOfMonth()->toDateString(),
+            'occupation' => fake()->randomElement(self::OCCUPATIONS),
         ];
     }
 

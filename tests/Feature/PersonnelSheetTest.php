@@ -128,11 +128,10 @@ class PersonnelSheetTest extends TestCase
             'birth_place' => 'Место рождения',
             'nationality' => 'Национальность',
             'citizenship' => 'Гражданство',
-            'degree' => 'Учёная степень, звание',
-            'award' => 'Государственные награды, поощрения',
-            'military' => 'Отношение к воинской обязанности',
             'educations' => 'Образование',
+            'degree' => 'Учёная степень, звание',
             'work_experiences' => 'Трудовая деятельность',
+            'award' => 'Государственные награды, поощрения',
             'marital_status' => 'Семейное положение',
             'children' => 'Дети',
             'passport_number' => 'Серия и номер паспорта',
@@ -142,6 +141,7 @@ class PersonnelSheetTest extends TestCase
             'home_address' => 'Домашний адрес',
             'phone' => 'Телефон',
             'sos_phone' => 'Экстренный контакт',
+            'military' => 'Отношение к воинской обязанности',
         ], PersonnelSheet::LINES);
 
         // Every line is a field of the card, which is what makes it countable:
@@ -164,11 +164,10 @@ class PersonnelSheetTest extends TestCase
             'Место рождения',
             'Национальность',
             'Гражданство',
-            'Учёная степень, звание',
-            'Государственные награды, поощрения',
-            'Отношение к воинской обязанности',
             'Образование',
+            'Учёная степень, звание',
             'Трудовая деятельность',
+            'Государственные награды, поощрения',
             'Семейное положение',
             'Дети',
             'Серия и номер паспорта',
@@ -178,6 +177,7 @@ class PersonnelSheetTest extends TestCase
             'Домашний адрес',
             'Телефон',
             'Экстренный контакт',
+            'Отношение к воинской обязанности',
         ], PersonnelSheet::missing($this->blankCard(), $admin));
 
         $full = $this->fullCard();
@@ -365,6 +365,52 @@ class PersonnelSheetTest extends TestCase
     }
 
     /**
+     * The counted lines themselves, which the sheet needs while it is being
+     * retyped.
+     *
+     * The two figures are the saved truth, and that is all a card at rest
+     * wants; but «Личный листок» is now edited in place, and «Не заполнено» has
+     * to answer for what somebody has just typed rather than for what is still
+     * on file. So the page repeats the test over the form's own values — and to
+     * repeat it, it has to be told which lines this reader counts.
+     */
+    public function test_the_counted_lines_are_handed_over_in_the_order_the_sheet_asks_them()
+    {
+        $employee = $this->blankCard();
+
+        // Every line of the sheet, in the sheet's own order and under the names
+        // it gives them, for a reader of the whole card.
+        $this->assertSame(
+            array_map(
+                fn (string $key, string $title) => ['key' => $key, 'title' => $title],
+                array_keys(PersonnelSheet::LINES),
+                array_values(PersonnelSheet::LINES),
+            ),
+            PersonnelSheet::lines($employee, $this->sysadmin()),
+        );
+
+        // And a reader of four lines is handed those four and the name, which
+        // everybody reads — still in the sheet's order rather than in the order
+        // they were granted, and with not one of the lines they may not read:
+        // naming one would say what is on a card they cannot open.
+        $this->assertSame([
+            ['key' => 'surname', 'title' => 'Фамилия'],
+            ['key' => 'name', 'title' => 'Имя'],
+            ['key' => 'birth_date', 'title' => 'Дата рождения'],
+            ['key' => 'degree', 'title' => 'Учёная степень, звание'],
+            ['key' => 'tax_number', 'title' => 'ИНН'],
+            ['key' => 'phone', 'title' => 'Телефон'],
+        ], PersonnelSheet::lines($employee, $this->reader('phone', 'degree', 'birth_date', 'tax_number')));
+
+        // The floor is the name: the two lines no position can be closed to are
+        // both lines of the sheet, so a reader of nothing else still counts them.
+        $this->assertSame([
+            ['key' => 'surname', 'title' => 'Фамилия'],
+            ['key' => 'name', 'title' => 'Имя'],
+        ], PersonnelSheet::lines($employee, $this->reader()));
+    }
+
+    /**
      * The card page carries the figure and the list, so «Личный листок» can show
      * what is still wanted without working it out in the browser.
      */
@@ -381,6 +427,11 @@ class PersonnelSheetTest extends TestCase
                 ->where('sheet.missing', fn ($missing) => $missing->contains('ИНН')
                     && $missing->doesntContain('Телефон')
                     && $missing->doesntContain('Дата рождения'))
+                // And the lines those two were counted over, which is what the
+                // sheet asks itself against while somebody is retyping it.
+                ->where('sheet.lines', fn ($lines) => $lines->count() === count(PersonnelSheet::LINES)
+                    && $lines->first() === ['key' => 'surname', 'title' => 'Фамилия']
+                    && $lines->last() === ['key' => 'military', 'title' => 'Отношение к воинской обязанности'])
             );
 
         // And a reader of four lines is handed the figure for those four.
@@ -390,6 +441,16 @@ class PersonnelSheetTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('sheet.filled', 67)
                 ->where('sheet.missing', ['Учёная степень, звание', 'ИНН'])
+                // The same four lines and the name, and none of the eighteen
+                // this reader may not open.
+                ->where('sheet.lines', [
+                    ['key' => 'surname', 'title' => 'Фамилия'],
+                    ['key' => 'name', 'title' => 'Имя'],
+                    ['key' => 'birth_date', 'title' => 'Дата рождения'],
+                    ['key' => 'degree', 'title' => 'Учёная степень, звание'],
+                    ['key' => 'tax_number', 'title' => 'ИНН'],
+                    ['key' => 'phone', 'title' => 'Телефон'],
+                ])
             );
     }
 }

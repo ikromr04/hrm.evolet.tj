@@ -39,6 +39,7 @@ class UserDetail extends Model
         'marital_status',
         'spouse_name',
         'spouse_birth_date',
+        'spouse_occupation',
         'has_children',
         'has_educations',
         'has_experience',

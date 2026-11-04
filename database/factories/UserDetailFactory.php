@@ -6,6 +6,7 @@ use App\Models\Citizenship;
 use App\Models\User;
 use App\Models\UserDetail;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Carbon;
 
 /**
  * @extends Factory<UserDetail>
@@ -23,6 +24,9 @@ class UserDetailFactory extends Factory
     private const FEMALE_NAMES = ['Дилором', 'Мехринисо', 'Зарина', 'Малика', 'Нигина', 'Фарзона', 'Мадина', 'Гулнора'];
 
     private const MALE_NAMES = ['Рустам', 'Фаррух', 'Далер', 'Умед', 'Джамшед', 'Азиз', 'Сухроб', 'Бахтиёр'];
+
+    /** What a spouse does, on the one line the sheet gives it. */
+    private const OCCUPATIONS = ['Учитель, СОШ № 12', 'Врач, городская поликлиника № 3', 'Бухгалтер, ООО «Ориён»', 'Домохозяйка', 'Не работает', 'Пенсионер'];
 
     private const STREETS = ['пр. Рудаки', 'ул. Айни', 'ул. А. Навои', 'ул. Бохтар', 'ул. Шотемур', 'пр. И. Сомони', 'ул. Лахути', 'ул. Фирдавси'];
 
@@ -71,7 +75,10 @@ class UserDetailFactory extends Factory
                     : rtrim($details->user->surname, 'а');
 
                 $details->spouse_name = $surname.' '.fake()->randomElement($wife ? self::FEMALE_NAMES : self::MALE_NAMES);
-                $details->spouse_birth_date = fake()->dateTimeBetween('-58 years', '-22 years');
+                // A month and a year, kept as the first of the month: the day
+                // is not asked for of anybody in «Состав семьи».
+                $details->spouse_birth_date = Carbon::parse(fake()->dateTimeBetween('-58 years', '-22 years'))->startOfMonth();
+                $details->spouse_occupation = fake()->randomElement(self::OCCUPATIONS);
             }
 
             if ($details->sos_contact === null && $details->user) {

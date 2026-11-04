@@ -37,7 +37,17 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
-import { capitalize, formatDate, maritalLabels, sexLabels, type Marital, type PrivateDetails, type Sex, type SpokenLanguage } from '@/lib/employee';
+import {
+    capitalize,
+    formatDate,
+    formatMonth,
+    maritalLabels,
+    sexLabels,
+    type Marital,
+    type PrivateDetails,
+    type Sex,
+    type SpokenLanguage,
+} from '@/lib/employee';
 import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
@@ -407,7 +417,10 @@ function Empty() {
 function Children({ items }: { items: PrivateDetails['children'] }) {
     if (items.length === 0) return <span className="text-muted-foreground">Нет</span>;
 
-    const names = items.map((child) => [child.full_name, formatDate(child.birth_date)].filter(Boolean).join(' — ')).join('\n');
+    // The month and not the day, because the month is all the card is told: a
+    // child's date of birth is kept as «2015-03», and a day read out of that
+    // would be the first of the month pretending to be a fact.
+    const names = items.map((child) => [child.full_name, formatMonth(child.birth_date)].filter(Boolean).join(' — ')).join('\n');
 
     return (
         <span title={names} className="cursor-help underline decoration-dotted underline-offset-4">

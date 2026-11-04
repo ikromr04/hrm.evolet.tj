@@ -108,14 +108,17 @@ class EmployeeCreateTest extends TestCase
             'passport_issued_by' => 'ОВД',
             'marital_status' => 'married',
             'spouse_name' => 'Азимов Рустам',
-            'spouse_birth_date' => '1988-02-02',
+            // A month and a year, as the sheet asks it of everybody the block
+            // names, and the one line about what each of them does.
+            'spouse_birth_date' => '1988-02',
+            'spouse_occupation' => 'Инженер, ООО «Ориён»',
             'has_children' => true,
-            'children' => [['full_name' => 'Азимова Сабина', 'birth_date' => '2015-05-05']],
+            'children' => [['full_name' => 'Азимова Сабина', 'birth_date' => '2015-05', 'occupation' => '3 класс, СОШ № 12']],
             // The rest of the family the sheet names, beside the children and
             // read under the same right.
             'relatives' => [
-                ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_year' => 1971, 'occupation' => 'Пенсионерка'],
-                ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_year' => 2001, 'occupation' => 'Студент, ТТУ им. Осими'],
+                ['relation' => 'Мать', 'full_name' => 'Рахимова Зарина Курбоновна', 'birth_date' => '1971-03', 'occupation' => 'Пенсионерка'],
+                ['relation' => 'Брат', 'full_name' => 'Рахимов Далер Саидович', 'birth_date' => '2001-09', 'occupation' => 'Студент, ТТУ им. Осими'],
             ],
 
             /* Образование */
@@ -324,12 +327,19 @@ class EmployeeCreateTest extends TestCase
         $this->assertSame('ОВД', $employee->details->passport_issued_by);
         $this->assertSame('married', $employee->details->marital_status);
         $this->assertSame('Азимов Рустам', $employee->details->spouse_name);
+        $this->assertSame('1988-02', $employee->details->spouse_birth_date->format('Y-m'));
+        $this->assertSame('Инженер, ООО «Ориён»', $employee->details->spouse_occupation);
         $this->assertTrue($employee->details->has_children);
         $this->assertSame(['Азимова Сабина'], $employee->children->pluck('full_name')->all());
-        // And the rest of the family, each row with what the sheet asks of it.
+        $this->assertSame('3 класс, СОШ № 12', $employee->children->first()->occupation);
+        // And the rest of the family, each row with what the sheet asks of it:
+        // the same three answers the spouse and the children give.
         $this->assertSame(
-            [['Мать', 'Рахимова Зарина Курбоновна', 1971, 'Пенсионерка'], ['Брат', 'Рахимов Далер Саидович', 2001, 'Студент, ТТУ им. Осими']],
-            $employee->relatives->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_year, $r->occupation])->all(),
+            [
+                ['Мать', 'Рахимова Зарина Курбоновна', '1971-03', 'Пенсионерка'],
+                ['Брат', 'Рахимов Далер Саидович', '2001-09', 'Студент, ТТУ им. Осими'],
+            ],
+            $employee->relatives->map(fn (UserRelative $r) => [$r->relation, $r->full_name, $r->birth_date?->format('Y-m'), $r->occupation])->all(),
         );
 
         // Образование и трудовая деятельность.
@@ -432,7 +442,7 @@ class EmployeeCreateTest extends TestCase
             'phone' => 'не телефон',
             'passport_issued_at' => now()->addWeek()->toDateString(),
             'languages' => [['name' => 'Английский', 'level' => 'сносно']],
-            'children' => [['full_name' => '', 'birth_date' => '2015-05-05']],
+            'children' => [['full_name' => '', 'birth_date' => '2015-05']],
             'educations' => [
                 ['institution' => 'ТНУ', 'faculty' => 'Экономический', 'specialty' => 'Финансы', 'started_year' => 2010],
                 // A diploma cannot predate enrolment, and the faculty is missing.

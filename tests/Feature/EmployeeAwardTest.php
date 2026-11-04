@@ -542,4 +542,49 @@ class EmployeeAwardTest extends TestCase
         Storage::disk('documents')->assertExists($details->award_document_path);
         $this->assertCount(1, Storage::disk('documents')->allFiles());
     }
+
+    /**
+     * The sheet takes the paper off when it is asked to, and this window takes
+     * no notice of the asking — the degree's behaviour, as everything in this
+     * block is.
+     *
+     * Here a save replaces the document and a DELETE of its own takes it away;
+     * «Личный листок» writes nothing until «Сохранить», so a removal there
+     * waits with everything else and travels as an answer. And the line stays
+     * either way: a medal somebody was given is not undone by a bad scan of the
+     * decree.
+     */
+    public function test_the_sheet_takes_the_paper_off_when_asked_and_this_window_does_not()
+    {
+        Storage::fake('documents');
+        $employee = $this->employee('Медаль „Хизмати шоиста“');
+        $was = $this->attach($employee, 'Указ Президента.pdf');
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->put("/employees/{$employee->id}/award", [
+            'award' => 'Медаль „Хизмати шоиста“',
+            'award_document_remove' => true,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame($was, $employee->details->fresh()->award_document_path);
+        Storage::disk('documents')->assertExists($was);
+
+        // The same asking on the sheet, where it is an answer the door takes.
+        // Only the lines this block's own form would show are sent with it: the
+        // sheet insists on a name and a language, and nothing else.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/sheet", [
+            'surname' => $employee->surname,
+            'name' => $employee->name,
+            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
+            'award' => 'Медаль „Хизмати шоиста“',
+            'award_document_remove' => true,
+        ])->assertSessionHasNoErrors();
+
+        $details = $employee->details->fresh();
+
+        $this->assertNull($details->award_document_path);
+        $this->assertNull($details->award_document_name);
+        $this->assertSame('Медаль „Хизмати шоиста“', $details->award);
+        Storage::disk('documents')->assertMissing($was);
+    }
 }
