@@ -1,4 +1,5 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import {
     SidebarGroup,
     SidebarGroupLabel,
@@ -8,6 +9,7 @@ import {
     SidebarMenuSub,
     SidebarMenuSubButton,
     SidebarMenuSubItem,
+    useSidebar,
 } from '@/components/ui/sidebar';
 import { type SidebarNavGroup, type SidebarNavItem } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
@@ -107,9 +109,14 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
  *
  * It opens by itself when the page being read is one of them, so somebody who
  * follows a link into a section finds the menu already saying where they are.
- * Collapsed to icons the sidebar hides the lot, as it hides every sub-menu.
+ *
+ * Collapsed to icons there is no room to open anything downwards, so the pages
+ * come out sideways instead: the icon is pressed and they stand beside it. A
+ * section whose pages could not be reached at all would be an icon that answers
+ * nothing — the chevron turning on something nobody can see.
  */
 function NavBranch({ item, url, says }: { item: SidebarNavItem; url: string; says?: string }) {
+    const { state, isMobile } = useSidebar();
     const inside = (item.items ?? []).some((one) => one.url && navItemActive(one, url, says));
     const branch = useRef<HTMLLIElement>(null);
     const [open, setOpen] = useState(inside);
@@ -142,6 +149,63 @@ function NavBranch({ item, url, says }: { item: SidebarNavItem; url: string; say
         if (below > 0) menu.scrollTop += below + 8;
     }, [open]);
 
+    /** The pages of the section, drawn the same whichever way they are opened. */
+    const pages = (
+        <SidebarMenuSub>
+            {(item.items ?? []).map((one) => (
+                <SidebarMenuSubItem key={one.title}>
+                    {one.url ? (
+                        <SidebarMenuSubButton asChild isActive={navItemActive(one, url, says)} className={activeSubClasses}>
+                            <Link href={one.url} prefetch>
+                                <span>{one.title}</span>
+                            </Link>
+                        </SidebarMenuSubButton>
+                    ) : (
+                        // Not built yet: the page holds its place in the
+                        // order, greyed and unpressable, as its section does.
+                        <SidebarMenuSubButton aria-disabled title={`${one.title} — скоро`} className="opacity-50 hover:bg-transparent">
+                            <span>{one.title}</span>
+                        </SidebarMenuSubButton>
+                    )}
+                </SidebarMenuSubItem>
+            ))}
+        </SidebarMenuSub>
+    );
+
+    // Narrowed to icons on a wide screen — on a phone the menu is a drawer and
+    // opens at its full width, so there the section unfolds as it always did.
+    if (state === 'collapsed' && !isMobile) {
+        return (
+            <SidebarMenuItem>
+                {/* Opened by resting on the icon and closed by leaving it, with
+                    a moment's grace either way: quick enough that the pages feel
+                    attached to the icon, slow enough that running the mouse down
+                    a column of icons does not flick five lists open on the way.
+                    The stretch of empty page between the icon and the list is
+                    bridged by Radix itself, so the mouse may cross it. */}
+                <HoverCard openDelay={120} closeDelay={160}>
+                    <HoverCardTrigger asChild>
+                        {/* The name heads the list that comes out, so the icon
+                            does not also carry it as a tooltip: two labels at
+                            once over one small square. */}
+                        <SidebarMenuButton className={activeClasses} isActive={inside} aria-label={item.title}>
+                            {item.icon && <item.icon />}
+                            <span>{item.title}</span>
+                        </SidebarMenuButton>
+                    </HoverCardTrigger>
+
+                    <HoverCardContent side="right" align="start" sideOffset={8} className="w-56 p-2">
+                        <p className="px-2 pt-1 pb-2 text-xs font-semibold">{item.title}</p>
+                        {/* The list is laid out for a column that indents its
+                            pages under a name; standing on its own it has no
+                            name above it to indent from. */}
+                        <div className="[&>ul]:mx-0 [&>ul]:border-l-0 [&>ul]:px-0">{pages}</div>
+                    </HoverCardContent>
+                </HoverCard>
+            </SidebarMenuItem>
+        );
+    }
+
     return (
         <Collapsible
             asChild
@@ -161,27 +225,7 @@ function NavBranch({ item, url, says }: { item: SidebarNavItem; url: string; say
                     </SidebarMenuButton>
                 </CollapsibleTrigger>
 
-                <CollapsibleContent>
-                    <SidebarMenuSub>
-                        {(item.items ?? []).map((one) => (
-                            <SidebarMenuSubItem key={one.title}>
-                                {one.url ? (
-                                    <SidebarMenuSubButton asChild isActive={navItemActive(one, url, says)} className={activeSubClasses}>
-                                        <Link href={one.url} prefetch>
-                                            <span>{one.title}</span>
-                                        </Link>
-                                    </SidebarMenuSubButton>
-                                ) : (
-                                    // Not built yet: the page holds its place in the
-                                    // order, greyed and unpressable, as its section does.
-                                    <SidebarMenuSubButton aria-disabled title={`${one.title} — скоро`} className="opacity-50 hover:bg-transparent">
-                                        <span>{one.title}</span>
-                                    </SidebarMenuSubButton>
-                                )}
-                            </SidebarMenuSubItem>
-                        ))}
-                    </SidebarMenuSub>
-                </CollapsibleContent>
+                <CollapsibleContent>{pages}</CollapsibleContent>
             </SidebarMenuItem>
         </Collapsible>
     );
