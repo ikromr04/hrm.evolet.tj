@@ -29,6 +29,7 @@ import {
     blankSheet,
     carriesFile,
     isAnswered,
+    papersWanted,
     SHEET_PART_FIELDS,
     sheetToSend,
     type SheetOptions,
@@ -632,6 +633,14 @@ interface SheetProgress {
     filled: number;
     /** The lines nobody has answered yet, as the sheet names them, in the order it asks. */
     missing: string[];
+    /**
+     * And the lines that are answered and still short of the paper that proves
+     * it — a degree with no diploma, a place of study somebody left with
+     * nothing on file. Not part of the figure above: a document is not an
+     * answer, and a line that said «Не заполнено» because a scan had not
+     * arrived would send somebody to ask a question that has been answered.
+     */
+    papers: string[];
     /**
      * Every counted line this viewer may read, answered or not, keyed as
      * App\Support\PersonnelSheet keys them.
@@ -1632,6 +1641,26 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
     // nought, which would read as a card nobody has filled in.
     const filled = editing ? (counted.length === 0 ? 100 : Math.round(((counted.length - unanswered.length) / counted.length) * 100)) : sheet.filled;
 
+    /**
+     * And what the sheet is short of on paper, which is the other errand the
+     * office has: a line can be answered and still be waiting for the document
+     * behind it. Read out of the boxes while the sheet is open and off the card
+     * while it is not, as the two above are — and named out of the lines the
+     * server counted for this reader, so a line that is not theirs to see
+     * cannot be named here either.
+     */
+    const unattached = editing
+        ? papersWanted(
+              form.data,
+              {
+                  degree: details?.degree_document != null,
+                  award: details?.award_document != null,
+                  military: details?.military_document != null,
+              },
+              (line) => counted.find((counted) => counted.key === line)?.title,
+          )
+        : sheet.papers;
+
     /** Whether there is anything on this sheet for this reader to answer at all. */
     const answerable = SHEET_FIELDS.some(answers);
 
@@ -1819,6 +1848,43 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                                                         className="text-muted-foreground flex items-center gap-2 border-b py-2 text-sm last:border-0"
                                                     >
                                                         <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
+                                                        <span className="min-w-0 break-words">{what}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </section>
+                                    )}
+
+                                    {/* And what is still to be handed in, under
+                                        the lines that are still to be answered:
+                                        the same column, the same kind of list,
+                                        and two errands that are not one — a
+                                        degree can be written down and its
+                                        diploma still be sitting at home. Marked
+                                        with the clip the card shows its papers
+                                        with everywhere else, so that the two
+                                        lists are told apart by what they are
+                                        short of and not by their headings. */}
+                                    {unattached.length > 0 && (
+                                        <section className="flex flex-col gap-2">
+                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm font-semibold">
+                                                Документы не приложены
+                                                <StatusBadge tone="neutral">{unattached.length}</StatusBadge>
+                                            </h3>
+
+                                            <ul className="flex flex-col">
+                                                {unattached.map((what, index) => (
+                                                    // By where it stands as well
+                                                    // as by its name: a card may
+                                                    // name two places of study
+                                                    // with one name, and two
+                                                    // papers are missing and not
+                                                    // one.
+                                                    <li
+                                                        key={`${what}-${index}`}
+                                                        className="text-muted-foreground flex items-center gap-2 border-b py-2 text-sm last:border-0"
+                                                    >
+                                                        <FileText className="size-3.5 shrink-0" />
                                                         <span className="min-w-0 break-words">{what}</span>
                                                     </li>
                                                 ))}

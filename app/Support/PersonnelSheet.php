@@ -133,6 +133,66 @@ final class PersonnelSheet
     }
 
     /**
+     * The lines that are short of their paper: a line saying there is something
+     * is a line with proof of it somewhere, and these are the ones that say so
+     * and have nothing attached.
+     *
+     * Not part of filled() and not part of missing(), because a paper is not an
+     * answer. The line «Учёная степень, звание» is answered the moment somebody
+     * writes what the degree is; whether the diploma has been handed in is the
+     * other question, and a card that mixed the two would say «не заполнено» of
+     * a line that is filled in and send somebody to ask about it.
+     *
+     * Only where there is something to prove. «Нет» has no document and an
+     * unanswered line has nothing to ask for yet, so neither is short of
+     * anything. A place of study still being studied at is the same case: the
+     * diploma is wanted once the studying has ended, and not while somebody is
+     * in their second year.
+     *
+     * Over the lines this reader may read, as everything else here is.
+     *
+     * @return list<string>
+     */
+    public static function papers(User $employee, User $viewer): array
+    {
+        $visible = EmployeeFields::visibleTo($viewer, $employee);
+
+        // Read without being attached, as answers() reads the private row and
+        // for the same reason: on one's own profile this employee is the
+        // signed-in account, which is shared to every page with whatever hangs
+        // off it. Asking whether a diploma is on file is not the same as being
+        // allowed to read the card it is clipped to.
+        $details = $employee->relationLoaded('details') ? $employee->details : $employee->details()->first();
+
+        $wanted = [];
+
+        if (in_array('educations', $visible, true)) {
+            $educations = $employee->relationLoaded('educations') ? $employee->educations : $employee->educations()->get();
+
+            foreach ($educations as $education) {
+                if ($education->graduated_year !== null && $education->document_path === null) {
+                    // Named by the place of study, since a card may name three
+                    // of them and «Образование» three times over is a list that
+                    // says there are three papers missing and not which.
+                    $wanted[] = trim((string) $education->institution) === ''
+                        ? self::LINES['educations']
+                        : self::LINES['educations'].' — '.trim((string) $education->institution);
+                }
+            }
+        }
+
+        foreach (['degree', 'award', 'military'] as $line) {
+            $said = trim((string) ($details?->{$line} ?? ''));
+
+            if (in_array($line, $visible, true) && $said !== '' && $said !== EmployeeCard::NONE && $details?->{$line.'_document_path'} === null) {
+                $wanted[] = self::LINES[$line];
+            }
+        }
+
+        return $wanted;
+    }
+
+    /**
      * Which lines are this reader's to count.
      *
      * @return list<string>

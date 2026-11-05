@@ -472,3 +472,66 @@ const ANSWERED: Record<string, (card: SheetValues) => boolean> = {
  * disappear from the count.
  */
 export const isAnswered = (line: string, card: SheetValues): boolean => ANSWERED[line]?.(card) ?? false;
+
+/** What the card writes on a line with nothing to say — AppSupportEmployeeCard::NONE. */
+export const NONE = 'Нет';
+
+/** The three lines of the sheet that keep one paper apiece. */
+export const PAPER_LINES = ['degree', 'award', 'military'] as const;
+
+export type PaperLine = (typeof PAPER_LINES)[number];
+
+/** Whether a line that may carry a paper says there is anything to prove. */
+const claims = (value: string) => said(value) && value.trim() !== NONE;
+
+/**
+ * The lines still short of their paper, as the list beside the sheet reads them
+ * while somebody is typing: AppSupportPersonnelSheet::papers() said in the
+ * browser, on the same rule and for the same reason isAnswered() is here — the
+ * server counts while nothing is being changed, this counts while something is,
+ * and the two have to agree or neither can be believed.
+ *
+ * Not part of what isAnswered() counts: a paper is not an answer. A line saying
+ * what the degree is has been answered; whether the diploma has been handed in
+ * is the other question.
+ *
+ * `title` says what the sheet calls a line, and says nothing for a line this
+ * reader may not read — the server sends the titles of the lines it counted for
+ * them, so a line that is not theirs to see is one this list cannot name and
+ * therefore does not.
+ *
+ * `held` says which of the three lines has a paper on file already, which is
+ * the card's business and not the form's: an untouched file box means «leave
+ * the paper where it is», so what is on file cannot be read out of the boxes.
+ */
+export const papersWanted = (card: SheetValues, held: Record<PaperLine, boolean>, title: (line: string) => string | undefined): string[] => {
+    const wanted: string[] = [];
+    const schooling = title('educations');
+
+    if (schooling !== undefined) {
+        for (const record of card.educations) {
+            // Asked for once the studying has ended: a diploma is what
+            // finishing leaves behind, and somebody in their second year has
+            // nothing to hand in yet.
+            const has = record.document !== null || (record.attached !== undefined && record.document_remove !== true);
+
+            if (record.graduated_year !== '' && !has) {
+                // Named by the place of study: a card may name three of them,
+                // and «Образование» three times over says how many papers are
+                // missing without saying which.
+                wanted.push(said(record.institution) ? `${schooling} — ${record.institution.trim()}` : schooling);
+            }
+        }
+    }
+
+    for (const line of PAPER_LINES) {
+        const name = title(line);
+        const has = card[`${line}_document`] !== null || (held[line] && !card[`${line}_document_remove`]);
+
+        if (name !== undefined && claims(card[line]) && !has) {
+            wanted.push(name);
+        }
+    }
+
+    return wanted;
+};

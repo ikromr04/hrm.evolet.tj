@@ -453,4 +453,121 @@ class PersonnelSheetTest extends TestCase
                 ])
             );
     }
+
+    /**
+     * A line that says there is something and shows nothing is short of its
+     * paper — and is answered all the same.
+     *
+     * The two lists are two errands. «Не заполнено» sends somebody to ask what
+     * the degree is; this sends somebody to ask for the diploma, and a card that
+     * mixed them would ask a question it already has the answer to.
+     */
+    public function test_a_line_that_claims_something_and_shows_nothing_is_short_of_its_paper()
+    {
+        $admin = $this->sysadmin();
+
+        $employee = $this->blankCard();
+        $employee->details()->update([
+            'degree' => 'кандидат экономических наук',
+            'award' => 'Медаль „Хизмати шоиста“',
+            'military' => 'Военнообязанный',
+        ]);
+
+        $this->assertSame([
+            'Учёная степень, звание',
+            'Государственные награды, поощрения',
+            'Отношение к воинской обязанности',
+        ], PersonnelSheet::papers($employee->fresh(), $admin));
+
+        $this->assertNotContains('Учёная степень, звание', PersonnelSheet::missing($employee->fresh(), $admin));
+
+        // And the card page carries the list, so the sheet can say what the
+        // office still has to collect without working it out in the browser.
+        $this->actingAs($admin)
+            ->get("/employees/{$employee->id}")
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('sheet.papers', [
+                'Учёная степень, звание',
+                'Государственные награды, поощрения',
+                'Отношение к воинской обязанности',
+            ]));
+    }
+
+    /**
+     * Nothing is asked for where there is nothing to prove: «Нет» has no paper,
+     * and a line nobody has answered has nothing to ask about yet.
+     */
+    public function test_nothing_is_asked_for_where_there_is_nothing_to_prove()
+    {
+        $admin = $this->sysadmin();
+
+        $this->assertSame([], PersonnelSheet::papers($this->blankCard(), $admin));
+
+        $none = $this->blankCard();
+        $none->details()->update([
+            'degree' => EmployeeCard::NONE,
+            'award' => EmployeeCard::NONE,
+            'military' => EmployeeCard::NONE,
+        ]);
+
+        $this->assertSame([], PersonnelSheet::papers($none->fresh(), $admin));
+    }
+
+    /** A paper on file is a paper handed in, and is asked for no more. */
+    public function test_a_line_with_its_paper_on_file_is_asked_for_nothing()
+    {
+        $employee = $this->blankCard();
+        $employee->details()->update([
+            'degree' => 'кандидат экономических наук',
+            'degree_document_path' => 'documents/7/degree.pdf',
+            'degree_document_name' => 'Диплом.pdf',
+        ]);
+
+        $this->assertSame([], PersonnelSheet::papers($employee->fresh(), $this->sysadmin()));
+    }
+
+    /**
+     * A diploma apiece, named by the place of study — three universities are
+     * three papers, and a list saying «Образование» three times would say how
+     * many are missing without saying which.
+     *
+     * And nothing is asked of a place somebody is still studying at: the diploma
+     * is what finishing leaves behind.
+     */
+    public function test_each_place_of_study_wants_its_own_diploma_once_the_studying_has_ended()
+    {
+        $employee = $this->blankCard();
+        $employee->details()->update(['has_educations' => true]);
+
+        UserEducation::factory()->for($employee)->create(['institution' => 'ТНУ', 'graduated_year' => 2019]);
+        UserEducation::factory()->for($employee)->create(['institution' => 'ТТУ', 'graduated_year' => null]);
+        UserEducation::factory()->for($employee)->create([
+            'institution' => 'РТСУ',
+            'graduated_year' => 2015,
+            'document_path' => 'documents/7/diploma.pdf',
+            'document_name' => 'Диплом.pdf',
+        ]);
+
+        $this->assertSame(['Образование — ТНУ'], PersonnelSheet::papers($employee->fresh(), $this->sysadmin()));
+    }
+
+    /**
+     * And a paper is named only to a reader of the line it belongs to. A list
+     * that named the diploma of a card whose schooling this reader may not open
+     * would be telling them what is on it.
+     */
+    public function test_a_paper_is_named_only_to_a_reader_of_its_line()
+    {
+        $employee = $this->blankCard();
+        $employee->details()->update(['has_educations' => true, 'degree' => 'кандидат экономических наук']);
+        UserEducation::factory()->for($employee)->create(['institution' => 'ТНУ', 'graduated_year' => 2019]);
+
+        $this->assertSame(
+            ['Образование — ТНУ', 'Учёная степень, звание'],
+            PersonnelSheet::papers($employee->fresh(), $this->reader('educations', 'degree')),
+        );
+
+        $this->assertSame(['Учёная степень, звание'], PersonnelSheet::papers($employee->fresh(), $this->reader('degree')));
+        $this->assertSame([], PersonnelSheet::papers($employee->fresh(), $this->reader('phone')));
+    }
 }

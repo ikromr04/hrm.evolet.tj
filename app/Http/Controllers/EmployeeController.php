@@ -670,6 +670,10 @@ class EmployeeController extends Controller
                 // being retyped can say what is still wanted from what is in
                 // the boxes rather than from what was last saved.
                 'lines' => PersonnelSheet::lines($employee, $request->user()),
+                // And the papers it is short of, which is the other half of
+                // what the office has to go and ask for: a line can be
+                // answered and still be waiting for the diploma that proves it.
+                'papers' => PersonnelSheet::papers($employee, $request->user()),
             ],
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
