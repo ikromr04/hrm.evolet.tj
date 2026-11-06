@@ -89,28 +89,31 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
         const toggle = (value: string | number, on: boolean) =>
             onApply({ [filter.param]: on ? [...selected, value] : selected.filter((item) => item !== value) });
 
-        // A list is looked through rather than scrolled: every funnel with boxes
-        // to tick opens on a line to type in, whether it holds the department
-        // tree or five languages, so the way to find a value is the same one
-        // everywhere. The needle is matched against what the line says — its
-        // label and the full name beside it.
-        const needle = lookup.trim().toLowerCase();
+        // A long list is looked through rather than scrolled, and a short one
+        // is simply read: a line to type in over four boxes is a line that
+        // takes a press to skip past and finds what is already in view. The
+        // needle is matched against what a line says — its label and the full
+        // name beside it.
+        const searchable = filter.options.length > MOST_READ_AT_A_GLANCE;
+        const needle = searchable ? lookup.trim().toLowerCase() : '';
         const shown =
             needle === '' ? filter.options : filter.options.filter((option) => `${option.label} ${option.hint ?? ''}`.toLowerCase().includes(needle));
 
         return (
             <div className="flex flex-col gap-2">
-                <div className="relative">
-                    <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
-                    <Input
-                        autoFocus
-                        value={lookup}
-                        onChange={(event) => setLookup(event.target.value)}
-                        placeholder="Поиск"
-                        aria-label="Поиск по списку"
-                        className="h-9 pl-8"
-                    />
-                </div>
+                {searchable && (
+                    <div className="relative">
+                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+                        <Input
+                            autoFocus
+                            value={lookup}
+                            onChange={(event) => setLookup(event.target.value)}
+                            placeholder="Поиск"
+                            aria-label="Поиск по списку"
+                            className="h-9 pl-8"
+                        />
+                    </div>
+                )}
 
                 <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto">
                     {filter.options.length === 0 && <p className="text-muted-foreground px-2 py-1.5 text-sm">Нет значений</p>}
@@ -178,6 +181,16 @@ export function FilterBody({ filter, filters, onApply }: { filter: FilterDef; fi
 const WIDE = ['department', 'unit'];
 
 /** The funnel in a column header, and the popover it opens. */
+/**
+ * How many values a funnel shows before it offers a line to look through them
+ * with.
+ *
+ * Six is where a list stops being read at a glance and starts being scanned —
+ * the four statuses and the two ways a paper is kept are read; forty
+ * departments are not.
+ */
+const MOST_READ_AT_A_GLANCE = 6;
+
 export function ColumnFilter({
     column,
     filters,

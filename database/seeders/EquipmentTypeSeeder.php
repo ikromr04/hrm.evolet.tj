@@ -9,7 +9,7 @@ use Illuminate\Database\Seeder;
 class EquipmentTypeSeeder extends Seeder
 {
     /**
-     * Categories, exactly as the design's "Категории техники" names them, each
+     * Categories, exactly as the design's "Категории оборудования" names them, each
      * with the drawing it is shown by. A category added later picks its own in
      * the directory.
      */

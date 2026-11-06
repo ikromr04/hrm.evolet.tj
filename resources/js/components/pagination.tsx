@@ -30,7 +30,24 @@ const pageButton = 'size-9 shrink-0 rounded-md border font-semibold';
  * current page are left: the numbered row does not fit beside the rows-per-page
  * choice on a tablet, let alone on a 320px phone.
  */
-export function Pagination({ paginator, className }: { paginator: Paginated<unknown>; className?: string }) {
+export function Pagination({
+    paginator,
+    onPage,
+    className,
+}: {
+    paginator: Paginated<unknown>;
+    /**
+     * Where a page lives, for a list that holds all of its rows already.
+     *
+     * A list the server pages through is walked by address, so its pages are
+     * links: they are places, they open in a new tab, they go in the history.
+     * A list that is all here is paged in the page itself, and a link to an
+     * address that answers the same thing either way would be a lie about
+     * where the second page is.
+     */
+    onPage?: (page: number) => void;
+    className?: string;
+}) {
     const { current_page: current, last_page: last } = paginator;
     const url = (page: number) => {
         const query = new URLSearchParams(window.location.search);
@@ -47,6 +64,15 @@ export function Pagination({ paginator, className }: { paginator: Paginated<unkn
             >
                 {icon}
             </span>
+        ) : onPage ? (
+            <button
+                type="button"
+                onClick={() => onPage(page)}
+                className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), 'size-9 shrink-0')}
+                aria-label={label}
+            >
+                {icon}
+            </button>
         ) : (
             <Link
                 href={url(page)}
@@ -57,6 +83,25 @@ export function Pagination({ paginator, className }: { paginator: Paginated<unkn
                 {icon}
             </Link>
         );
+
+    /** One numbered page, as a place to go to or as a press. */
+    const step = (page: number) => {
+        const look = cn(
+            buttonVariants({ variant: page === current ? 'default' : 'outline', size: 'icon' }),
+            pageButton,
+            page === current ? 'border-transparent' : 'text-foreground max-lg:hidden',
+        );
+
+        return onPage ? (
+            <button key={page} type="button" onClick={() => onPage(page)} aria-current={page === current ? 'page' : undefined} className={look}>
+                {page}
+            </button>
+        ) : (
+            <Link key={page} href={url(page)} preserveScroll aria-current={page === current ? 'page' : undefined} className={look}>
+                {page}
+            </Link>
+        );
+    };
 
     return (
         <nav aria-label="Страницы" className={cn('text-muted-foreground flex items-center gap-2 text-sm', className)}>
@@ -72,19 +117,7 @@ export function Pagination({ paginator, className }: { paginator: Paginated<unkn
                                 …
                             </span>
                         ) : (
-                            <Link
-                                key={page}
-                                href={url(page)}
-                                preserveScroll
-                                aria-current={page === current ? 'page' : undefined}
-                                className={cn(
-                                    buttonVariants({ variant: page === current ? 'default' : 'outline', size: 'icon' }),
-                                    pageButton,
-                                    page === current ? 'border-transparent' : 'text-foreground max-lg:hidden',
-                                )}
-                            >
-                                {page}
-                            </Link>
+                            step(page)
                         ),
                     )}
                     {arrow(current + 1, 'Следующая страница', <ChevronRight />, current >= last)}

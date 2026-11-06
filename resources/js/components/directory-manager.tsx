@@ -15,22 +15,29 @@ import {
 import { DirectoryEditor, type DirectoryItem, type Labels } from '@/components/directory-editor';
 import { IconChip } from '@/components/equipment-icon';
 import { MobileFab } from '@/components/mobile-fab';
-import { PageActions } from '@/components/page-actions';
+import { Pagination } from '@/components/pagination';
 
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import { useCan, type Permission } from '@/lib/access';
-import { filesWanted } from '@/lib/documents';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { plural } from '@/lib/plural';
 import { Link, router } from '@inertiajs/react';
-import { LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronDown, LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface DirectoryManagerProps {
     items: DirectoryItem[];
@@ -75,6 +82,15 @@ interface DirectoryManagerProps {
      * for it, and the window writes both.
      */
     documents?: boolean;
+    /**
+     * Whether the list is read in an order of its own, dragged into place
+     * rather than sorted into it.
+     *
+     * The papers a company asks for are the case: a checklist is worked
+     * through from the top down, and which paper is asked for first is the
+     * office's decision rather than the alphabet's.
+     */
+    orderable?: boolean;
 }
 
 /**
@@ -84,21 +100,11 @@ interface DirectoryManagerProps {
 export const searchBox =
     'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none';
 
-/**
- * How a document may be handed in, in a few words: the ways it takes, and how
- * many files it holds where it holds more than one.
- *
- * A paper that takes neither way cannot be handed in at all, which the window
- * refuses to save — so a row that says so is a row from before that rule, and
- * it says what it is rather than showing an empty cell.
- */
-const attachedAs = (row: DirectoryItem): string => {
-    const ways = [row.accepts_files !== false && 'файл', row.accepts_camera === true && 'фотография'].filter(Boolean) as string[];
+/** How many rows a page of a reference list holds, as the staff list offers them. */
+const PER_PAGE = [10, 25, 50, 100];
 
-    if (ways.length === 0) return 'нечем';
-
-    return `${ways.join(' или ')}, ${filesWanted(row.min_files ?? 1, row.max_files ?? null)}`;
-};
+/** And how many it opens with: enough that a short list is read whole without paging at all. */
+const PER_PAGE_OPENS = 25;
 
 /** The order a list opens in — by name, which is how the server sends it. */
 const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
@@ -106,7 +112,23 @@ const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
 /** A list nobody has narrowed yet. */
 const NOTHING_NARROWED = {
     section: [] as string[],
+    /** «Файлом» or «Оригинал сдают», for the papers a company asks for. */
+    storage: [] as string[],
+    /** «Да» or «Нет»: whether the paper is wanted from everybody. */
+    required: [] as string[],
 };
+
+/** The two answers the storage column gives, as the funnel offers them. */
+const STORAGE = [
+    { value: 'file', label: 'Файлом' },
+    { value: 'paper', label: 'Оригинал сдают' },
+];
+
+/** And the two the «Обязателен» column gives. */
+const REQUIRED = [
+    { value: 'yes', label: 'Да' },
+    { value: 'no', label: 'Нет' },
+];
 
 /**
  * A reference list, drawn and kept: the lists under «Справочники» and the
@@ -136,6 +158,7 @@ export function DirectoryManager({
     fieldTypes,
     defaultFields,
     documents = false,
+    orderable = false,
 }: DirectoryManagerProps) {
     const can = useCan();
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
@@ -146,11 +169,25 @@ export function DirectoryManager({
     useAskedToAdd(canEdit, () => setEditing('new'));
     const [deleting, setDeleting] = useState<DirectoryItem | null>(null);
 
-    const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+    /**
+     * The order the list opens in: its own where it has one, by name where it
+     * has not.
+     *
+     * «position» heads no column, which is the point — it is the order the
+     * server sends the rows in, and a list resting in it is a list nothing has
+     * been sorted by. That is what makes the third press on a column's name
+     * mean something here: up, down, and back to the order the office put them
+     * in. Sorted by name, the third press used to land on the order it had
+     * just left.
+     */
+    const opening = useMemo<Sort>(() => (orderable ? { key: 'position', direction: 'asc' } : DEFAULT_SORT), [orderable]);
+    const [sort, setSort] = useState<Sort>(opening);
     /** Which parts of the list it is narrowed to, where the list is kept in parts. */
     const [narrowing, setNarrowing] = useState<typeof NOTHING_NARROWED>(NOTHING_NARROWED);
     /** What the box over the table is looking for, in everything a row says. */
     const [search, setSearch] = useState('');
+    /** And what the funnel on «Подсказка» is looking for, in that line alone. */
+    const [hint, setHint] = useState('');
 
     const columns = useMemo<ColumnDef[]>(
         () => [
@@ -174,13 +211,22 @@ export function DirectoryManager({
                 width: 320,
                 filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
             },
+            // A paper says what is wanted of it, where its original lives and
+            // whether everybody is asked for it. How many people have handed it
+            // in is a number about the asking rather than about the paper, and
+            // the card is where that is read.
             ...(documents
                 ? [
-                      { key: 'accepts', label: 'Как прикладывать', width: 260 },
-                      { key: 'required', label: 'Обязателен', width: 160 },
+                      {
+                          key: 'hint',
+                          label: 'Подсказка',
+                          width: 320,
+                          filter: { type: 'text' as const, param: 'hint', placeholder: 'Поиск по подсказке' },
+                      },
+                      { key: 'storage', label: 'Тип хранения', width: 220, filter: { type: 'multi' as const, param: 'storage', options: STORAGE } },
+                      { key: 'required', label: 'Обязателен', width: 210, filter: { type: 'multi' as const, param: 'required', options: REQUIRED } },
                   ]
-                : []),
-            { key: 'count', label: countLabel, width: 200 },
+                : [{ key: 'count', label: countLabel, width: 220 }]),
         ],
         [countLabel, sections, documents],
     );
@@ -194,8 +240,8 @@ export function DirectoryManager({
      * sorting, the funnels and the box over the table. The list lives in the
      * page rather than in the address bar, so the view carries it.
      */
-    const narrowed = useMemo(() => ({ sort, narrowing, query, search }), [sort, narrowing, query, search]);
-    const opened = useMemo(() => ({ sort: DEFAULT_SORT, narrowing: NOTHING_NARROWED, query: '', search: '' }), []);
+    const narrowed = useMemo(() => ({ sort, narrowing, query, search, hint }), [sort, narrowing, query, search, hint]);
+    const opened = useMemo(() => ({ sort: opening, narrowing: NOTHING_NARROWED, query: '', search: '', hint: '' }), [opening]);
 
     // Kept when the viewer says so, not because they once dragged a column.
     const memory = useTableMemory({
@@ -209,39 +255,133 @@ export function DirectoryManager({
         onState: (held) => {
             const next = (held ?? opened) as typeof narrowed;
 
-            setSort(next.sort ?? DEFAULT_SORT);
-            setNarrowing(next.narrowing ?? NOTHING_NARROWED);
+            setSort(next.sort ?? opening);
+            setNarrowing({ ...NOTHING_NARROWED, ...(next.narrowing ?? {}) });
             setQuery(next.query ?? '');
             setSearch(next.search ?? '');
+            setHint(next.hint ?? '');
         },
     });
+
+    /**
+     * How much of the list is drawn at once, and which part of it.
+     *
+     * A reference list is short enough to read whole and long enough to want
+     * paging — sixteen papers, forty categories — and it is all in the page
+     * already, so the pages are cut here rather than asked for.
+     */
+    const [perPage, setPerPage] = useState(PER_PAGE_OPENS);
+    const [page, setPage] = useState(1);
+
+    /**
+     * Whether a row may be dragged into another place right now.
+     *
+     * Only on a list that has an order of its own, only for somebody who keeps
+     * it, only while it is resting in that order — a row dragged up a list
+     * sorted by name would land where nobody could see it — and only while the
+     * whole of it is in view: an order is the arrangement of every row, and
+     * half a list cannot say what it is.
+     */
+    const draggable =
+        orderable &&
+        canEdit &&
+        !isSorted(sort, opening) &&
+        query.trim() === '' &&
+        search.trim() === '' &&
+        hint.trim() === '' &&
+        narrowing.section.length === 0 &&
+        narrowing.storage.length === 0 &&
+        narrowing.required.length === 0;
 
     /**
      * Everything a row says, as one line to look through: its name and the part
      * of the list it is kept in.
      */
     const said = (row: DirectoryItem) =>
-        [row.label, sections?.find((one) => one.value === row.section)?.label ?? null].filter(Boolean).join(' ').toLowerCase();
+        [
+            row.label,
+            // Everything the row says in its own columns, so that «по всем
+            // полям» means what it says: the box used to look at the name and
+            // the part of the list alone, and a search for a word that was
+            // plainly on the screen came back with nothing.
+            row.hint ?? null,
+            documents ? (row.on_paper === true ? 'Оригинал сдают' : 'Файлом') : null,
+            sections?.find((one) => one.value === row.section)?.label ?? null,
+        ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
 
     const visible = useMemo(() => {
         const asked = query.trim().toLowerCase();
         const looking = search.trim().toLowerCase();
+        const about = hint.trim().toLowerCase();
+
         const narrowed = items.filter((row) => {
             if (asked && !row.label.toLowerCase().includes(asked)) return false;
             if (looking && !said(row).includes(looking)) return false;
+            if (about && !(row.hint ?? '').toLowerCase().includes(about)) return false;
             // Any of the parts asked for, as a funnel of several always means.
             if (narrowing.section.length > 0 && !narrowing.section.includes(row.section ?? '')) return false;
+            if (narrowing.storage.length > 0 && !narrowing.storage.includes(row.on_paper === true ? 'paper' : 'file')) return false;
+            if (narrowing.required.length > 0 && !narrowing.required.includes(row.is_required === false ? 'no' : 'yes')) return false;
 
             return true;
         });
-        if (!isSorted(sort, DEFAULT_SORT)) return narrowed;
+        if (!isSorted(sort, opening)) return narrowed;
 
         const byName = (a: DirectoryItem, b: DirectoryItem) => a.label.localeCompare(b.label, 'ru');
-        const compare = sort.key === 'count' ? (a: DirectoryItem, b: DirectoryItem) => a.users_count - b.users_count || byName(a, b) : byName;
+
+        /** What a row is worth in the column being sorted by. */
+        const worth = (row: DirectoryItem): string | number => {
+            if (sort.key === 'count') return row.users_count;
+            if (sort.key === 'hint') return (row.hint ?? '').toLowerCase();
+            if (sort.key === 'storage') return row.on_paper === true ? 1 : 0;
+            if (sort.key === 'required') return row.is_required === false ? 0 : 1;
+            if (sort.key === 'section') return sections?.find((one) => one.value === row.section)?.label ?? '';
+
+            return row.label;
+        };
+
+        // The name settles every tie, so a column of «Да» and «Нет» reads as
+        // two runs in alphabetical order rather than in the order rows
+        // happened to arrive in.
+        const compare = (a: DirectoryItem, b: DirectoryItem) => {
+            const left = worth(a);
+            const right = worth(b);
+            const by = typeof left === 'number' && typeof right === 'number' ? left - right : String(left).localeCompare(String(right), 'ru');
+
+            return by || byName(a, b);
+        };
 
         return [...narrowed].sort((a, b) => (sort.direction === 'asc' ? compare(a, b) : -compare(a, b)));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [items, query, search, sort, narrowing, sections]);
+    }, [items, query, search, hint, sort, narrowing, sections]);
+
+    /**
+     * The list as it reads once the row that was dragged lands where it was
+     * dropped, sent whole: what is being saved is an order, and an order is
+     * the arrangement of all of it.
+     */
+    const dropRow = (dragged: string, onto: string, place: 'before' | 'after') => {
+        const moved = Number(dragged);
+        const rest = visible.map((row) => row.id).filter((id) => id !== moved);
+        const at = rest.indexOf(Number(onto)) + (place === 'after' ? 1 : 0);
+
+        router.put(route(`${routeName}.order`), { ids: [...rest.slice(0, at), moved, ...rest.slice(at)] }, { preserveScroll: true });
+    };
+
+    /** The part of the list this page shows, and what the foot of the table says about it. */
+    const pages = Math.max(1, Math.ceil(visible.length / perPage));
+    const current = Math.min(page, pages);
+    const shown = visible.slice((current - 1) * perPage, current * perPage);
+
+    // A narrowed list is a shorter list: what was page four of everything is
+    // past the end of what is left, and the first page is where somebody who
+    // has just searched is looking.
+    useEffect(() => {
+        setPage(1);
+    }, [query, search, hint, narrowing, perPage, sort]);
 
     /* The table lays the columns out; what a row holds is this list's own. */
     const cell: CellRenderer<DirectoryItem> = (column, row) => {
@@ -273,8 +413,18 @@ export function DirectoryManager({
             );
         }
 
-        if (column.key === 'accepts') {
-            return <span className="text-muted-foreground">{attachedAs(row)}</span>;
+        if (column.key === 'hint') {
+            return row.hint ? <span className="text-muted-foreground">{row.hint}</span> : <span className="text-muted-foreground">—</span>;
+        }
+
+        if (column.key === 'storage') {
+            // Every document is one or more PDFs now, so the only thing left to
+            // say about how it arrives is whether it arrives at all.
+            return (
+                <span className={row.on_paper === true ? undefined : 'text-muted-foreground'}>
+                    {row.on_paper === true ? 'Оригинал сдают' : 'Файлом'}
+                </span>
+            );
         }
 
         if (column.key === 'required') {
@@ -302,14 +452,6 @@ export function DirectoryManager({
 
     return (
         <>
-            {/*
-             * On a desktop the button sits at the end of the tab line, where the
-             * design puts it, so it is handed to the shell that draws that line;
-             * on a phone the round button over the tab bar takes its place, and
-             * the search is the phone's alone.
-             */}
-            {canEdit && <PageActions>{addButton}</PageActions>}
-
             <div className="flex flex-wrap items-center gap-2 md:hidden">
                 <SearchInput
                     value={query}
@@ -357,7 +499,7 @@ export function DirectoryManager({
                                     }
                                     subtitle={
                                         documents
-                                            ? `${attachedAs(row)} · ${count} ${plural(count, countWords)}`
+                                            ? `${row.on_paper === true ? 'Оригинал сдают' : 'Файлом'} · ${count} ${plural(count, countWords)}`
                                             : `${count} ${plural(count, countWords)}`
                                     }
                                     trailing={
@@ -438,26 +580,38 @@ export function DirectoryManager({
                             </DropdownMenuCheckboxItem>
                         ))}
                     </TableMemoryButton>
+
+                    {/* At the end of the line the list is read from, after the
+                        funnel: the box narrows what is there, the funnel
+                        narrows it further, and this adds to it. On a phone the
+                        round button over the tab bar does the same. */}
+                    {canEdit && addButton}
                 </div>
 
                 <DataTable
                     columns={columns}
-                    rows={visible}
+                    rows={shown}
                     rowKey={(row) => row.id}
                     renderCell={cell}
                     sort={sort}
-                    sortable={sections ? ['section', 'name', 'count'] : ['name', 'count']}
-                    onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, DEFAULT_SORT))}
+                    sortable={columnKeys}
+                    onSort={(key, direction) => setSort(direction ? { key, direction } : cycleSort(sort, key, opening))}
                     filters={{
                         name: query,
+                        hint,
                         section: narrowing.section,
+                        storage: narrowing.storage,
+                        required: narrowing.required,
                     }}
                     onFilter={(changes) => {
                         if (typeof changes.name === 'string') setQuery(changes.name);
+                        if (typeof changes.hint === 'string') setHint(changes.hint);
 
-                        const part = Array.isArray(changes.section) ? (changes.section as string[]) : undefined;
+                        for (const key of ['section', 'storage', 'required'] as const) {
+                            const picked = changes[key];
 
-                        if (part) setNarrowing((held) => ({ ...held, section: part }));
+                            if (Array.isArray(picked)) setNarrowing((held) => ({ ...held, [key]: picked as string[] }));
+                        }
                     }}
                     view={view}
                     onPin={pin}
@@ -465,6 +619,7 @@ export function DirectoryManager({
                     onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="name"
+                    onRowDrop={draggable ? dropRow : undefined}
                     actionsWidth={112}
                     actions={
                         canEdit
@@ -494,6 +649,48 @@ export function DirectoryManager({
                             : undefined
                     }
                     empty={<span className="text-sm">{items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}</span>}
+                    footer={
+                        <>
+                            {/* How many rows a page holds, as the staff list
+                                asks it: the same words in the same corner, and
+                                the choice is this page's own. */}
+                            <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                Строк на странице
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="h-8 gap-1 px-2.5 tabular-nums">
+                                            {perPage}
+                                            <ChevronDown className="text-muted-foreground" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className="min-w-20">
+                                        <DropdownMenuRadioGroup value={String(perPage)} onValueChange={(value) => setPerPage(Number(value))}>
+                                            {PER_PAGE.map((option) => (
+                                                <DropdownMenuRadioItem key={option} value={String(option)} className="tabular-nums">
+                                                    {option}
+                                                </DropdownMenuRadioItem>
+                                            ))}
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+
+                            <Pagination
+                                className="min-w-0 flex-1"
+                                onPage={setPage}
+                                paginator={{
+                                    data: shown,
+                                    current_page: current,
+                                    last_page: pages,
+                                    per_page: perPage,
+                                    total: visible.length,
+                                    from: shown.length === 0 ? null : (current - 1) * perPage + 1,
+                                    to: shown.length === 0 ? null : (current - 1) * perPage + shown.length,
+                                    path: '',
+                                }}
+                            />
+                        </>
+                    }
                 />
             </div>
 

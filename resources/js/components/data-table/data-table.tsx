@@ -131,6 +131,17 @@ interface DataTableProps<Row> {
      * column does not jump when it is drawn.
      */
     actionsWidth?: number;
+    /**
+     * What to do when one row is dragged onto another: the key of the row that
+     * was dragged, the key it was dropped on, and which side of it.
+     *
+     * A list whose order is its own — the papers a company asks for, read from
+     * the top down in the order it asks for them — is arranged by hand, and
+     * this is the hand. Given nothing, the rows do not move: most tables are
+     * read in whatever order they are sorted into, and a row that could be
+     * dragged in one of those would be promising something it cannot keep.
+     */
+    onRowDrop?: (dragged: string, onto: string, place: 'before' | 'after') => void;
     empty: ReactNode;
     /** A bar under the table, inside the card: rows per page and paging. */
     footer?: ReactNode;
@@ -169,6 +180,7 @@ export function DataTable<Row>({
     rowSpan,
     actions,
     actionsWidth: actionsCell = ACTIONS_WIDTH,
+    onRowDrop,
     empty,
     footer,
     mobileRow,
@@ -184,12 +196,92 @@ export function DataTable<Row>({
     const resizeFrom = useRef({ x: 0, width: 0 });
 
     /**
-     * How wide a column is drawn: what the hand is doing to it this instant,
-     * else what the viewer dragged it to before, else the page's own answer.
-     * Everything that measures a column asks here — the header cells, the width
-     * of the table and the offsets that hold the pinned columns at their edges.
+     * The least a column may be drawn at: enough for its own name, the arrow
+     * that sorts it and the signs beside them.
+     *
+     * Measured rather than written down. A page says how wide a column should
+     * be for what stands in its cells, and nobody keeps those numbers in step
+     * with the letters of the heading — «Тип хранения» lands in a column sized
+     * for «Да» and «Нет», and the heading is cut to «Тип хран…», which is the
+     * one thing in a table that must not be guessed at: a cell may be opened,
+     * widened or read in the row beside it, but a heading cut short leaves the
+     * column unnamed.
+     *
+     * Only what is already in the header is measured, so this settles at once:
+     * once the column is wide enough, what it needs is what it has.
      */
-    const widthOf = (column: ColumnDef) => (resizing?.key === column.key ? resizing.width : (view.widths?.[column.key] ?? column.width));
+    const [headFloor, setHeadFloor] = useState<Record<string, number>>({});
+
+    /**
+     * Measured again once the letters are the ones they will be.
+     *
+     * The first paint is drawn in whatever font the system had to hand, and
+     * the real one arrives a moment later and is wider: a heading measured
+     * before the swap fits, and is cut short by the swap without anything
+     * happening that would measure it again.
+     */
+    const [lettered, setLettered] = useState(false);
+
+    useEffect(() => {
+        let waiting = true;
+
+        document.fonts?.ready.then(() => waiting && setLettered(true));
+
+        return () => {
+            waiting = false;
+        };
+    }, []);
+
+    // After the paint rather than before it: what a heading is missing can only
+    // be read off a header that has been laid out, and each pass measures what
+    // the last one left. Two frames at the most, which is below seeing.
+    useEffect(() => {
+        const floors: Record<string, number> = {};
+
+        for (const [key, cell] of cells.current) {
+            const label = cell.firstElementChild?.querySelector('span');
+            if (!label) continue;
+
+            // How much of the name is not showing. A heading that fits asks
+            // for nothing: it is left without a floor at all, so a column
+            // nobody has had to widen can still be dragged as narrow as its
+            // owner likes.
+            const clipped = label.scrollWidth - label.clientWidth;
+
+            if (clipped <= 0) continue;
+
+            // As wide as it stands plus what is missing, and a pixel over:
+            // every one of these numbers is rounded on the way out, and a name
+            // that fits to the last half-pixel is a name that ends in «…» on
+            // half the screens it is read on.
+            floors[key] = Math.ceil(cell.getBoundingClientRect().width + clipped) + 1;
+        }
+
+        setHeadFloor((held) => {
+            // Only ever wider, and measured again from what the last pass left:
+            // a clipped name says how much of itself is showing rather than how
+            // much there is, so one pass closes most of the gap and the next
+            // closes the rest. It settles the moment nothing is clipped, which
+            // is what makes it safe to measure again on every change.
+            const next = { ...held };
+
+            for (const [key, at] of Object.entries(floors)) {
+                next[key] = Math.max(at, held[key] ?? 0);
+            }
+
+            const same = Object.keys(next).length === Object.keys(held).length && Object.entries(next).every(([key, at]) => held[key] === at);
+
+            return same ? held : next;
+        });
+    }, [columns, view.hidden, view.pinned, sort, filters, headFloor, lettered]);
+
+    /**
+     * How wide a column is drawn: what the hand is doing to it this instant,
+     * else what the viewer dragged it to before, else the page's own answer —
+     * and never narrower than its own heading.
+     */
+    const widthOf = (column: ColumnDef) =>
+        Math.max(resizing?.key === column.key ? resizing.width : (view.widths?.[column.key] ?? column.width), headFloor[column.key] ?? 0);
 
     /** Whether a column stands at a width of the viewer's own choosing. */
     const isResized = (column: ColumnDef) => view.widths?.[column.key] !== undefined;
@@ -248,6 +340,35 @@ export function DataTable<Row>({
     const clearDrag = () => {
         setDragged(null);
         setDropAt(null);
+    };
+
+    /** The row being dragged into another place, and where it would land. */
+    const [draggedRow, setDraggedRow] = useState<string | null>(null);
+    const [rowDropAt, setRowDropAt] = useState<{ key: string; place: 'before' | 'after' } | null>(null);
+    const clearRowDrag = () => {
+        setDraggedRow(null);
+        setRowDropAt(null);
+    };
+
+    /**
+     * Where a row would land if it were let go here: above the row under the
+     * cursor or below it, by which half of it the cursor is over. Read from the
+     * cell rather than from the row, because a row is as tall as its tallest
+     * cell and the cursor is over one of them.
+     */
+    const rowDragOver = (event: DragEvent<HTMLTableRowElement>, key: string) => {
+        if (draggedRow === null || key === draggedRow) {
+            setRowDropAt(null);
+
+            return;
+        }
+
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+
+        const box = event.currentTarget.getBoundingClientRect();
+
+        setRowDropAt({ key, place: event.clientY < box.top + box.height / 2 ? 'before' : 'after' });
     };
 
     /**
@@ -589,7 +710,7 @@ export function DataTable<Row>({
                                                 <span className="truncate">{column.label}</span>
                                             )}
 
-                                            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                                            <div data-head-controls className="ml-auto flex shrink-0 items-center gap-0.5">
                                                 {reorderable && (
                                                     <HeaderHint label="Перетащите, чтобы изменить порядок">
                                                         {/* A grip of its own, rather than the whole header: the
@@ -805,7 +926,49 @@ export function DataTable<Row>({
                             // ground, so the thin colour falls once everywhere
                             // rather than twice over the pinned cells, which
                             // carry a ground of their own.
-                            <tr key={rowKey(row)} className="group/row border-t align-top transition-colors first:border-t-0 hover:bg-(--row-hover)">
+                            <tr
+                                key={rowKey(row)}
+                                draggable={onRowDrop !== undefined}
+                                onDragStart={
+                                    onRowDrop === undefined
+                                        ? undefined
+                                        : (event) => {
+                                              // Firefox begins no drag at all with an empty clipboard.
+                                              event.dataTransfer.setData('text/plain', String(rowKey(row)));
+                                              event.dataTransfer.effectAllowed = 'move';
+                                              setDraggedRow(String(rowKey(row)));
+                                          }
+                                }
+                                onDragOver={onRowDrop === undefined ? undefined : (event) => rowDragOver(event, String(rowKey(row)))}
+                                onDrop={
+                                    onRowDrop === undefined
+                                        ? undefined
+                                        : (event) => {
+                                              event.preventDefault();
+
+                                              if (draggedRow !== null && rowDropAt?.key === String(rowKey(row))) {
+                                                  onRowDrop(draggedRow, rowDropAt.key, rowDropAt.place);
+                                              }
+
+                                              clearRowDrag();
+                                          }
+                                }
+                                onDragEnd={onRowDrop === undefined ? undefined : clearRowDrag}
+                                className={cn(
+                                    'group/row border-t align-top transition-colors first:border-t-0 hover:bg-(--row-hover)',
+                                    // The row being carried fades, and the one it
+                                    // would land against draws a line along the
+                                    // edge it would land on: the list says where
+                                    // the row is going while the hand is still
+                                    // holding it.
+                                    onRowDrop !== undefined && 'cursor-grab',
+                                    draggedRow === String(rowKey(row)) && 'opacity-40',
+                                    rowDropAt?.key === String(rowKey(row)) &&
+                                        (rowDropAt.place === 'before'
+                                            ? 'shadow-[inset_0_2px_0_var(--color-brand-strong)]'
+                                            : 'shadow-[inset_0_-2px_0_var(--color-brand-strong)]'),
+                                )}
+                            >
                                 {visible.map((column, index) => {
                                     const span = rowSpan ? rowSpan(column, row) : 1;
 

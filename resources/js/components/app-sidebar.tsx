@@ -1,7 +1,7 @@
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { readsEquipmentJournal, seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
+import { directoryLists, readsEquipmentJournal, seesDirectories, seesEquipment, useCan, type Permission } from '@/lib/access';
 import { TABLE_KEYS, useListHref } from '@/lib/tables';
 import { type SharedData, type SidebarNavGroup } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
@@ -221,9 +221,22 @@ export function AppSidebar() {
         // would only mean two doors to one room, and among company-wide entries
         // settings would read as something they are not.
         items: [
-            // One list open is enough for the door: /directories lands on the
-            // first one this person may read.
-            ...(seesDirectories(can) ? [{ title: 'Справочники', url: '/directories', icon: BookMarked }] : []),
+            ...(seesDirectories(can)
+                ? [
+                      {
+                          title: 'Справочники',
+                          icon: BookMarked,
+                          // The lists themselves rather than one door onto
+                          // whichever of them comes first: they are kept by
+                          // different people, and somebody who came to rename a
+                          // job's document type was landing on the languages and
+                          // reading the tabs to find their way out again.
+                          items: directoryLists
+                              .filter((list) => can(list.view))
+                              .map((list) => ({ title: list.title, url: `/directories/${list.key}` })),
+                      },
+                  ]
+                : []),
         ],
     };
 

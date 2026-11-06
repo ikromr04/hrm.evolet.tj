@@ -36,7 +36,7 @@ export default function Equipment({
     canEdit: boolean;
 }) {
     return (
-        <DirectoriesLayout title="Категории техники">
+        <DirectoriesLayout title="Категории оборудования">
             <DirectoryManager
                 items={items.map((item) => ({ ...item, label: item.name }))}
                 canEdit={canEdit}
@@ -50,7 +50,7 @@ export default function Equipment({
                 route="directories.equipment"
                 labels={{
                     add: 'Добавить категорию',
-                    create: 'Новая категория техники',
+                    create: 'Новая категория оборудования',
                     edit: 'Изменить категорию',
                     accusative: 'категорию',
                 }}
