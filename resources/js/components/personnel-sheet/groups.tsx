@@ -562,18 +562,21 @@ export function LanguagesGroup({
     setData,
     options,
     can = anything,
-    created,
-    onCreated,
 }: GroupProps & {
     /**
      * Languages typed in that the directory has not heard of yet. Kept by the
      * page rather than here, because a page that empties its form for the next
      * colleague has to empty this too.
      */
-    created: string[];
-    onCreated: (name: string) => void;
 }) {
     if (!can('languages')) return null;
+
+    /** One row's language, by name: the rows are replaced whole on every edit. */
+    const setLanguage = (index: number, name: string) =>
+        setData(
+            'languages',
+            data.languages.map((item, position) => (position === index ? { ...item, name } : item)),
+        );
 
     return (
         <Group>
@@ -589,29 +592,14 @@ export function LanguagesGroup({
                     <FormGrid key={index}>
                         <SearchableSelect
                             className="min-w-0"
-                            invalid={!!at(errors, `languages.${index}.id`) || !!at(errors, `languages.${index}.name`)}
-                            value={spoken.id}
-                            onChange={(value) =>
-                                setData(
-                                    'languages',
-                                    data.languages.map((item, position) => (position === index ? { ...item, id: value } : item)),
-                                )
-                            }
-                            options={[
-                                ...options.languages.map((language) => ({
-                                    value: String(language.id),
-                                    label: language.name,
-                                })),
-                                // Typed in and not on the list yet: saved by name, added to it then.
-                                ...created.map((name) => ({ value: `new:${name}`, label: name })),
-                            ]}
-                            onCreate={(name) => {
-                                onCreated(name);
-                                setData(
-                                    'languages',
-                                    data.languages.map((item, position) => (position === index ? { ...item, id: `new:${name}` } : item)),
-                                );
-                            }}
+                            invalid={!!at(errors, `languages.${index}.name`)}
+                            value={spoken.name}
+                            onChange={(value) => setLanguage(index, value)}
+                            // What other cards already say, and whatever is
+                            // typed here instead — taken as it is typed, since
+                            // there is no list of languages to add it to.
+                            options={offered(options.languages, spoken.name)}
+                            onCreate={(name) => setLanguage(index, name)}
                             placeholder="Язык"
                             searchPlaceholder="Поиск языка"
                             empty="Язык не найден"
@@ -669,7 +657,7 @@ export function LanguagesGroup({
                     variant="outline"
                     size="sm"
                     className="self-start"
-                    onClick={() => setData('languages', [...data.languages, { id: '', level: 'intermediate' }])}
+                    onClick={() => setData('languages', [...data.languages, { name: '', level: 'intermediate' }])}
                 >
                     <Plus />
                     Добавить язык

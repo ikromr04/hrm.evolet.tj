@@ -208,9 +208,13 @@ export const languageLevelLabels: Record<LanguageLevel, string> = {
     advanced: 'Продвинутый',
 };
 
-/** A language an employee speaks, public like positions. */
+/**
+ * A language an employee speaks, public like positions.
+ *
+ * Known by its name: a language is a word written on this card rather than an
+ * entry of a list the company keeps, and the staff list narrows by that word.
+ */
 export interface SpokenLanguage {
-    id: number;
     name: string;
     level: LanguageLevel;
 }

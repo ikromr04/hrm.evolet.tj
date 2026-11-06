@@ -176,7 +176,7 @@ interface EmployeesProps {
         departments: { id: number; name: string; full_name: string; depth: number }[];
         /** What hangs inside them, a unit of a unit indented under its own — the «Отдел» funnel. */
         units: { id: number; name: string; full_name: string; depth: number }[];
-        languages: { id: number; name: string }[];
+        languages: string[];
         nationalities: string[];
         citizenships: string[];
     };
@@ -445,8 +445,8 @@ const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
  * it off again; several ask for people who have all of them.
  */
 interface ChipFilter {
-    toggle: (param: 'language' | 'citizenship', value: number | string) => void;
-    has: (param: 'language' | 'citizenship', value: number | string) => boolean;
+    toggle: (param: 'language' | 'citizenship', value: string) => void;
+    has: (param: 'language' | 'citizenship', value: string) => boolean;
 }
 
 function buildColumns(options: EmployeesProps['options'], visible: string[], chips: ChipFilter): ColumnDef[] {
@@ -555,13 +555,13 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 label: 'Языки',
                 width: 260,
                 private: false,
-                filter: { type: 'multi', param: 'language', options: options.languages.map((l) => ({ value: l.id, label: l.name })) },
+                filter: { type: 'multi', param: 'language', options: options.languages.map((name) => ({ value: name, label: name })) },
                 cell: (row) =>
                     row.languages?.length ? (
                         <LanguageBadges
                             languages={row.languages}
-                            onPick={(language) => chips.toggle('language', language.id)}
-                            isPicked={(language) => chips.has('language', language.id)}
+                            onPick={(language) => chips.toggle('language', language.name)}
+                            isPicked={(language) => chips.has('language', language.name)}
                         />
                     ) : (
                         <Empty />

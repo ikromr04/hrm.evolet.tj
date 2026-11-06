@@ -2,12 +2,12 @@
 
 namespace Tests\Feature;
 
-use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserDetail;
+use App\Support\EmployeeCard;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -237,12 +237,15 @@ class EmployeeDirectoryTest extends TestCase
         $admin = $this->colleague();
         $admin->assignRole('sysadmin');
         $dual = User::factory()->has(UserDetail::factory(), 'details')->create();
-        $dual->citizenships()->sync(Citizenship::idsFor(['Таджикистан', 'Россия']));
+        // Written whole, over whatever the factory put on the card.
+        EmployeeCard::saveCitizenships($dual, ['Таджикистан', 'Россия']);
         $other = User::factory()->has(UserDetail::factory(), 'details')->create();
-        $other->citizenships()->sync(Citizenship::idsFor(['Узбекистан']));
+        EmployeeCard::saveCitizenships($other, ['Узбекистан']);
         $this->actingAs($admin);
 
-        // The directory, by name.
+        // What the filter offers to pick from: every country any card names,
+        // each once and in order, since there is no list of countries beyond
+        // the ones written down somewhere.
         $this->get('/employees')->assertInertia(fn (Assert $page) => $page
             ->where('options.citizenships', ['Россия', 'Таджикистан', 'Узбекистан'])
         );
@@ -564,15 +567,16 @@ class EmployeeDirectoryTest extends TestCase
 
     public function test_the_citizenship_column_sorts_by_the_country_it_prints()
     {
-        // Citizenships left `user_details` for a directory of their own, and
+        // Citizenships left `user_details` for a list of rows of their own, and
         // the column kept its header: pressing it has to put the list in order
-        // rather than ask the database for a column that is not there.
+        // by the countries written on the cards rather than ask the database
+        // for a column that is not there.
         $admin = User::factory()->create();
         $admin->assignRole('sysadmin');
         $russia = User::factory()->create();
-        $russia->citizenships()->sync(Citizenship::idsFor(['Россия']));
+        $russia->citizenships()->create(['name' => 'Россия']);
         $afghanistan = User::factory()->create();
-        $afghanistan->citizenships()->sync(Citizenship::idsFor(['Афганистан']));
+        $afghanistan->citizenships()->create(['name' => 'Афганистан']);
 
         $this->actingAs($admin);
 

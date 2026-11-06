@@ -550,10 +550,14 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
     // read and kept by the very same two rights they always were.
     // "Роли доступа" and "Доступы" are gone altogether: there are four roles, they
     // are named in App\Support\Access, and no page hands rights out any more.
+    // The order the papers are read in, which is the list's own and not a
+    // column anybody sorts by. Before the resource below, or «order» would be
+    // read as the id of a paper to save over.
+    Route::put('document_types/order', [Directories\DocumentTypeController::class, 'order'])
+        ->middleware('can:directories.manage.document_types')
+        ->name('document_types.order');
+
     $lists = [
-        'languages' => Directories\LanguageController::class,
-        'citizenships' => Directories\CitizenshipController::class,
-        'employment_types' => Directories\EmploymentTypeController::class,
         'document_types' => Directories\DocumentTypeController::class,
         'equipment' => Directories\EquipmentTypeController::class,
     ];

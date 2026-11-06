@@ -673,7 +673,7 @@ class PositionPagesTest extends TestCase
         $this->assertNotContains('positions', Directories::visibleTo($sysadmin));
         $this->assertNotContains('positions', Directories::editableBy($sysadmin));
         $this->actingAs($sysadmin)->get('/directories/positions')->assertNotFound();
-        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/languages');
+        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/document_types');
 
         // The section is shut for somebody who may read nothing but the job
         // titles — that list is elsewhere now and answers for itself.

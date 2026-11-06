@@ -45,16 +45,10 @@ export type Permission =
     | 'equipment.delete'
     | 'directories.view.positions'
     | 'directories.view.departments'
-    | 'directories.view.languages'
-    | 'directories.view.citizenships'
-    | 'directories.view.employment_types'
     | 'directories.view.document_types'
     | 'directories.view.equipment'
     | 'directories.edit.positions'
     | 'directories.edit.departments'
-    | 'directories.edit.languages'
-    | 'directories.edit.citizenships'
-    | 'directories.edit.employment_types'
     | 'directories.edit.document_types'
     | 'directories.edit.equipment';
 
@@ -138,21 +132,6 @@ export const directoryLists: DirectoryList[] = [
     // "Отделы" left the same way the job titles did: the departments are read
     // beside the chart they are drawn into, under "Структура компании", and the
     // right that opens them is still directories.view.departments.
-    { key: 'languages', title: 'Языки', view: 'directories.view.languages', edit: 'directories.edit.languages', add: 'Добавить язык' },
-    {
-        key: 'citizenships',
-        title: 'Гражданства',
-        view: 'directories.view.citizenships',
-        edit: 'directories.edit.citizenships',
-        add: 'Добавить гражданство',
-    },
-    {
-        key: 'employment_types',
-        title: 'Типы занятости',
-        view: 'directories.view.employment_types',
-        edit: 'directories.edit.employment_types',
-        add: 'Добавить тип занятости',
-    },
     {
         key: 'document_types',
         title: 'Документы (Чек-лист)',
@@ -162,10 +141,10 @@ export const directoryLists: DirectoryList[] = [
     },
     {
         key: 'equipment',
-        title: 'Категории техники',
+        title: 'Категории оборудования',
         view: 'directories.view.equipment',
         edit: 'directories.edit.equipment',
-        add: 'Добавить категорию техники',
+        add: 'Добавить категорию оборудования',
     },
 ];
 

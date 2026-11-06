@@ -61,7 +61,7 @@ export function LanguageBadges({
         <div className="flex flex-wrap gap-1 whitespace-normal">
             {languages.map((language) => (
                 <Pickable
-                    key={language.id}
+                    key={language.name}
                     label={`Владеют языком: ${language.name}`}
                     onPick={onPick && (() => onPick(language))}
                     picked={isPicked?.(language)}

@@ -2,8 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Citizenship;
-use App\Models\Language;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserEducation;
@@ -103,7 +101,7 @@ class PersonnelSheetTest extends TestCase
             'phone' => '+992901112233',
             'sos_phone' => '+992902223344',
         ]);
-        $employee->citizenships()->attach(Citizenship::idsFor(['Таджикистан']));
+        $employee->citizenships()->create(['name' => 'Таджикистан']);
 
         return $employee;
     }
@@ -296,8 +294,8 @@ class PersonnelSheetTest extends TestCase
         $wanted = PersonnelSheet::missing($bare, $admin);
 
         $spoken = $this->blankCard();
-        $spoken->languages()->attach(Language::create(['name' => 'Английский']), ['level' => 'advanced']);
-        $spoken->languages()->attach(Language::create(['name' => 'Русский']), ['level' => 'advanced']);
+        $spoken->languages()->create(['name' => 'Английский', 'level' => 'advanced']);
+        $spoken->languages()->create(['name' => 'Русский', 'level' => 'advanced']);
         UserRelative::factory(2)->for($spoken)->create();
 
         $this->assertSame($before, PersonnelSheet::filled($spoken->fresh(), $admin));

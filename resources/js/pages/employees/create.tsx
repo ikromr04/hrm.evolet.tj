@@ -160,7 +160,6 @@ export default function CreateEmployee({
     const posts = options.positions.filter((position) => position.department_id !== null);
     const [current, setCurrent] = useState(0);
     const [added, setAdded] = useState<NewEmployee | null>(null);
-    const [createdLanguages, setCreatedLanguages] = useState<string[]>([]);
 
     const form = useClearingForm({
         /* Основное */
@@ -351,7 +350,6 @@ export default function CreateEmployee({
     const startOver = () => {
         form.clearErrors();
         form.reset();
-        setCreatedLanguages([]);
         setCurrent(0);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -580,11 +578,7 @@ export default function CreateEmployee({
                                 </Section>
 
                                 <Section index={5} title={sections[5].title} hold={hold} current={current}>
-                                    <LanguagesGroup
-                                        {...part}
-                                        created={createdLanguages}
-                                        onCreated={(name) => setCreatedLanguages((held) => (held.includes(name) ? held : [...held, name]))}
-                                    />
+                                    <LanguagesGroup {...part} />
                                 </Section>
 
                                 <Section index={6} title={sections[6].title} hold={hold} current={current}>

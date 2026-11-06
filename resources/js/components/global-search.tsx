@@ -48,7 +48,7 @@ interface SearchResults {
     positions: { id: number; name: string }[];
     roles: { name: string; title: string }[];
     equipmentTypes: { id: number; name: string; icon: string | null }[];
-    languages: { id: number; name: string }[];
+    languages: { name: string }[];
 }
 
 interface Item {
@@ -333,18 +333,18 @@ export function GlobalSearch() {
             })),
             ...results.equipmentTypes.map((type) => ({
                 key: `equipment-type-${type.id}`,
-                group: 'Категории техники',
+                group: 'Категории оборудования',
                 label: type.name,
                 hint: 'Техника этой категории',
                 href: route('inventory.overview', { tab: 'all', type: [type.id] }),
                 icon: <CategoryChip icon={type.icon} size={32} iconSize={16} />,
             })),
             ...results.languages.map((language) => ({
-                key: `language-${language.id}`,
+                key: `language-${language.name}`,
                 group: 'Языки',
                 label: language.name,
                 hint: 'Сотрудники, которые им владеют',
-                href: route('employees.index', { language: [language.id] }),
+                href: route('employees.index', { language: [language.name] }),
                 icon: iconBox(Languages),
             })),
             // With nothing typed, these three work as quick navigation; with
@@ -429,7 +429,7 @@ export function GlobalSearch() {
                 <DialogContent className="gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:flex max-sm:h-dvh max-sm:max-h-none max-sm:flex-col max-sm:rounded-none max-sm:border-0 max-sm:pt-[env(safe-area-inset-top)] sm:top-[12vh] sm:max-w-xl sm:translate-y-0 [&>button:last-child]:top-1.5 sm:[&>button:last-child]:top-3.5 [&>div[aria-hidden]:first-child]:hidden">
                     <DialogTitle className="sr-only">Поиск</DialogTitle>
                     <DialogDescription className="sr-only">
-                        Сотрудники, оборудование, отделы, должности, позиции, категории техники, языки и разделы.
+                        Сотрудники, оборудование, отделы, должности, позиции, категории оборудования, языки и разделы.
                     </DialogDescription>
 
                     <label className="flex items-center gap-2 border-b px-4 pr-12">

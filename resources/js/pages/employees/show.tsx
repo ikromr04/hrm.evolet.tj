@@ -320,7 +320,7 @@ interface EditOptions extends PlacementOptions {
     employment_types: string[];
     /** The roles this viewer may hand out, chosen by name. */
     roles: { name: string; title: string }[];
-    languages: { id: number; name: string }[];
+    languages: string[];
     /** Why jobs have ended before, as suggestions for a previous job. */
     reasons: string[];
     equipment_types: { id: number; name: string }[];
@@ -963,7 +963,6 @@ function SheetTab({
     const [editing, setEditing] = useState(false);
 
     /** Languages typed in that the directory has not heard of yet. */
-    const [createdLanguages, setCreatedLanguages] = useState<string[]>([]);
 
     /**
      * The sheet as the card holds it, read into the answers a form is made of.
@@ -1015,8 +1014,8 @@ function SheetTab({
         // be skipped.
         languages:
             (employee.languages ?? []).length > 0
-                ? (employee.languages ?? []).map((language) => ({ id: String(language.id), level: language.level }))
-                : [{ id: '', level: 'intermediate' }],
+                ? (employee.languages ?? []).map((language) => ({ name: language.name, level: language.level }))
+                : [{ name: '', level: 'intermediate' }],
         has_experience: (details?.work_experiences ?? []).length > 0 ? 'yes' : asSaid(details?.has_experience),
         experiences: (details?.work_experiences ?? []).map((job) => ({
             organization: job.organization,
@@ -1069,7 +1068,6 @@ function SheetTab({
     const answer = (open: boolean) => {
         form.clearErrors();
         form.setData(saved());
-        setCreatedLanguages([]);
         setEditing(open);
     };
 
@@ -1363,20 +1361,14 @@ function SheetTab({
                 ) : (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         {languages.map((language) => (
-                            <span key={language.id} className="flex items-center gap-1.5 text-sm font-medium">
+                            <span key={language.name} className="flex items-center gap-1.5 text-sm font-medium">
                                 {language.name}
                                 <LevelBadge level={language.level} />
                             </span>
                         ))}
                     </div>
                 ),
-            edit: answers('languages') && (
-                <LanguagesGroup
-                    {...asked}
-                    created={createdLanguages}
-                    onCreated={(name) => setCreatedLanguages((held) => (held.includes(name) ? held : [...held, name]))}
-                />
-            ),
+            edit: answers('languages') && <LanguagesGroup {...asked} />,
         },
         {
             number: '06',
@@ -2797,34 +2789,29 @@ function MainDialog({
 
 /** The "Знание языков" card in a form: a level per language, each language once. */
 function LanguagesDialog({ employee, options, onClose }: { employee: Employee; options: EditOptions; onClose: () => void }) {
-    // A row holds the language's id, or "new:<name>" for one typed in that is not on the list yet.
+    // A row holds the language by name, as the card keeps it.
     const form = useClearingForm({
-        languages: (employee.languages ?? []).map((language) => ({ id: String(language.id), level: language.level })),
+        languages: (employee.languages ?? []).map((language) => ({ name: language.name, level: language.level })),
     });
-    const [created, setCreated] = useState<string[]>([]);
-    const choices = [
-        ...options.languages.map((option) => ({ value: String(option.id), label: option.name })),
-        ...created.map((name) => ({ value: `new:${name}`, label: name })),
-    ];
+    const choices = options.languages.map((name) => ({ value: name, label: name }));
 
     const errors = form.errors as Record<string, string | undefined>;
 
-    const setLanguage = (index: number, patch: Partial<{ id: string; level: LanguageLevel }>) =>
+    const setLanguage = (index: number, patch: Partial<{ name: string; level: LanguageLevel }>) =>
         form.setData(
             'languages',
             form.data.languages.map((language, i) => (i === index ? { ...language, ...patch } : language)),
         );
 
     // Each language once: a new row takes the first one not picked yet.
-    const unused = choices.find((choice) => !form.data.languages.some((l) => l.id === choice.value));
+    const unused = choices.find((choice) => !form.data.languages.some((l) => l.name === choice.value));
 
     const submit: FormEventHandler = (event) => {
         event.preventDefault();
-        // A language typed in goes by its name; the server puts it on the list.
+        // Rows left empty are rows nobody filled in rather than a language
+        // called nothing.
         form.transform((data) => ({
-            languages: data.languages.map(({ id, level }) =>
-                id.startsWith('new:') ? { name: id.slice(4), level } : { id: id === '' ? null : Number(id), level },
-            ),
+            languages: data.languages.filter(({ name }) => name.trim() !== '').map(({ name, level }) => ({ name: name.trim(), level })),
         }));
         form.put(route('employees.languages', employee.id), { preserveScroll: true, onSuccess: onClose });
     };
@@ -2847,19 +2834,23 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
                                 <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[1fr_9.5rem]">
                                     <div className="flex flex-col gap-1">
                                         <SearchableSelect
-                                            value={language.id}
-                                            onChange={(value) => setLanguage(index, { id: value })}
-                                            options={choices.filter(
-                                                (choice) => choice.value === language.id || !form.data.languages.some((l) => l.id === choice.value),
-                                            )}
-                                            onCreate={(name) => {
-                                                setCreated((current) => (current.includes(name) ? current : [...current, name]));
-                                                setLanguage(index, { id: `new:${name}` });
-                                            }}
+                                            value={language.name}
+                                            onChange={(value) => setLanguage(index, { name: value })}
+                                            options={[
+                                                ...choices.filter(
+                                                    (choice) =>
+                                                        choice.value === language.name || !form.data.languages.some((l) => l.name === choice.value),
+                                                ),
+                                                // Typed in and on no other card yet.
+                                                ...(language.name !== '' && !choices.some((choice) => choice.value === language.name)
+                                                    ? [{ value: language.name, label: language.name }]
+                                                    : []),
+                                            ]}
+                                            onCreate={(name) => setLanguage(index, { name })}
                                             searchPlaceholder="Язык"
-                                            invalid={Boolean(errors[`languages.${index}.id`] ?? errors[`languages.${index}.name`])}
+                                            invalid={Boolean(errors[`languages.${index}.name`])}
                                         />
-                                        <InputError message={errors[`languages.${index}.id`] ?? errors[`languages.${index}.name`]} />
+                                        <InputError message={errors[`languages.${index}.name`]} />
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <Select
@@ -2904,7 +2895,7 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
                             variant="outline"
                             className="self-start"
                             // With every language on the list taken, the new row starts empty for one to be typed in.
-                            onClick={() => form.setData('languages', [...form.data.languages, { id: unused?.value ?? '', level: 'intermediate' }])}
+                            onClick={() => form.setData('languages', [...form.data.languages, { name: unused?.value ?? '', level: 'intermediate' }])}
                         >
                             <Plus />
                             Добавить язык
@@ -3162,10 +3153,10 @@ function Languages({ items }: { items: SpokenLanguage[] }) {
     return (
         <ul className="flex flex-col">
             {items.map((language) => (
-                <li key={language.id} className={cn(recordRow, 'flex items-center justify-between gap-3 md:py-2.5')}>
+                <li key={language.name} className={cn(recordRow, 'flex items-center justify-between gap-3 md:py-2.5')}>
                     {links ? (
                         <Link
-                            href={route('employees.index', { language: [language.id] })}
+                            href={route('employees.index', { language: [language.name] })}
                             title={`Владеют языком: ${language.name}`}
                             className="hover:text-brand-strong truncate text-sm font-medium underline-offset-4 hover:underline max-md:text-[15px] max-md:font-normal"
                         >

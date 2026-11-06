@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\EmploymentType;
 use App\Models\User;
 use App\Models\UserDetail;
 use Database\Seeders\PositionSeeder;
@@ -109,51 +108,55 @@ class EmployeeNumberTest extends TestCase
     }
 
     /**
-     * The kind of work: one entry of a list, named rather than numbered.
+     * The kind of work: a word on the card, filed as it was typed.
      *
-     * It used to share this test with the branch somebody worked from. That
-     * list is gone — the company does not file its people by where they sit —
-     * and the kind of work is now the only line of a card that points at a
-     * list this way, so everything the pair proved between them is proved here
-     * of the one that is left.
+     * It used to point at a list the company kept — matched to an entry of it
+     * without regard to case, and written into the list when the box named
+     * something new. That list is gone, as the branch somebody worked from went
+     * before it: the kind of work is a line of the account like the number
+     * beside it, and what the next card is offered is what the cards already
+     * say. So what the pair of them proved about pointing at a list is proved
+     * here about the word that replaced it.
      */
-    public function test_the_kind_of_work_is_one_entry_of_its_list()
+    public function test_the_kind_of_work_is_a_word_on_the_card()
     {
         $admin = User::factory()->create()->assignRole('sysadmin');
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
-        $full = EmploymentType::create(['name' => 'Полная занятость']);
         $this->actingAs($admin);
 
         $this->put("/employees/{$employee->id}/personal", $this->payload([
-            'employment_type' => 'полная занятость',
+            'employment_type' => '  Полная занятость  ',
         ]))->assertSessionHasNoErrors();
 
-        // Matched without regard to case: the entry on the list, not a second one.
-        $this->assertSame([$full->id], EmploymentType::pluck('id')->all());
-        $this->assertSame('Полная занятость', $employee->fresh()->employmentType->name);
+        // Kept as it was typed, down to the case, and trimmed of what the box
+        // picked up around it: there is no entry for it to be matched to.
+        $this->assertSame('Полная занятость', $employee->fresh()->employment_type);
 
-        // The card reads it back by name.
+        // The card reads it back by name, and offers what the cards say to
+        // whoever opens the box again.
         $this->get("/employees/{$employee->id}")->assertInertia(fn (AssertableInertia $page) => $page
             ->where('employee.employment_type', 'Полная занятость')
             ->where('employee.employee_number', User::numberOf($employee->id))
+            ->where('options.employment_types', ['Полная занятость'])
         );
 
-        // One the list has not heard of is written into it here, the way a
-        // country typed into the citizenships is.
+        // A word nobody has typed here before is no different from one that has
+        // been: it is simply what this card now says.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['employment_type' => 'Подработка']))
             ->assertSessionHasNoErrors();
-        $this->assertSame('Подработка', $employee->fresh()->employmentType->name);
-        $this->assertTrue(EmploymentType::where('name', 'Подработка')->exists());
+        $this->assertSame('Подработка', $employee->fresh()->employment_type);
 
-        // An empty box is no entry at all.
+        // And the word another card carries is that card's own, offered to this
+        // one and nothing more — changing this line changed nobody else's.
+        $other = User::factory()->has(UserDetail::factory(), 'details')->create(['employment_type' => 'Полная занятость']);
+        $this->assertSame('Полная занятость', $other->fresh()->employment_type);
+        $this->get("/employees/{$employee->id}")->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('options.employment_types', ['Подработка', 'Полная занятость'])
+        );
+
+        // An empty box is no answer at all.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['employment_type' => '']))
             ->assertSessionHasNoErrors();
-        $this->assertNull($employee->fresh()->employment_type_id);
-
-        // And an entry that leaves the directory leaves the card standing, with
-        // that one line empty.
-        $employee->update(['employment_type_id' => $full->id]);
-        $full->delete();
-        $this->assertNull($employee->fresh()->employment_type_id);
+        $this->assertNull($employee->fresh()->employment_type);
     }
 }

@@ -204,7 +204,7 @@ export type ChildRow = { full_name: string; birth_date: string; occupation: stri
 export type RelativeRow = { relation: string; full_name: string; birth_date: string; occupation: string };
 
 /** A language and how well it is spoken; the id is a string while it may still be a name. */
-export type SpokenRow = { id: string; level: LanguageLevel };
+export type SpokenRow = { name: string; level: LanguageLevel };
 
 export const blankEducation: EducationRow = {
     institution: '',
@@ -257,7 +257,7 @@ export const blankSheet: SheetValues = {
     // One row from the start, because one language is asked for: everybody
     // speaks something, and a part that opened empty would read as a part that
     // may be skipped.
-    languages: [{ id: '', level: 'intermediate' }],
+    languages: [{ name: '', level: 'intermediate' }],
     // The same question once more, about the jobs held before this one.
     has_experience: '',
     experiences: [],
@@ -298,7 +298,7 @@ export const asSaid = (said: boolean | null | undefined): Said => (said === null
 export interface SheetOptions {
     nationalities: string[];
     citizenships: string[];
-    languages: { id: number; name: string }[];
+    languages: string[];
     /** The usual qualifications and the ones already on file. */
     qualifications: string[];
     /** What the degree line says on the cards already filed. */
@@ -339,13 +339,7 @@ export interface SheetOptions {
 const askedToGo = (asked: boolean | undefined) => asked || undefined;
 
 export const sheetToSend = (card: SheetValues) => ({
-    languages: card.languages
-        .filter((spoken) => spoken.id !== '')
-        .map((spoken) =>
-            String(spoken.id).startsWith('new:')
-                ? { name: String(spoken.id).slice(4), level: spoken.level }
-                : { id: Number(spoken.id), level: spoken.level },
-        ),
+    languages: card.languages.filter((spoken) => spoken.name.trim() !== '').map((spoken) => ({ name: spoken.name.trim(), level: spoken.level })),
     // The three answers that open a list travel the same way: only «нет»
     // carries meaning on its own, and rows of their own say the rest.
     has_educations: card.has_educations === '' ? null : card.has_educations === 'yes',

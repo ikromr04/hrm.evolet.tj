@@ -45,24 +45,12 @@ final class Directories
             'Отделы',
             'Дерево отделов и департаментов компании.',
         ],
-        'languages' => [
-            'Языки',
-            'Языки, владение которыми указывают в карточке.',
-        ],
-        'citizenships' => [
-            'Гражданства',
-            'Страны, гражданство которых указывают в карточке.',
-        ],
-        'employment_types' => [
-            'Типы занятости',
-            'Виды занятости, на которые принимают сотрудников.',
-        ],
         'document_types' => [
             'Документы (Чек-лист)',
             'Документы, которые сотрудник прикладывает в своей карточке.',
         ],
         'equipment' => [
-            'Категории техники',
+            'Категории оборудования',
             'Категории и поля, которыми описываются их единицы.',
         ],
     ];
@@ -78,7 +66,7 @@ final class Directories
      *
      * @var list<string>
      */
-    public const TABS = ['languages', 'citizenships', 'employment_types', 'document_types', 'equipment'];
+    public const TABS = ['document_types', 'equipment'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string

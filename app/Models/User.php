@@ -10,7 +10,6 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -75,7 +74,7 @@ class User extends Authenticatable
         // The company's own number for a person, written with its leading
         // noughts; see numberOf() below for the one a card starts with.
         'employee_number',
-        'employment_type_id',
+        'employment_type',
         'avatar',
         'avatar_original',
         'sex',
@@ -179,15 +178,6 @@ class User extends Authenticatable
     }
 
     /**
-     * The kind of work they were taken on for: one entry of the directory, or
-     * none. Public, like the position and the department.
-     */
-    public function employmentType(): BelongsTo
-    {
-        return $this->belongsTo(EmploymentType::class);
-    }
-
-    /**
      * Private data (passport, address, contacts). Only load it for viewers
      * who are allowed to see it.
      */
@@ -236,18 +226,18 @@ class User extends Authenticatable
     /**
      * Languages the employee speaks, each with a level; public, like positions.
      */
-    public function languages(): BelongsToMany
+    public function languages(): HasMany
     {
-        return $this->belongsToMany(Language::class)->withPivot('level')->withTimestamps()->orderBy('name');
+        return $this->hasMany(UserLanguage::class)->orderBy('name');
     }
 
     /**
      * The countries the employee is a citizen of; private, like the rest of
      * the card's personal lines.
      */
-    public function citizenships(): BelongsToMany
+    public function citizenships(): HasMany
     {
-        return $this->belongsToMany(Citizenship::class)->withTimestamps()->orderBy('name');
+        return $this->hasMany(UserCitizenship::class)->orderBy('name');
     }
 
     /**

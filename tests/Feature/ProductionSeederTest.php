@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\User;
 use App\Support\Access;
@@ -49,7 +48,6 @@ class ProductionSeederTest extends TestCase
 
         $this->assertSame(0, Department::count());
         $this->assertSame(0, Position::count());
-        $this->assertSame(0, Language::count());
         $this->assertSame(0, EquipmentType::count());
     }
 

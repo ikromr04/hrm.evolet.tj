@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
@@ -55,7 +54,6 @@ class UserSeeder extends Seeder
         $this->callOnce(RoleSeeder::class);
         $this->callOnce(DepartmentSeeder::class);
         $this->callOnce(PositionSeeder::class);
-        $this->callOnce(LanguageSeeder::class);
 
         $admin = $this->account(['name' => 'Некруз', 'surname' => 'Абдуллоев', 'patronymic' => 'Саидович', 'sex' => 'male', 'email' => 'admin@evolet.test']);
         // The one role, and nothing beside it: it passes every check through
@@ -303,19 +301,38 @@ class UserSeeder extends Seeder
     }
 
     /**
+     * The languages a made-up card may name. They are not a list the company
+     * keeps — a card says what it says — so they live here, where the made-up
+     * cards are written.
+     *
+     * @var list<string>
+     */
+    private const LANGUAGES = [
+        'Таджикский',
+        'Русский',
+        'Английский',
+        'Узбекский',
+        'Персидский',
+        'Немецкий',
+        'Турецкий',
+        'Французский',
+        'Китайский',
+        'Арабский',
+    ];
+
+    /**
      * Nearly everyone speaks Tajik and Russian; many know some English, and a
      * few speak another language as well.
      */
     private function assignLanguages(): void
     {
-        $languages = Language::all()->keyBy('name');
         $level = fn (array $weights) => fake()->randomElement(array_merge(...array_map(
             fn (string $level, int $weight) => array_fill(0, $weight, $level),
             array_keys($weights),
             $weights,
         )));
 
-        User::doesntHave('languages')->get()->each(function (User $user) use ($languages, $level) {
+        User::doesntHave('languages')->get()->each(function (User $user) use ($level) {
             $spoken = [
                 'Таджикский' => $level(['advanced' => 9, 'intermediate' => 1]),
                 'Русский' => $level(['advanced' => 6, 'intermediate' => 3, 'beginner' => 1]),
@@ -326,11 +343,11 @@ class UserSeeder extends Seeder
             }
 
             if (fake()->boolean(20)) {
-                $other = fake()->randomElement(array_diff(LanguageSeeder::LANGUAGES, array_keys($spoken)));
+                $other = fake()->randomElement(array_diff(self::LANGUAGES, array_keys($spoken)));
                 $spoken[$other] = $level(['advanced' => 3, 'intermediate' => 3, 'beginner' => 4]);
             }
 
-            $user->languages()->sync(collect($spoken)->mapWithKeys(fn (string $lvl, string $name) => [$languages[$name]->id => ['level' => $lvl]]));
+            $user->languages()->createMany(collect($spoken)->map(fn (string $level, string $name) => ['name' => $name, 'level' => $level])->values()->all());
         });
     }
 

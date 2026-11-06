@@ -97,7 +97,7 @@ class PermissionsTest extends TestCase
         // company keeps are neither.
         $this->get('/inventory/equipment/create')->assertForbidden();
         $this->get('/employees')->assertForbidden();
-        $this->get('/directories/languages')->assertForbidden();
+        $this->get('/directories/document_types')->assertForbidden();
     }
 
     public function test_reading_a_directory_and_changing_it_are_separate_rights()

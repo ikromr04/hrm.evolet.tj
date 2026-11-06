@@ -3,22 +3,21 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreEmployeeRequest;
-use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\DocumentType;
 use App\Models\EmployeeDocument;
 use App\Models\EmployeeDocumentFile;
-use App\Models\EmploymentType;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserChild;
+use App\Models\UserCitizenship;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
+use App\Models\UserLanguage;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
@@ -172,7 +171,9 @@ class EmployeeController extends Controller
                 }
             }],
             'language' => $private('languages', ['nullable', 'array']),
-            'language.*' => ['integer', Rule::exists('languages', 'id')],
+            // By name, as the cards keep them: a language nobody speaks here
+            // narrows the list to nobody rather than being refused.
+            'language.*' => ['string', 'max:100'],
             'sex' => $private('sex', ['nullable', Rule::in(['male', 'female'])]),
 
             'birth_from' => $private('birth_date', ['nullable', 'date']),
@@ -198,7 +199,7 @@ class EmployeeController extends Controller
             'role' => array_values($input['role'] ?? []),
             'department' => array_map(fn ($value) => $value === self::NONE ? $value : (int) $value, $input['department'] ?? []),
             'unit' => array_map(fn ($value) => $value === self::NONE ? $value : (int) $value, $input['unit'] ?? []),
-            'language' => array_map('intval', $input['language'] ?? []),
+            'language' => array_values(array_filter(array_map('strval', $input['language'] ?? []))),
             'sex' => $input['sex'] ?? null,
             'birth_from' => $input['birth_from'] ?? null,
             'birth_to' => $input['birth_to'] ?? null,
@@ -222,7 +223,7 @@ class EmployeeController extends Controller
         // A position is named by the department behind it, so the department
         // comes along: read off the position row by row it would be a query per
         // person on a page of a hundred.
-        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages:id,name'])
+        $query = User::query()->select(self::PUBLIC_COLUMNS)->with(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'languages'])
             ->where('status', $status);
         $this->applySearch($query, $filters['q'], $visible);
         $this->applyFilters($query, $filters, $visible);
@@ -235,7 +236,7 @@ class EmployeeController extends Controller
         // Whose details are worth loading at all: the viewer's own row always,
         // and everyone else's when at least one such field is open to them.
         $loaded = $employees->getCollection()->filter(fn (User $user) => $viewer->can('viewPrivateDetails', $user));
-        $loaded->load(['details', 'children', 'citizenships:id,name']);
+        $loaded->load(['details', 'children', 'citizenships']);
 
         $employees->through(fn (User $user) => [
             'id' => $user->id,
@@ -287,7 +288,7 @@ class EmployeeController extends Controller
                 'positions' => Placements::options()['positions'],
                 'departments' => $this->departmentLevel(false),
                 'units' => $this->departmentLevel(true),
-                'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
+                'languages' => $this->spokenLanguages(),
                 'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
                 'citizenships' => $shows('citizenship') ? $this->citizenships() : [],
             ],
@@ -346,17 +347,17 @@ class EmployeeController extends Controller
                 // duty with its position: the page asks for the job and narrows
                 // the duties under it without a round trip each time.
                 ...Placements::options(),
-                'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
+                'languages' => $this->spokenLanguages(),
                 // A nationality is a private line of somebody's card, so the
                 // ones already written down are offered on the same terms as
                 // the three free lines below: only to a reader of that line.
                 'nationalities' => $reads('nationality') ? $this->distinctDetail('nationality') : [],
-                // The countries of the directory, which are nobody's data.
-                'citizenships' => $this->citizenships(),
-                // The kinds of work, named rather than numbered: one missing
-                // from the list is typed into the page and added to the list on
-                // the save.
-                'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
+                // The countries already named on cards, on the same terms:
+                // where somebody is a citizen is a private line too.
+                'citizenships' => $reads('citizenship') ? $this->citizenships() : [],
+                // The kinds of work already named on cards. Public, like the
+                // position and the department they stand beside.
+                'employment_types' => $this->employmentTypes(),
                 // What diplomas have made of people here, to offer rather than to
                 // impose: a diploma may name something no list has heard of. The
                 // usual half-dozen travel to anybody; what the cards on file say
@@ -406,10 +407,9 @@ class EmployeeController extends Controller
         $employee = DB::transaction(function () use ($data, $children, $languages, $password) {
             $employee = User::create([
                 ...Arr::only($data, ['surname', 'name', 'patronymic', 'sex', 'email', 'employee_number']),
-                // Named on the page, numbered on the account: a kind of work the
-                // list has not heard of is added to it here, exactly as the card's
-                // own «Основное» adds one.
-                'employment_type_id' => EmploymentType::idFor($data['employment_type'] ?? null),
+                // Written as it was typed, like the rest of the card's own
+                // answers: there is no list of the kinds of work to point at.
+                'employment_type' => EmployeeCard::name($data['employment_type'] ?? null),
                 'password' => Hash::make($password),
                 'status' => 'active',
             ]);
@@ -437,7 +437,7 @@ class EmployeeController extends Controller
                 'has_educations' => EmployeeCard::listFlag($data['has_educations'] ?? null, $data['educations'] ?? []),
                 'has_experience' => EmployeeCard::listFlag($data['has_experience'] ?? null, $data['experiences'] ?? []),
             ]);
-            $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
+            EmployeeCard::saveCitizenships($employee, $data['citizenship'] ?? []);
 
             // Where they stand: the departments, the positions held in each and
             // the duties picked out of those, all from the one list the form
@@ -523,7 +523,7 @@ class EmployeeController extends Controller
     {
         // The department of each position travels with it: that is what tells
         // one «Аналитик» from another on the line that prints them.
-        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'departments.heads:id,name,surname', 'languages:id,name', 'employmentType:id,name']);
+        $employee->load(['roles:id,name,title', 'positions:id,name,department_id', 'positions.department:id,name,abbreviation', 'departments:id,name,abbreviation,parent_id', 'departments.heads:id,name,surname', 'languages']);
         // Which fields of this card the viewer reads. Their own card is whole;
         // anybody else's is what their position and their exceptions allow.
         $visible = EmployeeFields::visibleTo($request->user(), $employee);
@@ -545,7 +545,7 @@ class EmployeeController extends Controller
             // The values come with the field behind each of them: a unit's name
             // and its number are two of those fields, read by the role they
             // carry, so the block cannot print either without them.
-            $employee->load(['details', 'children', 'relatives', 'citizenships:id,name', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
+            $employee->load(['details', 'children', 'relatives', 'citizenships', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
         }
 
         return Inertia::render('employees/show', [
@@ -574,7 +574,7 @@ class EmployeeController extends Controller
                     // the number the company files them under, the kind of work
                     // they were taken on for and the place they work from.
                     'employee_number' => fn () => $employee->employee_number,
-                    'employment_type' => fn () => $employee->employmentType?->name,
+                    'employment_type' => fn () => $employee->employment_type,
                 ]),
                 'private' => $canSeePrivate ? [
                     ...$this->privateDetails($employee, $visible),
@@ -700,7 +700,7 @@ class EmployeeController extends Controller
                 // other cards say is offered only to a reader of that line, and
                 // the box still takes whatever is typed either way.
                 'nationalities' => $shows('nationality') ? $this->distinctDetail('nationality') : [],
-                'citizenships' => $this->citizenships(),
+                'citizenships' => $shows('citizenship') ? $this->citizenships() : [],
                 // What a card may be given, plus whatever it already carries: the
                 // single system administrator is offered to nobody, and their own
                 // card must still show the role it holds rather than lose it on
@@ -715,11 +715,10 @@ class EmployeeController extends Controller
                 // «Отдел» and «Руководитель» from the job that was picked, and
                 // neither of those two lines is typed by hand.
                 'units' => $this->unitsWithHeads(),
-                // The two lists a card points at one entry of. Named rather
-                // than numbered, because one missing from a list is typed into
-                // the window and added on the save.
-                'employment_types' => EmploymentType::query()->orderBy('name')->pluck('name'),
-                'languages' => Language::query()->orderBy('name')->get(['id', 'name']),
+                // The two lines a card answers in one word each, offered
+                // from what other cards say and taken as typed either way.
+                'employment_types' => $this->employmentTypes(),
+                'languages' => $this->spokenLanguages(),
                 // Why jobs have ended before, as suggestions for one ending now
                 // — the usual wordings to anybody, the ones on file only to
                 // somebody who may read the jobs a card lists.
@@ -924,9 +923,9 @@ class EmployeeController extends Controller
             ))
             // Whoever speaks every one of the picked languages, at any level:
             // picking Russian and Tajik asks for people who know both.
-            ->when($filters['language'], function (Builder $q, array $ids) {
-                foreach ($ids as $id) {
-                    $q->whereHas('languages', fn (Builder $q) => $q->where('languages.id', $id));
+            ->when($filters['language'], function (Builder $q, array $names) {
+                foreach ($names as $name) {
+                    $q->whereHas('languages', fn (Builder $q) => $q->where('user_languages.name', $name));
                 }
             })
             // Picking a department also matches everyone in its sub-departments,
@@ -968,7 +967,7 @@ class EmployeeController extends Controller
             // Whoever holds every one of the chosen citizenships, picked by name, as with languages.
             ->when($filters['citizenship'], function (Builder $q, array $names) {
                 foreach ($names as $name) {
-                    $q->whereHas('citizenships', fn (Builder $q) => $q->where('citizenships.name', $name));
+                    $q->whereHas('citizenships', fn (Builder $q) => $q->where('user_citizenships.name', $name));
                 }
             })
             ->when($filters['children'], fn (Builder $q, array $counts) => $q->where(function (Builder $q) use ($counts) {
@@ -1073,15 +1072,13 @@ class EmployeeController extends Controller
                 UserChild::selectRaw('count(*)')->whereColumn('user_children.user_id', 'users.id'),
                 $direction,
             ),
-            // Citizenships are a list of their own since they were moved out of
-            // the card into a directory, so this sorts by the first country the
-            // column prints rather than by a `user_details` column — there has
-            // not been one of those to order by since the move.
+            // A card may name several countries, so this sorts by the first one
+            // the column prints rather than by a `user_details` column — there
+            // is none to order by, the countries being a list of their own.
             'citizenship' => $query->orderBy(
-                DB::table('citizenship_user')
-                    ->join('citizenships', 'citizenships.id', '=', 'citizenship_user.citizenship_id')
-                    ->whereColumn('citizenship_user.user_id', 'users.id')
-                    ->selectRaw('min(citizenships.name)'),
+                DB::table('user_citizenships')
+                    ->whereColumn('user_citizenships.user_id', 'users.id')
+                    ->selectRaw('min(user_citizenships.name)'),
                 $direction,
             ),
             default => $query->orderBy($detail($sort), $direction),
@@ -1282,15 +1279,41 @@ class EmployeeController extends Controller
     /**
      * Languages with the level, the best known first.
      *
-     * @return list<array{id: int, name: string, level: string}>
+     * Known by name rather than by number: a language is a word on this card
+     * now, and the staff list narrows by that word.
+     *
+     * @return list<array{name: string, level: string}>
      */
     private function languageList(User $user): array
     {
         return $user->languages
-            ->sortBy([fn (Language $a, Language $b) => array_search($b->pivot->level, Language::LEVELS, true) <=> array_search($a->pivot->level, Language::LEVELS, true), ['name', 'asc']])
-            ->map(fn (Language $l) => ['id' => $l->id, 'name' => $l->name, 'level' => $l->pivot->level])
+            ->sortBy([
+                fn (UserLanguage $a, UserLanguage $b) => array_search($b->level, UserLanguage::LEVELS, true) <=> array_search($a->level, UserLanguage::LEVELS, true),
+                ['name', 'asc'],
+            ])
+            ->map(fn (UserLanguage $l) => ['name' => $l->name, 'level' => $l->level])
             ->values()
             ->all();
+    }
+
+    /**
+     * Every language anybody here has been written down as speaking.
+     *
+     * @return list<string>
+     */
+    private function spokenLanguages(): array
+    {
+        return UserLanguage::query()->distinct()->orderBy('name')->pluck('name')->all();
+    }
+
+    /**
+     * And every kind of work anybody has been taken on for.
+     *
+     * @return list<string>
+     */
+    private function employmentTypes(): array
+    {
+        return User::query()->whereNotNull('employment_type')->distinct()->orderBy('employment_type')->pluck('employment_type')->all();
     }
 
     /**
@@ -1701,7 +1724,7 @@ class EmployeeController extends Controller
      */
     private function citizenships(): array
     {
-        return Citizenship::query()->orderBy('name')->pluck('name')->all();
+        return UserCitizenship::query()->distinct()->orderBy('name')->pluck('name')->all();
     }
 
     /**

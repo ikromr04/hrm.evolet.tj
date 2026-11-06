@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\User;
 use App\Models\UserDetail;
@@ -182,14 +181,34 @@ class SearchTest extends TestCase
             ->assertJsonPath('equipmentTypes.0.id', $type->id);
     }
 
-    public function test_finds_a_language_people_are_filtered_by()
+    /**
+     * A language is a word on a card now rather than a row of a list the company
+     * keeps, so the only languages worth offering are the ones somebody here has
+     * been written down as speaking: a result is a door to the staff list
+     * narrowed by that word, and a word nobody speaks opens an empty list.
+     *
+     * There is no id to hand back either — nothing is being pointed at, the name
+     * is the whole of it — and each language is offered once however many people
+     * speak it.
+     */
+    public function test_finds_a_language_somebody_here_speaks()
     {
-        $language = Language::create(['name' => 'Английский']);
+        User::factory()->create()->languages()->create(['name' => 'Английский', 'level' => 'advanced']);
+        // A second speaker, at another level: the word is one answer all the
+        // same, since the door it opens is the same door.
+        User::factory()->create()->languages()->create(['name' => 'Английский', 'level' => 'beginner']);
 
         $this->actingAs($this->colleague())
             ->getJson('/search?q='.urlencode('Англ'))
             ->assertOk()
-            ->assertJsonPath('languages', [['id' => $language->id, 'name' => 'Английский']]);
+            ->assertJsonPath('languages', [['name' => 'Английский']])
+            ->assertJsonCount(1, 'languages');
+
+        // And a word nobody on a card has typed is not offered because it once
+        // stood in a list: there is no list left for it to stand in.
+        $this->getJson('/search?q='.urlencode('Немецк'))
+            ->assertOk()
+            ->assertJsonPath('languages', []);
     }
 
     public function test_an_empty_query_finds_nothing()

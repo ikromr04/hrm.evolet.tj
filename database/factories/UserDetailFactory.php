@@ -2,7 +2,6 @@
 
 namespace Database\Factories;
 
-use App\Models\Citizenship;
 use App\Models\User;
 use App\Models\UserDetail;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -90,10 +89,10 @@ class UserDetailFactory extends Factory
                 $details->sos_contact = "{$relation} — ".fake()->randomElement($female ? self::FEMALE_NAMES : self::MALE_NAMES);
             }
         })->afterCreating(function (UserDetail $details) {
-            // Citizenship lives in its own directory, linked to the person; a
+            // Citizenship is named on the person's own card; a
             // card filled in from scratch says Tajikistan unless told otherwise.
             if ($details->user && $details->user->citizenships()->doesntExist()) {
-                $details->user->citizenships()->attach(Citizenship::idsFor(['Таджикистан']));
+                $details->user->citizenships()->create(['name' => 'Таджикистан']);
             }
         });
     }

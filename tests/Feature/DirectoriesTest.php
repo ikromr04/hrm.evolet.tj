@@ -22,6 +22,11 @@ use Tests\TestCase;
  *
  * «Роли доступа» is not a list of the catalogue at all any more: there are four
  * roles, they are named in App\Support\Access, and nothing writes them down.
+ *
+ * Neither are «Языки», «Гражданства» and «Типы занятости»: those are words
+ * written on a card now, offered as whatever has been written on the cards
+ * already, so there is no page to open and no right to hold. Their addresses
+ * answer like any other address that was never there.
  */
 class DirectoriesTest extends TestCase
 {
@@ -40,12 +45,12 @@ class DirectoriesTest extends TestCase
 
     public function test_only_admins_can_open_or_change_directories()
     {
-        $this->get('/directories/languages')->assertRedirect('/login');
+        $this->get('/directories/document_types')->assertRedirect('/login');
 
         $employee = $this->colleague();
         $this->actingAs($employee);
 
-        $this->get('/directories/languages')->assertForbidden();
+        $this->get('/directories/document_types')->assertForbidden();
         // "Отделы" is a tab of the company structure now, at /departments,
         // and still asks the right the catalogue names the list with — which a
         // colleague does not hold, however freely they may read the chart.
@@ -68,7 +73,7 @@ class DirectoriesTest extends TestCase
         User::factory(2)->create()->each(fn (User $u) => $u->positions()->attach($position));
         $this->actingAs($this->admin);
 
-        $this->get('/directories')->assertRedirect('/directories/languages');
+        $this->get('/directories')->assertRedirect('/directories/document_types');
         // The job titles are not a tab of the section any more; their own page
         // counts their people, and PositionPagesTest reads it.
         $this->get('/positions')->assertInertia(fn (Assert $page) => $page

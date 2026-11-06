@@ -3,8 +3,8 @@
 namespace App\Support;
 
 use App\Models\Equipment;
-use App\Models\Language;
 use App\Models\User;
+use App\Models\UserLanguage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
@@ -323,20 +323,17 @@ final class EmployeeCard
     /* --------------------------------------------------------------- языки */
 
     /**
-     * Each language once with a level against it, named where the directory has
-     * not heard of it yet.
+     * Each language once with a level against it, written as it was typed.
      *
      * @return array<string, mixed>
      */
     public static function languageRules(string $key = 'languages'): array
     {
         return [
-            // Each language once, so the list cannot hold two levels for one.
-            "{$key}.*.id" => ['nullable', "required_without:{$key}.*.name", 'integer', 'distinct', Rule::exists('languages', 'id')],
-            // A language missing from the list is named instead, and added to it
-            // on the save: whoever may fill this block in may also add the language.
-            "{$key}.*.name" => ['nullable', "required_without:{$key}.*.id", 'string', 'max:100'],
-            "{$key}.*.level" => ['required', Rule::in(Language::LEVELS)],
+            // Each language once, however it was spelled, so the list cannot
+            // hold two levels for one.
+            "{$key}.*.name" => ['required', 'string', 'max:100', 'distinct:ignore_case'],
+            "{$key}.*.level" => ['required', Rule::in(UserLanguage::LEVELS)],
         ];
     }
 
@@ -346,7 +343,6 @@ final class EmployeeCard
     public static function languageAttributes(string $key = 'languages'): array
     {
         return [
-            "{$key}.*.id" => 'язык',
             "{$key}.*.name" => 'язык',
             "{$key}.*.level" => 'уровень',
         ];
@@ -360,22 +356,52 @@ final class EmployeeCard
      */
     public static function saveLanguages(User $employee, array $spoken): void
     {
-        // Matched without regard to case, so "китайский" finds "Китайский"
-        // rather than putting a second one on the list.
-        $known = Language::query()->get(['id', 'name'])->keyBy(fn (Language $l) => mb_strtolower($l->name));
+        $employee->languages()->delete();
+        $employee->languages()->createMany(self::named($spoken, fn (array $l) => ['level' => $l['level']]));
+    }
 
-        $levels = collect($spoken)->mapWithKeys(function (array $l) use ($known) {
-            $id = $l['id'] ?? null;
+    /* ---------------------------------------------------------- гражданства */
 
-            if ($id === null) {
-                $name = trim($l['name']);
-                $id = ($known[mb_strtolower($name)] ?? Language::create(['name' => $name]))->id;
-            }
+    /**
+     * The countries on file, replaced by the list that was sent, as the
+     * languages are.
+     *
+     * @param  array<array-key, string>  $countries
+     */
+    public static function saveCitizenships(User $employee, array $countries): void
+    {
+        $employee->citizenships()->delete();
+        $employee->citizenships()->createMany(self::named(array_map(fn (string $name) => ['name' => $name], $countries)));
+    }
 
-            return [$id => ['level' => $l['level']]];
-        });
+    /**
+     * A list of named rows, trimmed, emptied of the blank ones and holding each
+     * name once.
+     *
+     * Once however it was spelled: «Китайский» and «китайский» are one language
+     * and two rows would be two answers to one question. The first spelling
+     * wins, because that is the one the person typing is looking at.
+     *
+     * @param  array<array-key, array<string, mixed>>  $rows
+     * @param  null|callable(array<string, mixed>): array<string, mixed>  $rest  What else each row carries.
+     * @return list<array<string, mixed>>
+     */
+    private static function named(array $rows, ?callable $rest = null): array
+    {
+        return collect($rows)
+            ->map(fn (array $row) => ['name' => trim((string) $row['name']), ...($rest === null ? [] : $rest($row))])
+            ->filter(fn (array $row) => $row['name'] !== '')
+            ->unique(fn (array $row) => mb_strtolower($row['name']))
+            ->values()
+            ->all();
+    }
 
-        $employee->languages()->sync($levels);
+    /** One name as it is kept: trimmed, and nothing at all where nothing was said. */
+    public static function name(?string $value): ?string
+    {
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     /* --------------------------------------------------------------- семья */

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\UpdateSheetRequest;
-use App\Models\Citizenship;
 use App\Models\User;
 use App\Support\DocumentStore;
 use App\Support\EmployeeCard;
@@ -72,7 +71,7 @@ class EmployeeSheetController extends Controller
             // so it can be typed into the sheet rather than into «Справочники»
             // first — exactly as the card's own «Основное» adds one.
             if (array_key_exists('citizenship', $data)) {
-                $employee->citizenships()->sync(Citizenship::idsFor($data['citizenship'] ?? []));
+                EmployeeCard::saveCitizenships($employee, $data['citizenship'] ?? []);
             }
 
             $details = Arr::only($data, self::ON_DETAILS);
@@ -109,8 +108,8 @@ class EmployeeSheetController extends Controller
 
             // The three lists that have no identity beyond what they say, each
             // replaced by what was sent: the sheet shows every row of them at
-            // once, so it edits them whole, and a language the directory has not
-            // heard of is added to it on the way in.
+            // once, so it edits them whole, and a language nobody here has been
+            // written down as speaking is kept as it was typed.
             if (array_key_exists('languages', $data)) {
                 EmployeeCard::saveLanguages($employee, $data['languages']);
             }

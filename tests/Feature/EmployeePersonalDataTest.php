@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Citizenship;
 use App\Models\Department;
 use App\Models\Position;
 use App\Models\PositionDuty;
@@ -54,17 +53,20 @@ class EmployeePersonalDataTest extends TestCase
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
         $this->actingAs($admin);
 
-        // Trimmed, blanks and repeats dropped; a country new to the directory is added to it.
+        // Trimmed, blanks and repeats dropped; the countries are written on the
+        // card itself, by name, and read back in the order the card shows them.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => [' Таджикистан ', '', 'Россия', 'Таджикистан']]))
             ->assertSessionHasNoErrors();
         $this->assertSame(['Россия', 'Таджикистан'], $employee->citizenships()->pluck('name')->all());
-        $this->assertSame(['Россия', 'Таджикистан'], Citizenship::orderBy('name')->pluck('name')->all());
 
-        // Matched without regard to case: the same country, not a second entry.
-        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => ['россия']]))->assertSessionHasNoErrors();
+        // One entry however it was spelled: two spellings of the one country
+        // would be the card answering the same question twice, so the first of
+        // them is what is kept.
+        $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => ['Россия', 'россия']]))
+            ->assertSessionHasNoErrors();
         $this->assertSame(['Россия'], $employee->citizenships()->pluck('name')->all());
-        $this->assertSame(2, Citizenship::count());
 
+        // And the list is written whole: what the save left out is off the card.
         $this->put("/employees/{$employee->id}/personal", $this->payload(['citizenship' => ['']]))->assertSessionHasNoErrors();
         $this->assertSame([], $employee->citizenships()->pluck('name')->all());
 

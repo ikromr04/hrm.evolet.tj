@@ -5,9 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Department;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\User;
+use App\Models\UserLanguage;
 use App\Support\Access;
 use App\Support\EmployeeFields;
 use App\Support\EquipmentAccess;
@@ -88,12 +88,16 @@ class SearchController extends Controller
                 ->limit(self::LIMIT)
                 ->get(['id', 'name', 'icon'])
                 ->map(fn (EquipmentType $t) => ['id' => $t->id, 'name' => $t->name, 'icon' => $t->icon]) : [],
-            'languages' => $narrows('languages') ? Language::query()
+            // The languages anybody here has been written down as speaking,
+            // each once: they are words on cards now rather than a list of
+            // their own, and the palette narrows the staff list by the word.
+            'languages' => $narrows('languages') ? UserLanguage::query()
                 ->where(fn (Builder $q) => $this->everyWord($q, $words, ['name']))
+                ->distinct()
                 ->orderBy('name')
                 ->limit(self::LIMIT)
-                ->get(['id', 'name'])
-                ->map(fn (Language $l) => ['id' => $l->id, 'name' => $l->name]) : [],
+                ->pluck('name')
+                ->map(fn (string $name) => ['name' => $name]) : [],
         ]);
     }
 

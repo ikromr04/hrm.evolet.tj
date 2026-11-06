@@ -444,7 +444,7 @@ class DepartmentPagesTest extends TestCase
         $this->assertNotContains('departments', Directories::visibleTo($sysadmin));
         $this->assertNotContains('departments', Directories::editableBy($sysadmin));
         $this->actingAs($sysadmin)->get('/directories/departments')->assertNotFound();
-        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/languages');
+        $this->actingAs($sysadmin)->get('/directories')->assertRedirect('/directories/document_types');
 
         // The section is shut for somebody who may read nothing but the
         // departments — that list is elsewhere now and answers for itself.

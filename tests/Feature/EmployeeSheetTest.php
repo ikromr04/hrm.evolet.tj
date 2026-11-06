@@ -2,10 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\Language;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserEducation;
+use App\Models\UserLanguage;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Support\EmployeeCard;
@@ -223,10 +223,10 @@ class EmployeeSheetTest extends TestCase
             ],
 
             /* Знание языков */
-            // Named rather than numbered: a language the directory has not heard
-            // of is added to it on the way in, which is the one thing about
-            // saving this block that is not a plain write.
-            'languages' => [['name' => 'Английский', 'level' => Language::LEVELS[0]]],
+            // Named rather than numbered: the language is written on the card
+            // as it was typed, and nothing anywhere has to have heard of it
+            // first — the box only offers what other cards already say.
+            'languages' => [['name' => 'Английский', 'level' => UserLanguage::LEVELS[0]]],
 
             /* Трудовая деятельность */
             'has_experience' => true,
@@ -320,9 +320,9 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame('бакалавр', $employee->educations->first()->qualification);
         $this->assertSame(2012, $employee->educations->first()->graduated_year);
 
-        // Знание языков, with the language written into the directory on the way.
+        // Знание языков, each language a row of the card with its level on it.
         $this->assertSame(['Английский'], $employee->languages->pluck('name')->all());
-        $this->assertSame(Language::LEVELS[0], $employee->languages->first()->pivot->level);
+        $this->assertSame(UserLanguage::LEVELS[0], $employee->languages->first()->level);
 
         // Трудовая деятельность, with its own answer.
         $this->assertTrue($details->has_experience);
@@ -385,7 +385,7 @@ class EmployeeSheetTest extends TestCase
                     'started_year' => 2013,
                     'graduated_year' => 2015,
                 ]],
-                'languages' => [['name' => 'Русский', 'level' => Language::LEVELS[0]]],
+                'languages' => [['name' => 'Русский', 'level' => UserLanguage::LEVELS[0]]],
                 'children' => [],
                 'has_children' => false,
                 'relatives' => [],
@@ -402,8 +402,11 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame(0, $employee->relatives()->count());
         $this->assertSame(0, $employee->workExperiences()->count());
 
-        // One row of each list in the database and no orphans left behind.
+        // One row of each list in the database and no orphans left behind —
+        // the languages among them, now that a language spoken is a row of the
+        // card rather than a line pointed at in a list of everybody's.
         $this->assertSame(1, UserEducation::count());
+        $this->assertSame(1, UserLanguage::count());
         $this->assertSame(0, UserChild::count());
         $this->assertSame(0, UserRelative::count());
         $this->assertSame(0, UserWorkExperience::count());
@@ -977,7 +980,7 @@ class EmployeeSheetTest extends TestCase
 
         $this->assertSame('nilufar@evolet.tj', $employee->email);
         $this->assertSame('00123', $employee->employee_number);
-        $this->assertNull($employee->employment_type_id);
+        $this->assertNull($employee->employment_type);
         $this->assertSame('2020-01-01', $employee->details->hired_at->toDateString());
         $this->assertSame(['specialist'], $employee->roles->pluck('name')->all());
     }
