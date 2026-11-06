@@ -12,7 +12,6 @@ import {
     Briefcase,
     Building2,
     CircleUser,
-    FileCheck,
     FileText,
     Flag,
     Heart,
@@ -88,9 +87,6 @@ export const navGroups = (
                   items: [
                       { title: 'Оргструктура', url: '/org-chart', icon: Network },
                       ...(can('employees.view') ? [{ title: 'Сотрудники', url: href('/employees', TABLE_KEYS.employees), icon: Users }] : []),
-                      // Only for the people who pass documents: for everybody else
-                      // the queue is a page with nothing on it they could act on.
-                      ...(can('employees.documents.review') ? [{ title: 'Документы', url: '/documents', icon: FileCheck }] : []),
                       ...(can('directories.view.departments')
                           ? [{ title: 'Подразделения', url: href('/departments', TABLE_KEYS.departments), icon: Building2 }]
                           : []),

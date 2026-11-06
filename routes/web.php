@@ -5,7 +5,6 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DepartmentProfileController;
 use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
-use App\Http\Controllers\DocumentReviewController;
 use App\Http\Controllers\EmployeeAvatarController;
 use App\Http\Controllers\EmployeeAwardController;
 use App\Http\Controllers\EmployeeController;
@@ -197,13 +196,6 @@ Route::middleware(['auth'])->group(function () {
 Route::post('employees', [EmployeeController::class, 'store'])
     ->middleware(['auth', 'can:employees.create'])
     ->name('employees.store');
-
-// Everything handed in and waiting to be looked at, across every card: work
-// for the office rather than news about one person, and therefore in one place
-// rather than found by opening cards one at a time.
-Route::get('documents', [DocumentReviewController::class, 'index'])
-    ->middleware(['auth', 'can:employees.documents.review'])
-    ->name('documents.index');
 
 // One card of the profile at a time, each form guarded by the block it saves:
 // whoever may change a passport is not thereby allowed to rewrite a family.
