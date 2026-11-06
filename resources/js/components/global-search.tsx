@@ -146,7 +146,7 @@ function useSearch(query: string): { results: SearchResults; loading: boolean } 
 /** The header search: employees, departments, positions, roles and pages; opens with Ctrl + K. */
 export function GlobalSearch() {
     const can = useCan();
-    const { everything } = usePage<SharedData>().props.auth;
+    const { everything, ownCardOnly } = usePage<SharedData>().props.auth;
     const listHref = useListHref();
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
@@ -177,7 +177,7 @@ export function GlobalSearch() {
     const pages = useMemo<Destination[]>(() => {
         const found: Destination[] = [];
 
-        navGroups(can, everything, listHref).forEach((group) =>
+        navGroups(can, everything, listHref, ownCardOnly).forEach((group) =>
             group.items.forEach((item) => {
                 if (item.url) found.push({ label: item.title, hint: group.title ?? 'Навигация', href: item.url, icon: item.icon ?? LayoutGrid });
 
@@ -199,7 +199,7 @@ export function GlobalSearch() {
                 .map((list) => ({ label: list.title, hint: 'Справочники', href: `/directories/${list.key}`, icon: BookMarked })),
             { label: 'Настройки', hint: 'Моя учётная запись', href: '/settings', icon: Settings },
         ];
-    }, [can, everything, listHref]);
+    }, [can, everything, listHref, ownCardOnly]);
 
     /**
      * The forms that start something new. They are pages like any other, but

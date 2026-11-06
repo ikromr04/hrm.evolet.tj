@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Middleware\AddSecurityHeaders;
-use App\Http\Middleware\EnsureSiteIsOpen;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Foundation\Application;
@@ -38,10 +37,6 @@ return Application::configure(basePath: dirname(__DIR__))
             AddSecurityHeaders::class,
             EnsureUserIsActive::class,
             HandleInertiaRequests::class,
-            // After the page is set up to be composed, because the screen it
-            // answers with is a page of the application like any other: the two
-            // roles the site is not open to yet get that one, whatever they ask.
-            EnsureSiteIsOpen::class,
             AddLinkHeadersForPreloadedAssets::class,
         ]);
     })

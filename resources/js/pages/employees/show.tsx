@@ -1,14 +1,16 @@
 import { DatePicker } from '@/components/date-picker';
 import { DepartmentName } from '@/components/department-name';
 import { EmployeeActions } from '@/components/employee-actions';
+import { EmployeeDocumentsList, requiredAccepted, type EmployeeDocuments } from '@/components/employee-documents';
 import { ChangeLines } from '@/components/equipment-changes';
 import { EquipmentForm, type EquipmentFormProps } from '@/components/equipment-form';
+import { CategoryChip } from '@/components/equipment-icon';
 import { EquipmentMoveDialog, moveLabel, type AskedMove } from '@/components/equipment-move-dialog';
 import InputError from '@/components/input-error';
 import { LevelBadge } from '@/components/language-badges';
 import { MultiSelect } from '@/components/multi-select';
 import { PageContent } from '@/components/page-content';
-import { PaperBandRow } from '@/components/paper-band';
+import { Panel } from '@/components/panel';
 import { faceEdge, PersonAvatar } from '@/components/person-avatar';
 import {
     AwardGroup,
@@ -39,6 +41,7 @@ import { SosPhone } from '@/components/phones';
 import { Photos, type Photo } from '@/components/photo-viewer';
 import { mayHold, roleFromPositions, type Placement, type PlacementOptions } from '@/components/placements';
 import { PositionName, positionTitle, type PositionRef } from '@/components/position-name';
+import { RecordTable } from '@/components/record-table';
 import { SearchableSelect } from '@/components/searchable-select';
 import { Section as NumberedSection } from '@/components/section';
 import { SectionNav } from '@/components/section-nav';
@@ -56,6 +59,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useShows, VisibleFields } from '@/components/visible-fields';
 import { useClearingForm } from '@/hooks/use-clearing-form';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
@@ -80,8 +84,8 @@ import {
 } from '@/lib/employee';
 import { eventLabel, eventTone, type EventChanges, type EventKind, type NameLookup } from '@/lib/equipment';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
+import { type BreadcrumbItem, type SharedData } from '@/types';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowDownToLine,
     Camera,
@@ -118,6 +122,8 @@ interface HistoryEvent {
  */
 interface HeldUnit extends Equipment {
     id: number;
+    /** The mark its category is known by, as the fleet's own lists draw it. */
+    type_icon: string | null;
     /** What the card says about it now, which the write-off form opens on. */
     condition: string | null;
     can_take: boolean;
@@ -516,7 +522,7 @@ function KpiSection() {
     const current = KPI_QUARTERS[KPI_QUARTERS.length - 1];
 
     return (
-        <Section
+        <Panel
             title="KPI сотрудника"
             action={
                 <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
@@ -524,7 +530,7 @@ function KpiSection() {
                 </Button>
             }
         >
-            <div className="grid gap-6 max-md:py-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:gap-8">
+            <div className="grid gap-6 max-md:py-4 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] md:gap-8 [&>*]:min-w-0">
                 <div className="flex flex-col gap-4">
                     <div className="flex flex-col gap-1">
                         <p className="text-muted-foreground text-xs">Итоговый KPI</p>
@@ -615,7 +621,7 @@ function KpiSection() {
                     </Table>
                 </div>
             </div>
-        </Section>
+        </Panel>
     );
 }
 
@@ -688,6 +694,38 @@ interface SheetPartPlan {
      * because they would believe they had corrected it.
      */
     edit?: ReactNode;
+}
+
+/**
+ * A way to another page where that page is this viewer's to open, and the same
+ * words without a link where it is not.
+ *
+ * Somebody shown their own card and nothing else has every one of these
+ * refused — the department they are filed in, the job they hold, whoever leads
+ * the unit. A link that answers «нет доступа» is worse than a line of text: it
+ * says there is somewhere to go and then takes it back, and the words it is
+ * made of were the whole of what the card had to say.
+ */
+function Way({
+    linked,
+    href,
+    title,
+    className,
+    children,
+}: {
+    linked: boolean;
+    href: string;
+    title?: string;
+    className?: string;
+    children: ReactNode;
+}) {
+    return linked ? (
+        <Link href={href} title={title} className={className}>
+            {children}
+        </Link>
+    ) : (
+        <span className={className}>{children}</span>
+    );
 }
 
 /**
@@ -776,7 +814,7 @@ function SheetFacts({ rows, columns = 3 }: { rows: (string | null)[][]; columns?
  */
 function FamilyTable({ rows, relation = false }: { rows: ReactNode[][]; relation?: boolean }) {
     return (
-        <SheetTable
+        <RecordTable
             head={[...(relation ? ['Родство'] : []), 'ФИО', 'Дата рождения', 'Работа, учёба']}
             rows={rows}
             // Said in parts of the whole rather than in pixels, so that the
@@ -812,58 +850,6 @@ function Paper({ paper }: { paper: { name: string | null; url: string } }) {
                 to be opened, so it is called what it is rather than nothing. */}
             <span className="min-w-0 break-words">{paper.name ?? 'Документ'}</span>
         </a>
-    );
-}
-
-/**
- * A list inside a part, framed the way the sheet frames its lists.
- *
- * A cell is whatever the part puts in it rather than a string: a diploma is
- * named in one of these, and the name of a paper is the way to the paper.
- */
-function SheetTable({ head, rows, widths }: { head: string[]; rows: ReactNode[][]; widths?: string[] }) {
-    return (
-        <div className="overflow-hidden rounded-lg border">
-            {/* Laid out from the widths where they are given, and from what is
-                written in the cells where they are not: a table read on its own
-                is best sized by what it holds, and a table read beside another
-                one asking the same questions is not — there the column has to
-                be the width of the question and not of this card's answer to
-                it. */}
-            <Table className={cn(widths && 'table-fixed')}>
-                {widths && (
-                    <colgroup>
-                        {widths.map((width, i) => (
-                            <col key={i} style={{ width }} />
-                        ))}
-                    </colgroup>
-                )}
-                <TableHeader>
-                    <TableRow className="bg-muted/40 hover:bg-muted/40">
-                        {head.map((cell) => (
-                            <TableHead key={cell} className="text-muted-foreground h-10 px-3 text-xs font-normal">
-                                {cell}
-                            </TableHead>
-                        ))}
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {rows.map((row, index) => (
-                        // By where it stands, since a cell may now be a link
-                        // rather than a word and a row cannot be joined into a
-                        // name of its own. The list is drawn whole every time
-                        // and never reordered, so the place is the row.
-                        <TableRow key={index} className="hover:bg-transparent">
-                            {row.map((cell, i) => (
-                                <TableCell key={i} className={cn('px-3 py-2.5 align-top break-words whitespace-normal', i === 0 && 'font-medium')}>
-                                    {cell}
-                                </TableCell>
-                            ))}
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        </div>
     );
 }
 
@@ -944,7 +930,22 @@ const SHEET_FIELDS = [
 ];
 
 /** The sheet itself, and beside it what is still wanted for it. */
-function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: SheetProgress; options: EditOptions | null }) {
+function SheetTab({
+    employee,
+    sheet,
+    documents,
+    options,
+}: {
+    employee: Employee;
+    sheet: SheetProgress;
+    /**
+     * The papers the company asks everybody for, and what this card answers
+     * them with. Null for a viewer who may not read them at all — the block
+     * then shows the sheet's own papers and says nothing about the rest.
+     */
+    documents: EmployeeDocuments | null;
+    options: EditOptions | null;
+}) {
     const details = employee.private;
     const shows = useShows();
     const canEdit = useCanEdit();
@@ -1335,7 +1336,7 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                     // and only a part nobody has been asked about keeps the dash.
                     <SheetLine>{details?.has_educations === false ? 'Нет' : null}</SheetLine>
                 ) : (
-                    <SheetTable head={['Учебное заведение, факультет', 'Специальность, квалификация', 'Годы', 'Документ']} rows={educations} />
+                    <RecordTable head={['Учебное заведение, факультет', 'Специальность, квалификация', 'Период', 'Документ']} rows={educations} />
                 ),
             edit: answers('educations') && <EducationGroup {...asked} />,
         },
@@ -1386,7 +1387,7 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                 jobs.length === 0 ? (
                     <SheetLine>{details?.has_experience === false ? 'Нет' : null}</SheetLine>
                 ) : (
-                    <SheetTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={jobs} />
+                    <RecordTable head={['Период', 'Организация', 'Должность', 'Причина ухода']} rows={jobs} />
                 ),
             edit: answers('work_experiences') && <ExperienceGroup {...asked} />,
         },
@@ -1641,6 +1642,12 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
     // nought, which would read as a card nobody has filled in.
     const filled = editing ? (counted.length === 0 ? 100 : Math.round(((counted.length - unanswered.length) / counted.length) * 100)) : sheet.filled;
 
+    // And the same reading for the block of documents beside it: how many of
+    // the papers the company insists on have been accepted. Null for a viewer
+    // who may not read the documents at all, and for a company that insists on
+    // nothing.
+    const accepted = documents === null ? null : requiredAccepted(documents.items);
+
     /**
      * And what the sheet is short of on paper, which is the other errand the
      * office has: a line can be answered and still be waiting for the document
@@ -1671,7 +1678,7 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                     rest of the page is built from rather than in a heading of
                     the document's own — the sheet is read here as part of a
                     card, and printed as a document elsewhere. */}
-                <Section
+                <Panel
                     // What the browser is to put on paper: this block and
                     // nothing else of the application around it.
                     data-print=""
@@ -1742,24 +1749,26 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                             )}
                         </span>
                     }
+                    // How much of the sheet is filled in: the block's own line
+                    // about itself, between its header and the sheet.
+                    //
+                    // Not printed: how far the filling in has got is something
+                    // the office keeps, not something the sheet says of itself.
+                    infoClassName="print:hidden"
+                    info={
+                        <>
+                            <span className="text-muted-foreground text-[13px]">Заполнение</span>
+
+                            {/* The same bar the KPI block reads its indicators
+                                with, down to the figure beside it: two places on
+                                one card showing how far something has got have
+                                no business looking like two different things. */}
+                            <Progress value={filled} aria-label={`Заполнение: ${filled}%`} className="h-1.5 w-[140px] shrink-0" />
+
+                            <span className="text-sm font-medium tabular-nums">{filled}%</span>
+                        </>
+                    }
                 >
-                    {/* How much of the sheet is filled in: a band across the top
-                        of the block, drawn the way the regulation draws how far
-                        a department has got through reading it. */}
-                    {/* Not printed: how far the filling in has got is something
-                        the office keeps, not something the sheet says of itself. */}
-                    <PaperBandRow className="-mx-4 -mt-4 py-2.5 md:-mx-6 print:hidden">
-                        <span className="text-muted-foreground text-[13px]">Заполнение</span>
-
-                        {/* The same bar the KPI block reads its indicators with,
-                            down to the figure beside it: two places on one card
-                            showing how far something has got have no business
-                            looking like two different things. */}
-                        <Progress value={filled} aria-label={`Заполнение: ${filled}%`} className="h-1.5 w-[140px] shrink-0" />
-
-                        <span className="text-sm font-medium tabular-nums">{filled}%</span>
-                    </PaperBandRow>
-
                     {/* Only on paper: the block's own name says what the document
                         is, and a sheet off somebody's card has to say whose it
                         is as well — on screen the card around it already does. */}
@@ -1820,9 +1829,9 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                                     {missing.length > 0 && (
                                         <section className="flex flex-col gap-2">
                                             <div className="flex items-center justify-between gap-3">
-                                                <h3 className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm font-semibold">
+                                                <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-normal">
                                                     Не заполнено
-                                                    <StatusBadge tone="neutral">{missing.length}</StatusBadge>
+                                                    <span className="tabular-nums">{missing.length}</span>
                                                 </h3>
 
                                                 {/* Asking the person to finish their own sheet, which is
@@ -1843,10 +1852,7 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                                                     // nobody is on, since this is the same column
                                                     // saying the same kind of thing: the names of
                                                     // parts of the sheet, read and not pressed.
-                                                    <li
-                                                        key={what}
-                                                        className="text-muted-foreground flex items-center gap-2 border-b py-2 text-sm last:border-0"
-                                                    >
+                                                    <li key={what} className="text-muted-foreground flex items-center gap-2 py-1.5 text-[13px]">
                                                         <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
                                                         <span className="min-w-0 break-words">{what}</span>
                                                     </li>
@@ -1867,9 +1873,9 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                                         short of and not by their headings. */}
                                     {unattached.length > 0 && (
                                         <section className="flex flex-col gap-2">
-                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm font-semibold">
+                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-normal">
                                                 Документы не приложены
-                                                <StatusBadge tone="neutral">{unattached.length}</StatusBadge>
+                                                <span className="tabular-nums">{unattached.length}</span>
                                             </h3>
 
                                             <ul className="flex flex-col">
@@ -1882,7 +1888,7 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                                                     // one.
                                                     <li
                                                         key={`${what}-${index}`}
-                                                        className="text-muted-foreground flex items-center gap-2 border-b py-2 text-sm last:border-0"
+                                                        className="text-muted-foreground flex items-center gap-2 py-1.5 text-[13px]"
                                                     >
                                                         <FileText className="size-3.5 shrink-0" />
                                                         <span className="min-w-0 break-words">{what}</span>
@@ -1933,36 +1939,84 @@ function SheetTab({ employee, sheet, options }: { employee: Employee; sheet: She
                             </div>
                         </div>
                     )}
-                </Section>
+                </Panel>
             </div>
 
             <aside className={sidePane}>
-                {/* The papers themselves, under the lines they were attached to:
-                    the diplomas, and the one document each of the three lines of
-                    the card that keeps one holds. Named as they were uploaded —
-                    the line they belong to already says what the paper is
-                    about. */}
-                <Section title="Вложения">
-                    {papers.length === 0 ? (
+                {/* The papers the company asks everybody for, with this person's
+                    answers against them — and, at the foot of the same block,
+                    the ones the sheet itself carries: the diplomas, and the one
+                    document each of the three lines of the card that keeps one
+                    holds. Two different things that are both documents on this
+                    card, which is why they are read in one place and kept
+                    apart inside it.
+
+                    A viewer who may not read the documents at all is shown the
+                    sheet's papers alone, under the same heading: the block is
+                    about what is on file either way. */}
+                <Panel
+                    title="Документы (Чек-лист)"
+                    // Putting a paper on file from the head of the block, for
+                    // whoever came with one in hand rather than to read the
+                    // list: the header's own action, so it is where every other
+                    // block of the card keeps the thing it is for.
+                    action={
+                        // Named in a hint rather than beside the sign: a word
+                        // in the header would stand against the title and read
+                        // as part of it, and a plus at the head of a list of
+                        // papers is only half an answer on its own.
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="link" aria-label="Добавить документ" className="h-auto p-0 [&_svg]:size-4">
+                                    <Plus />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Добавить документ</TooltipContent>
+                        </Tooltip>
+                    }
+                    // How far the papers the company insists on have got, read
+                    // the way the sheet beside it reads its own filling in.
+                    // Nothing is said where nothing is insisted on.
+                    info={
+                        accepted !== null && (
+                            <>
+                                <span className="text-muted-foreground text-[13px]">Принято</span>
+
+                                <Progress
+                                    value={accepted.percent}
+                                    aria-label={`Принято ${accepted.done} из ${accepted.total} обязательных документов`}
+                                    className="h-1.5 w-[110px] shrink-0"
+                                />
+
+                                <span className="text-sm font-medium tabular-nums">{accepted.percent}%</span>
+
+                                {/* Asking the person for the papers still
+                                    missing, which is the one thing to be done
+                                    about a bar short of full — and so it goes
+                                    once the bar is full and there is nothing
+                                    left to ask for. */}
+                                {accepted.done < accepted.total && (
+                                    <Button
+                                        variant="link"
+                                        className="text-brand-strong ml-auto h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
+                                    >
+                                        Запросить
+                                    </Button>
+                                )}
+                            </>
+                        )
+                    }
+                >
+                    {documents === null && papers.length === 0 ? (
                         <p className={emptyNote}>Документы не приложены</p>
                     ) : (
-                        <ul className="flex flex-col gap-2">
-                            {papers.map((paper) => (
-                                <li key={paper.url}>
-                                    <a
-                                        href={paper.url}
-                                        target="_blank"
-                                        rel="noopener"
-                                        className="bg-muted/40 hover:bg-muted flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors"
-                                    >
-                                        <FileText className="text-muted-foreground size-4 shrink-0" />
-                                        <span className="min-w-0 flex-1 truncate text-sm">{paper.name}</span>
-                                    </a>
-                                </li>
-                            ))}
-                        </ul>
+                        <EmployeeDocumentsList
+                            employee={employee.id}
+                            documents={documents ?? { canEdit: false, canReview: false, items: [] }}
+                            papers={papers}
+                        />
                     )}
-                </Section>
+                </Panel>
             </aside>
         </div>
     );
@@ -2064,7 +2118,7 @@ const PLAN = {
  */
 function PlanSection() {
     return (
-        <Section
+        <Panel
             title="План индивидуального развития (ПИР)"
             action={
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -2127,7 +2181,7 @@ function PlanSection() {
                     </TableBody>
                 </Table>
             </div>
-        </Section>
+        </Panel>
     );
 }
 
@@ -2185,7 +2239,7 @@ function SkillLevel({ level, goal, kind }: Skill & { kind: SkillKind }) {
 /** One of the two blocks of skills: the same list, read the same way. */
 function SkillsSection({ kind, skills }: { kind: SkillKind; skills: Skill[] }) {
     return (
-        <Section
+        <Panel
             title={SKILL_KINDS[kind].title}
             action={<span className="text-muted-foreground text-xs">Оценка 360° · {formatDate(SKILLS_ASSESSED)}</span>}
         >
@@ -2217,7 +2271,7 @@ function SkillsSection({ kind, skills }: { kind: SkillKind; skills: Skill[] }) {
                     </span>
                 </div>
             </div>
-        </Section>
+        </Panel>
     );
 }
 
@@ -2284,7 +2338,7 @@ function AttendanceSection() {
     const cells = [...Array(lead).fill(null), ...Array.from({ length }, (_, i) => i + 1)];
 
     return (
-        <Section
+        <Panel
             // The month reads as part of a sentence here, not as a heading of
             // its own, so it is written the way it is spoken: «октябрь 2026».
             title={`Посещаемость · ${monthNames[ATTENDANCE.month].toLocaleLowerCase('ru')} ${ATTENDANCE.year}`}
@@ -2353,7 +2407,7 @@ function AttendanceSection() {
                     </span>
                 </div>
             </div>
-        </Section>
+        </Panel>
     );
 }
 
@@ -2380,7 +2434,7 @@ function LeaveSection() {
     const available = LEAVE.parts.find((part) => part.key === 'available')?.days ?? 0;
 
     return (
-        <Section
+        <Panel
             title={`Отпуск · ${LEAVE.year}`}
             action={
                 <Button variant="link" className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]">
@@ -2435,7 +2489,7 @@ function LeaveSection() {
                     Запросить отпуск
                 </Button>
             </div>
-        </Section>
+        </Panel>
     );
 }
 
@@ -2953,62 +3007,6 @@ function DeleteRecordDialog({
  * height either way, so blocks with a pencil and blocks without still read as
  * one set. A card that fills a whole tab passes no title: the tab names it.
  */
-function Section({
-    title,
-    children,
-    className,
-    action,
-    fields,
-    ...rest
-}: {
-    title?: string;
-    /** What stands in the block; a block still being designed holds nothing. */
-    children?: ReactNode;
-    className?: string;
-    action?: ReactNode;
-    /** The fields this block is made of; without any of them there is no block. */
-    fields?: string[];
-} & Omit<React.ComponentPropsWithoutRef<'div'>, 'title' | 'children'>) {
-    const shows = useShows();
-
-    if (fields !== undefined && !fields.some(shows)) {
-        return null;
-    }
-
-    // On a phone the block is an inset grouped list: the title and the action
-    // sit above the card, as a native settings screen has them, and the card
-    // holds nothing but rows. From `md` up the wrapper steps aside (contents)
-    // and the card with its header strip is exactly what it was.
-    //
-    // Whatever else was passed lands on the wrapper — `data-print`, where a
-    // block is the one thing on the page meant to go to paper.
-    return (
-        <div className="flex min-w-0 flex-col md:contents" {...rest}>
-            {title && (
-                <div className="mb-1.5 flex min-h-6 flex-wrap items-end justify-between gap-x-3 gap-y-1 px-1 md:hidden">
-                    <h2 className="text-muted-foreground min-w-0 text-[13px] font-semibold tracking-wide uppercase">{title}</h2>
-                    {action}
-                </div>
-            )}
-            <Card
-                className={cn(
-                    'flex flex-col gap-4 rounded-xl px-4 py-5 max-md:gap-0 max-md:rounded-2xl max-md:border-0 max-md:py-0 max-md:shadow-none md:px-6',
-                    className,
-                )}
-            >
-                {title && (
-                    // Flush to the card's edges, so the strip reads as its header.
-                    <div className="bg-muted/60 -mx-4 -mt-5 flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-t-xl border-b px-4 py-2 max-md:hidden md:-mx-6 md:px-6">
-                        <h2 className="min-w-0 text-base font-semibold">{title}</h2>
-                        {action}
-                    </div>
-                )}
-                {children}
-            </Card>
-        </div>
-    );
-}
-
 /**
  * The action of a block: the word «Изменить» in the brand colour at the end of
  * the header strip, and the same word above the card on a phone.
@@ -3052,21 +3050,6 @@ const recordRow = 'border-t py-3 first:border-t-0 md:first:pt-0 md:last:pb-0';
  * Columns end at different heights, so the gap below stays on the last one
  * too — trimming it would leave the card lopsided.
  */
-/**
- * Which fields of this card the viewer reads. A position is given the lines it
- * needs, so a card is drawn from the answer rather than from one flag: whatever
- * is not on the list is not shown, and a block with nothing left on it is not
- * shown either.
- */
-const VisibleFields = createContext<string[] | null>(null);
-
-function useShows(): (field?: string) => boolean {
-    const visible = useContext(VisibleFields);
-
-    // No list means nothing to hide — a form that renders outside the card.
-    return (field) => field === undefined || visible === null || visible.includes(field);
-}
-
 /**
  * Which of those lines the viewer may change. Asked apart from reading, because
  * they are not the same question: plenty of people should read a passport and
@@ -3237,7 +3220,7 @@ function Languages({ items }: { items: SpokenLanguage[] }) {
  */
 function EquipmentJournal({ events, names }: { events: HistoryEvent[]; names: NameLookup }) {
     return (
-        <Section title="Журнал">
+        <Panel title="Журнал">
             {events.length === 0 ? (
                 <p className={emptyNote}>Оборудование за этим сотрудником не числилось</p>
             ) : (
@@ -3267,7 +3250,7 @@ function EquipmentJournal({ events, names }: { events: HistoryEvent[]; names: Na
                     ))}
                 </ol>
             )}
-        </Section>
+        </Panel>
     );
 }
 
@@ -3433,6 +3416,104 @@ function MoveButton({ kind, icon: Icon, danger, onClick }: { kind: AskedMove; ic
 }
 
 /**
+ * The columns the equipment somebody holds is read in.
+ *
+ * One track list rules both the heads, which stand in the panel's own line, and
+ * every row underneath them. Written out twice they would be two lists inside a
+ * month, and a head standing over the wrong column is worse than no head at all.
+ *
+ * A phone has no room for four columns and no row of heads above them, so there
+ * the row is a single file and each answer says what it answers.
+ *
+ * The last column holds what may be done to a unit — taking it back, striking
+ * it off — and is measured out rather than left to the buttons standing in it:
+ * the heads are a row of their own, with no buttons in them, and a column the
+ * rows size for themselves would leave every head short of its column by the
+ * width of two buttons. Where nothing in the list may be moved there is no such
+ * column at all, rather than an empty strip down the side of the block.
+ */
+const unitColumns = (moves: boolean) =>
+    cn(
+        'grid gap-x-3 max-md:grid-cols-1 max-md:gap-y-0.5 md:items-start',
+        moves
+            ? 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_4.75rem] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,0.8fr)_3.75rem]'
+            : 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)_minmax(0,0.9fr)_minmax(0,0.8fr)]',
+    );
+
+/** Whether anything in the list may be moved, which decides that last column. */
+const unitMoves = (items: HeldUnit[]) => items.some((unit) => unit.can_take || unit.can_write_off);
+
+/** What a column says where the unit was never asked its question. */
+const noAnswer = <span className="text-muted-foreground">—</span>;
+
+/** Those heads, for the panel's info line. */
+function EquipmentHeads() {
+    return (
+        <>
+            {['Тип', 'Наименование', 'Инв. №', 'Выдано'].map((head) => (
+                <span key={head} className="text-muted-foreground min-w-0 text-[13px]">
+                    {head}
+                </span>
+            ))}
+        </>
+    );
+}
+
+/**
+ * A unit under the «Наименование» head, drawn as the fleet draws one: the mark
+ * of its category, the name in the colour of a link, and under the name what
+ * the category asks about first.
+ *
+ * The line under the name wraps rather than being cut: it is a processor and a
+ * disk, and half of either says nothing. The unit's own card is a matter of the
+ * fleet, so a viewer who may not open one reads the same row without the link.
+ */
+function UnitName({ unit, className }: { unit: HeldUnit; className?: string }) {
+    const named = (
+        <>
+            <CategoryChip icon={unit.type_icon} size={28} iconSize={14} className="mt-px" />
+            <span className="flex min-w-0 flex-col">
+                <span
+                    className={cn(
+                        'text-sm leading-tight font-medium break-words',
+                        unit.open && 'text-brand-strong group-hover:underline dark:text-[#C5E27A]',
+                    )}
+                >
+                    {unit.name}
+                </span>
+                {unit.details && <span className="text-muted-foreground text-[13px] leading-tight break-words">{unit.details}</span>}
+            </span>
+        </>
+    );
+
+    return unit.open ? (
+        <Link
+            href={route('equipment.show', unit.id)}
+            className={cn('group flex min-w-0 items-start gap-2', className)}
+            title={`Открыть: ${unit.name}`}
+        >
+            {named}
+        </Link>
+    ) : (
+        <div className={cn('flex min-w-0 items-start gap-2', className)}>{named}</div>
+    );
+}
+
+/**
+ * One answer of a row, under the head standing over its column — or beside the
+ * head, where the columns have come down to a single file and there is no row
+ * of heads left to look up to.
+ */
+function UnitCell({ head, children }: { head: string; children: ReactNode }) {
+    return (
+        <div className="flex min-w-0 flex-col break-words max-md:flex-row max-md:items-baseline max-md:gap-1.5">
+            <span className="text-muted-foreground shrink-0 text-[13px] md:hidden">{head}</span>
+            {children}
+        </div>
+    );
+}
+
+/**
  * What the person holds right now, and what can be done about it from here:
  * this card is where somebody notices that the thing is back on the desk or past
  * saving, so a unit is taken back and struck off from the row itself, through
@@ -3443,31 +3524,41 @@ function EquipmentList({ items }: { items: ProfilePrivate['equipment'] }) {
     /** Which unit a move was picked on, and which move, until the form closes. */
     const [asking, setAsking] = useState<{ unit: HeldUnit; kind: AskedMove } | null>(null);
 
+    // Asked of the list rather than of the row: the column is the same width
+    // down the whole block, or the answers in it stand in a ragged line.
+    const moves = unitMoves(items);
+
     return (
         <>
             <ul className="flex flex-col">
                 {items.map((unit) => (
-                    <li key={unit.id} className={cn(recordRow, 'flex items-start gap-3')}>
-                        <div className="flex min-w-0 flex-1 flex-col gap-0.5 break-words">
-                            {/* The unit's own card is a matter of the fleet, not of this card. */}
-                            {unit.open ? (
-                                <Link href={route('equipment.show', unit.id)} className="text-sm font-medium hover:underline">
-                                    {unit.name}
-                                </Link>
-                            ) : (
-                                <span className="text-sm font-medium">{unit.name}</span>
-                            )}
-                            <span className="text-muted-foreground text-[13px]">{[unit.type, unit.details].filter(Boolean).join(' · ')}</span>
-                            <span className="text-muted-foreground text-[13px] tabular-nums">
-                                Инв. № {unit.inventory_number}
-                                {unit.issued_at && ` · выдано ${formatDate(unit.issued_at)}`}
-                            </span>
-                        </div>
+                    <li key={unit.id} className={cn(unitColumns(moves), 'py-2.5 first:pt-0 last:pb-0')}>
+                        <UnitCell head="Тип">
+                            <span className="min-w-0 text-sm break-words">{unit.type ?? noAnswer}</span>
+                        </UnitCell>
+
+                        {/* The unit named as the fleet's own lists name one: its
+                            category's mark, the name in the colour of a link,
+                            and under it what the category asks about first.
+
+                            On a phone the row is a single file with no heads
+                            over it, and there the thing's own name goes first:
+                            a list that opened on «Ноутбуки» over and over would
+                            be read down the wrong column. */}
+                        <UnitName unit={unit} className="max-md:order-first" />
+
+                        <UnitCell head="Инв. №">
+                            <span className="min-w-0 text-sm break-words tabular-nums">{unit.inventory_number}</span>
+                        </UnitCell>
+
+                        <UnitCell head="Выдано">
+                            <span className="min-w-0 text-sm tabular-nums">{unit.issued_at ? formatDate(unit.issued_at) : noAnswer}</span>
+                        </UnitCell>
 
                         {/* Never squeezed: a long name wraps in the column beside
                             this one rather than pushing the icons off a phone. */}
                         {(unit.can_take || unit.can_write_off) && (
-                            <div className="flex shrink-0 gap-1">
+                            <div className="flex shrink-0 gap-1 max-md:pt-1">
                                 {unit.can_take && <MoveButton kind="take" icon={ArrowDownToLine} onClick={() => setAsking({ unit, kind: 'take' })} />}
                                 {unit.can_write_off && (
                                     <MoveButton kind="write-off" icon={Trash2} danger onClick={() => setAsking({ unit, kind: 'write-off' })} />
@@ -3740,6 +3831,7 @@ export default function EmployeeProfile({
     options,
     assigned,
     sheet,
+    documents,
     visibleFields,
     editableFields,
 }: {
@@ -3772,6 +3864,12 @@ export default function EmployeeProfile({
     assigned: Assigned | null;
     /** How far «Личный листок» has got, over the lines this viewer may read. */
     sheet: SheetProgress;
+    /**
+     * The papers the company asks everybody for, with this person's answers
+     * against them, and whether they are this viewer's to attach and to pass.
+     * Null where the documents are not theirs to read.
+     */
+    documents: EmployeeDocuments | null;
 
     /** Which lines of this card the viewer reads; everything else is not drawn. */
     visibleFields: string[];
@@ -3782,6 +3880,11 @@ export default function EmployeeProfile({
     // Whoever leads the departments this person is filed in, each named once:
     // somebody in two units of one department answers to one person, not two.
     const heads = [...new Map((employee.departments ?? []).flatMap((department) => department.heads).map((head) => [head.id, head])).values()];
+
+    // Whether the person reading this is shown their own card and nothing
+    // else, which decides what of the card is a record and what is still a
+    // sketch — see the blocks below «Основное».
+    const { ownCardOnly } = usePage<SharedData>().props.auth;
 
     const [deletingAvatar, setDeletingAvatar] = useState(false);
     const [issuing, setIssuing] = useState(false);
@@ -3879,14 +3982,17 @@ export default function EmployeeProfile({
                                         return position.id === null ? (
                                             <span key={position.name}>{badge}</span>
                                         ) : (
-                                            <Link
+                                            <Way
                                                 key={position.id}
+                                                linked={!ownCardOnly}
                                                 href={route('positions.show', position.id)}
                                                 title={`Открыть должность: ${positionTitle(position)}`}
-                                                className="rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125"
+                                                className={cn(
+                                                    !ownCardOnly && 'rounded-md transition-[filter] hover:brightness-95 dark:hover:brightness-125',
+                                                )}
                                             >
                                                 {badge}
-                                            </Link>
+                                            </Way>
                                         );
                                     })}
                                 </div>
@@ -3941,14 +4047,14 @@ export default function EmployeeProfile({
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
                         <div className="flex flex-col gap-4">
-                            {tab === 'sheet' && <SheetTab employee={employee} sheet={sheet} options={options} />}
+                            {tab === 'sheet' && <SheetTab employee={employee} sheet={sheet} documents={documents} options={options} />}
 
                             {tab === 'equipment' && details && (
                                 // What they hold now on the left, what has been
                                 // through their hands on the right.
                                 <div className={paneGrid}>
                                     <div className={pane}>
-                                        <Section
+                                        <Panel
                                             title="Текущие оборудования"
                                             action={
                                                 canIssue && (
@@ -3958,13 +4064,21 @@ export default function EmployeeProfile({
                                                     </button>
                                                 )
                                             }
+                                            // The heads of the list stand in the panel's own line,
+                                            // above the body rather than inside it: that way a row
+                                            // holds answers only, and the heads are said once for
+                                            // the whole list instead of once per row. They line up
+                                            // with the columns under them because the info line and
+                                            // the body are indented alike.
+                                            infoClassName={cn(unitColumns(unitMoves(details.equipment)), 'max-md:hidden')}
+                                            info={details.equipment.length > 0 && <EquipmentHeads />}
                                         >
                                             {details.equipment.length === 0 ? (
                                                 <p className={emptyNote}>Не выдано</p>
                                             ) : (
                                                 <EquipmentList items={details.equipment} />
                                             )}
-                                        </Section>
+                                        </Panel>
                                     </div>
 
                                     <div className={pane}>
@@ -3982,7 +4096,7 @@ export default function EmployeeProfile({
                                 <div className={pane}>
                                     {/* The block the card is built around: where somebody stands
                                         and on what terms. */}
-                                    <Section
+                                    <Panel
                                         title="Основное"
                                         action={
                                             canEditBlock('personal') && (
@@ -4008,13 +4122,14 @@ export default function EmployeeProfile({
                                                             // to click on, and one the width of its own
                                                             // text alone would run a long name off the
                                                             // card rather than let it wrap.
-                                                            <Link
+                                                            <Way
                                                                 key={department.id}
+                                                                linked={!ownCardOnly}
                                                                 href={route('departments.show', department.id)}
-                                                                className="w-max max-w-full hover:underline"
+                                                                className={cn('w-max max-w-full', !ownCardOnly && 'hover:underline')}
                                                             >
                                                                 <DepartmentName name={department.path} full={department.full_path} />
-                                                            </Link>
+                                                            </Way>
                                                         ))}
                                                     </span>
                                                 )}
@@ -4029,13 +4144,14 @@ export default function EmployeeProfile({
                                                             position.id === null ? (
                                                                 <PositionName key={position.name} name={position.name} unit={position.unit} />
                                                             ) : (
-                                                                <Link
+                                                                <Way
                                                                     key={position.id}
+                                                                    linked={!ownCardOnly}
                                                                     href={route('positions.show', position.id)}
-                                                                    className="w-max max-w-full hover:underline"
+                                                                    className={cn('w-max max-w-full', !ownCardOnly && 'hover:underline')}
                                                                 >
                                                                     <PositionName name={position.name} unit={position.unit} />
-                                                                </Link>
+                                                                </Way>
                                                             ),
                                                         )}
                                                     </span>
@@ -4046,13 +4162,14 @@ export default function EmployeeProfile({
                                                 {heads.length > 0 && (
                                                     <span className="flex flex-col gap-1">
                                                         {heads.map((head) => (
-                                                            <Link
+                                                            <Way
                                                                 key={head.id}
+                                                                linked={!ownCardOnly}
                                                                 href={route('employees.show', head.id)}
-                                                                className="w-max max-w-full hover:underline"
+                                                                className={cn('w-max max-w-full', !ownCardOnly && 'hover:underline')}
                                                             >
                                                                 {head.name}
-                                                            </Link>
+                                                            </Way>
                                                         ))}
                                                     </span>
                                                 )}
@@ -4067,8 +4184,12 @@ export default function EmployeeProfile({
                                             </Fact>
 
                                             {/* Nothing keeps it yet: every card says the same word
-                                                until there is somewhere to write the answer. */}
-                                            <Fact label="Испытательный срок">Пройден</Fact>
+                                                until there is somewhere to write the answer — which is
+                                                why the person whose card it is does not see it. A card
+                                                that told somebody their probation was passed when
+                                                nobody had said so would be a record of nothing,
+                                                read as a record of something. */}
+                                            {!ownCardOnly && <Fact label="Испытательный срок">Пройден</Fact>}
 
                                             {/* The date, and how long it has been — one line, because
                                                 the second is read off the first and not kept anywhere:
@@ -4084,28 +4205,43 @@ export default function EmployeeProfile({
                                                 )}
                                             </Fact>
                                         </Facts>
-                                    </Section>
+                                    </Panel>
 
-                                    <KpiSection />
+                                    {/* The six blocks below are the design of what the
+                                        card is to hold: a KPI, a month of attendance, a
+                                        year of leave, a plan and two sets of skills. Not
+                                        one of them is kept anywhere yet — they are drawn
+                                        from figures written into this page — so they are
+                                        shown to the people who are building the thing and
+                                        not to the person whose card it is. Somebody
+                                        reading their own card has no way of telling a
+                                        sketch from a record, and «ваш KPI — 97%» is a
+                                        sentence nobody should read about themselves until
+                                        it is true. */}
+                                    {!ownCardOnly && (
+                                        <>
+                                            <KpiSection />
 
-                                    {/* Two blocks of a size, side by side where there is
-                                        room for them and one under the other where there
-                                        is not. */}
-                                    <div className="grid gap-4 lg:grid-cols-2">
-                                        <AttendanceSection />
-                                        <LeaveSection />
-                                    </div>
+                                            {/* Two blocks of a size, side by side where there is
+                                                room for them and one under the other where there
+                                                is not. */}
+                                            <div className="grid gap-4 lg:grid-cols-2">
+                                                <AttendanceSection />
+                                                <LeaveSection />
+                                            </div>
 
-                                    <PlanSection />
+                                            <PlanSection />
 
-                                    <div className="grid gap-4 lg:grid-cols-2">
-                                        <SkillsSection kind="hard" skills={HARD_SKILLS} />
-                                        <SkillsSection kind="soft" skills={SOFT_SKILLS} />
-                                    </div>
+                                            <div className="grid gap-4 lg:grid-cols-2">
+                                                <SkillsSection kind="hard" skills={HARD_SKILLS} />
+                                                <SkillsSection kind="soft" skills={SOFT_SKILLS} />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
 
                                 <aside className={sidePane}>
-                                    <Section
+                                    <Panel
                                         fields={['languages']}
                                         title="Знание языков"
                                         action={
@@ -4119,9 +4255,9 @@ export default function EmployeeProfile({
                                         ) : (
                                             <Languages items={employee.languages ?? []} />
                                         )}
-                                    </Section>
+                                    </Panel>
 
-                                    <Section
+                                    <Panel
                                         fields={['email', 'phone', 'sos_phone']}
                                         title="Контакты"
                                         action={
@@ -4149,7 +4285,7 @@ export default function EmployeeProfile({
                                                 {details.sos_phone && <SosPhone phone={details.sos_phone} contact={details.sos_contact} />}
                                             </Field>
                                         </Fields>
-                                    </Section>
+                                    </Panel>
 
                                     {/* Nobody transfers, fires or deletes themselves, so on one's own
                                     card the row would be three disabled buttons and nothing else. */}
@@ -4181,7 +4317,7 @@ export default function EmployeeProfile({
                                 {/* Hire date, phones and the rest are private, so a colleague's sidebar
                             holds languages alone — those are public. */}
                                 <aside className={sidePane}>
-                                    <Section
+                                    <Panel
                                         fields={['languages']}
                                         title="Знание языков"
                                         action={
@@ -4195,7 +4331,7 @@ export default function EmployeeProfile({
                                         ) : (
                                             <Languages items={employee.languages ?? []} />
                                         )}
-                                    </Section>
+                                    </Panel>
                                 </aside>
                             </div>
                         ))}

@@ -27,6 +27,7 @@ export type Permission =
     | 'employees.transfer'
     | 'employees.fire'
     | 'employees.delete'
+    | 'employees.documents.review'
     | 'equipment.view.own'
     | 'equipment.view.department'
     | 'equipment.view.all'
@@ -47,12 +48,14 @@ export type Permission =
     | 'directories.view.languages'
     | 'directories.view.citizenships'
     | 'directories.view.employment_types'
+    | 'directories.view.document_types'
     | 'directories.view.equipment'
     | 'directories.edit.positions'
     | 'directories.edit.departments'
     | 'directories.edit.languages'
     | 'directories.edit.citizenships'
     | 'directories.edit.employment_types'
+    | 'directories.edit.document_types'
     | 'directories.edit.equipment';
 
 /** Whether the viewer holds a right, as the shared props report it. */
@@ -149,6 +152,13 @@ export const directoryLists: DirectoryList[] = [
         view: 'directories.view.employment_types',
         edit: 'directories.edit.employment_types',
         add: 'Добавить тип занятости',
+    },
+    {
+        key: 'document_types',
+        title: 'Документы',
+        view: 'directories.view.document_types',
+        edit: 'directories.edit.document_types',
+        add: 'Добавить документ',
     },
     {
         key: 'equipment',

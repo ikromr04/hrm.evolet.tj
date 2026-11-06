@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import { useCan, type Permission } from '@/lib/access';
+import { filesWanted } from '@/lib/documents';
 import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields';
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { plural } from '@/lib/plural';
@@ -68,6 +69,12 @@ interface DirectoryManagerProps {
     fieldTypes?: FieldTypeOption[];
     /** What a new record's fields start off as (equipment categories). */
     defaultFields?: CategoryField[];
+    /**
+     * Whether a record says how it is answered (the documents the company asks
+     * for): the list then shows what may be attached to each and who is asked
+     * for it, and the window writes both.
+     */
+    documents?: boolean;
 }
 
 /**
@@ -76,6 +83,22 @@ interface DirectoryManagerProps {
  */
 export const searchBox =
     'border-input bg-background text-muted-foreground focus-within:ring-ring flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border px-3 shadow-xs focus-within:ring-2 max-md:rounded-xl max-md:border-0 max-md:bg-card max-md:shadow-none';
+
+/**
+ * How a document may be handed in, in a few words: the ways it takes, and how
+ * many files it holds where it holds more than one.
+ *
+ * A paper that takes neither way cannot be handed in at all, which the window
+ * refuses to save — so a row that says so is a row from before that rule, and
+ * it says what it is rather than showing an empty cell.
+ */
+const attachedAs = (row: DirectoryItem): string => {
+    const ways = [row.accepts_files !== false && 'файл', row.accepts_camera === true && 'фотография'].filter(Boolean) as string[];
+
+    if (ways.length === 0) return 'нечем';
+
+    return `${ways.join(' или ')}, ${filesWanted(row.min_files ?? 1, row.max_files ?? null)}`;
+};
 
 /** The order a list opens in — by name, which is how the server sends it. */
 const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
@@ -112,6 +135,7 @@ export function DirectoryManager({
     sections,
     fieldTypes,
     defaultFields,
+    documents = false,
 }: DirectoryManagerProps) {
     const can = useCan();
     const opensList = can('employees.view') && (employeesField === undefined || can(employeesField));
@@ -150,9 +174,15 @@ export function DirectoryManager({
                 width: 320,
                 filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
             },
+            ...(documents
+                ? [
+                      { key: 'accepts', label: 'Как прикладывать', width: 260 },
+                      { key: 'required', label: 'Обязателен', width: 160 },
+                  ]
+                : []),
             { key: 'count', label: countLabel, width: 200 },
         ],
-        [countLabel, sections],
+        [countLabel, sections, documents],
     );
 
     const viewKey = `directory:${routeName}`;
@@ -243,6 +273,17 @@ export function DirectoryManager({
             );
         }
 
+        if (column.key === 'accepts') {
+            return <span className="text-muted-foreground">{attachedAs(row)}</span>;
+        }
+
+        if (column.key === 'required') {
+            // «Нет» rather than a blank: the column answers a question about
+            // every row, and a row that says nothing reads as a row nobody has
+            // filled in.
+            return <span>{row.is_required === false ? <span className="text-muted-foreground">Нет</span> : 'Да'}</span>;
+        }
+
         return (
             <span className="flex items-center gap-2">
                 {icons && <IconChip icon={(row.icon && equipmentIcons[row.icon]) || fallbackIcon} size={28} iconSize={15} />}
@@ -314,7 +355,11 @@ export function DirectoryManager({
                                             )}
                                         </span>
                                     }
-                                    subtitle={`${count} ${plural(count, countWords)}`}
+                                    subtitle={
+                                        documents
+                                            ? `${attachedAs(row)} · ${count} ${plural(count, countWords)}`
+                                            : `${count} ${plural(count, countWords)}`
+                                    }
                                     trailing={
                                         canEdit ? (
                                             <DropdownMenu>
@@ -464,6 +509,7 @@ export function DirectoryManager({
                     sections={sections}
                     fieldTypes={fieldTypes}
                     defaultFields={defaultFields}
+                    documents={documents}
                     onClose={() => setEditing(null)}
                 />
             )}

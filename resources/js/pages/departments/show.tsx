@@ -1,4 +1,3 @@
-import { CardSection } from '@/components/card-section';
 import { ComingSoon } from '@/components/coming-soon';
 import { MobileRow } from '@/components/data-table';
 import { DepartmentEditor, type DepartmentRecord } from '@/components/department-editor';
@@ -12,6 +11,7 @@ import { CategoryChip } from '@/components/equipment-icon';
 import { PhoneViewSwitch } from '@/components/org-chart';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
+import { Panel } from '@/components/panel';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
 import { PositionName, positionTitle, type PositionUnit } from '@/components/position-name';
@@ -803,7 +803,7 @@ export default function DepartmentPage({
                             same form. It stands on the card the department
                             itself is read from — the one above the heads and
                             the staff it edits. */}
-                        <CardSection
+                        <Panel
                             title="Подразделение"
                             action={
                                 editor.can_edit && (
@@ -849,10 +849,10 @@ export default function DepartmentPage({
                                     <dd className="min-w-0 text-right tabular-nums">{department.total_count}</dd>
                                 </div>
                             </dl>
-                        </CardSection>
+                        </Panel>
 
                         {department.positions.length > 0 && (
-                            <CardSection title="Должности" count={department.positions.length}>
+                            <Panel title="Должности" count={department.positions.length}>
                                 {/*
                                  * Badges rather than rows: a job is drawn this way
                                  * everywhere else it is named — on a colleague's card,
@@ -895,14 +895,14 @@ export default function DepartmentPage({
                                         </li>
                                     ))}
                                 </ul>
-                            </CardSection>
+                            </Panel>
                         )}
 
                         {/* Everybody who works here, the units under this one included:
                             a face, a name and the jobs they hold. The address is left
                             out — this is a list to read the department by, and a dozen
                             e-mails under a dozen names is a wall of brand colour. */}
-                        <CardSection title="Сотрудники" count={department.members.length}>
+                        <Panel title="Сотрудники" count={department.members.length}>
                             {department.members.length === 0 ? (
                                 <p className="text-muted-foreground text-sm">В отделе пока нет сотрудников.</p>
                             ) : (
@@ -912,10 +912,10 @@ export default function DepartmentPage({
                                     ))}
                                 </ul>
                             )}
-                        </CardSection>
+                        </Panel>
 
                         {department.children.length > 0 && (
-                            <CardSection title="Подотделы" count={department.children.length}>
+                            <Panel title="Подотделы" count={department.children.length}>
                                 <ul className="-mx-2 flex flex-col">
                                     {department.children.map((child) => (
                                         <li key={child.id}>
@@ -945,7 +945,7 @@ export default function DepartmentPage({
                                         </li>
                                     ))}
                                 </ul>
-                            </CardSection>
+                            </Panel>
                         )}
                     </aside>
 

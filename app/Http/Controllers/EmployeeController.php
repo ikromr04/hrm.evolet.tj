@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreEmployeeRequest;
 use App\Models\Citizenship;
 use App\Models\Department;
+use App\Models\DocumentType;
+use App\Models\EmployeeDocument;
+use App\Models\EmployeeDocumentFile;
 use App\Models\EmploymentType;
 use App\Models\Equipment;
 use App\Models\EquipmentEvent;
@@ -68,6 +71,12 @@ class EmployeeController extends Controller
 
     /** @var list<int> Units on the card being built that the viewer may open. */
     private array $openUnits = [];
+
+    /**
+     * And whether the fleet's own pages are this viewer's to walk into at all,
+     * which is the other half of the same question: see openUnitsFor().
+     */
+    private bool $opensUnits = false;
 
     /**
      * The journal of the card being built — every entry of every unit this
@@ -675,6 +684,17 @@ class EmployeeController extends Controller
                 // answered and still be waiting for the diploma that proves it.
                 'papers' => PersonnelSheet::papers($employee, $request->user()),
             ],
+            // The papers the company asks everybody for, with this person's
+            // answers against them. Sent whole — the ones handed in and the
+            // ones still wanted — because the card shows both, and a list of
+            // what is attached says nothing about what is missing.
+            'documents' => $shows('documents') ? [
+                'canEdit' => in_array('documents', $editable, true),
+                // Attaching and passing are two different hands; the card draws
+                // «Принять» and «Отклонить» only for the second of them.
+                'canReview' => $request->user()->can('employees.documents.review'),
+                'items' => $this->documents($employee),
+            ] : null,
             'options' => $canEdit ? [
                 // On the terms the «Новый сотрудник» page is given them: what
                 // other cards say is offered only to a reader of that line, and
@@ -1316,12 +1336,16 @@ class EmployeeController extends Controller
             'details' => $this->unitDetails($unit),
             'inventory_number' => EquipmentName::readNumber($unit->inventory_number),
             'type' => $unit->type?->name,
+            // The mark its category is known by across the fleet: a unit is
+            // recognised by it before its name is read, and the card has no
+            // business drawing the same thing differently.
+            'type_icon' => $unit->type?->icon,
             'issued_at' => $unit->issued_at?->toDateString(),
             // What the card says about it now, which the write-off form opens on.
             'condition' => $unit->condition,
             // Whether the unit's own card is this viewer's to open: holding the
             // line of a person's card is not the same as seeing the fleet.
-            'open' => in_array($unit->id, $this->openUnits, true),
+            'open' => $this->opensUnits && in_array($unit->id, $this->openUnits, true),
             // And whether these two moves are theirs to make on this very unit.
             // Asked of the unit, as the routes behind the forms ask it: the right
             // alone is not enough on a unit one cannot see.
@@ -1408,7 +1432,7 @@ class EmployeeController extends Controller
             'name' => EquipmentName::read($event->equipment->name),
             'inventory_number' => EquipmentName::readNumber($event->equipment->inventory_number),
             'type' => $event->equipment->type?->name,
-            'open' => in_array($event->equipment->id, $this->openUnits, true),
+            'open' => $this->opensUnits && in_array($event->equipment->id, $this->openUnits, true),
         ];
     }
 
@@ -1432,6 +1456,15 @@ class EmployeeController extends Controller
      */
     private function openUnitsFor(User $viewer, User $employee): bool
     {
+        // Whether a unit's own card is this viewer's to open at all. Seeing the
+        // units on somebody's card and walking into the fleet's page about one
+        // are two different questions, and they came apart the day the roles
+        // that are shown their own card and nothing else were let in: they are
+        // told what they hold, and the section those pages live in is not
+        // theirs. Without this the card would offer a way to a page that
+        // answers them «нет доступа».
+        $this->opensUnits = $viewer->can('equipment.view.any');
+
         $ids = $employee->equipment->pluck('id')
             ->merge($this->history($employee)->pluck('equipment_id'))
             ->filter()->unique()->values()->all();
@@ -1461,6 +1494,78 @@ class EmployeeController extends Controller
             // filed before the card asked.
             'reason' => $job->reason,
         ];
+    }
+
+    /**
+     * The papers the company asks for, each with whatever this person has
+     * handed in against it.
+     *
+     * One row per paper rather than one per answer: a card is read for what is
+     * still wanted as much as for what is there, and a list of the documents on
+     * file would leave the office to work out which of the papers are not among
+     * them.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function documents(User $employee): array
+    {
+        $handed = EmployeeDocument::query()
+            ->where('user_id', $employee->id)
+            ->with(['files', 'submitter:id,surname,name', 'reviewer:id,surname,name'])
+            ->get()
+            ->keyBy('document_type_id');
+
+        return DocumentType::query()
+            ->orderBy('name')
+            ->get()
+            ->map(function (DocumentType $type) use ($employee, $handed) {
+                $document = $handed->get($type->id);
+
+                return [
+                    'type_id' => $type->id,
+                    'name' => $type->name,
+                    'hint' => $type->hint,
+                    'min_files' => $type->min_files,
+                    'max_files' => $type->max_files,
+                    'accepts_files' => $type->accepts_files,
+                    'accepts_camera' => $type->accepts_camera,
+                    'is_required' => $type->is_required,
+                    // Null where nobody has handed anything in — which is not a
+                    // status of its own: «не приложен» is the absence of an
+                    // answer, and a card that invented a fourth word for it
+                    // would have to keep the two in step for ever.
+                    'id' => $document?->id,
+                    'status' => $document?->status,
+                    'comment' => $document?->comment,
+                    'submitted_at' => $document?->submitted_at?->toDateString(),
+                    'reviewed_at' => $document?->reviewed_at?->toDateString(),
+                    'submitted_by' => $this->shortName($document?->submitter),
+                    'reviewed_by' => $this->shortName($document?->reviewer),
+                    'files' => $document === null ? [] : $document->files->map(fn (EmployeeDocumentFile $file) => [
+                        'id' => $file->id,
+                        'name' => $file->name,
+                        'size' => $file->size,
+                        'mime' => $file->mime,
+                        // The address and never the path: a file answers only
+                        // somebody who may read this card's documents, and the
+                        // controller behind this asks that before it answers.
+                        'url' => route('employees.documents.file', [$employee->id, $document->id, $file->id]),
+                    ])->all(),
+                ];
+            })
+            ->all();
+    }
+
+    /** «Рахимов И.» — who handed a document in, or who passed it. */
+    private function shortName(?User $person): ?string
+    {
+        if ($person === null) {
+            return null;
+        }
+
+        $initial = mb_substr($person->name ?? '', 0, 1);
+
+        return trim($person->surname.($initial === '' ? '' : " {$initial}."));
     }
 
     /**

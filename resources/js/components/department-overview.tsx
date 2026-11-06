@@ -1,4 +1,4 @@
-import { CardSection } from '@/components/card-section';
+import { Panel } from '@/components/panel';
 import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { type ReactNode } from 'react';
@@ -201,7 +201,7 @@ export function DepartmentOverview() {
             {/* The department on the left, the day and what it asks for on the right. */}
             <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="flex min-w-0 flex-col gap-4">
-                    <CardSection title="Штат по отделам" action={<Action>Штатное расписание</Action>} bodyClassName="-mx-4 -mb-5 md:-mx-6">
+                    <Panel title="Штат по отделам" action={<Action>Штатное расписание</Action>} bodyClassName="-mx-4 -mb-5 md:-mx-6">
                         {UNITS.map((unit) => (
                             <UnitRow key={unit.code} unit={unit} />
                         ))}
@@ -214,9 +214,9 @@ export function DepartmentOverview() {
                                 <Seat filled={false} /> Вакантная ставка
                             </span>
                         </div>
-                    </CardSection>
+                    </Panel>
 
-                    <CardSection
+                    <Panel
                         title="Открытые вакансии подразделения"
                         action={<Action>Открыть в рекрутменте</Action>}
                         bodyClassName="-mx-4 -mb-5 md:-mx-6"
@@ -250,9 +250,9 @@ export function DepartmentOverview() {
                                 </span>
                             ))}
                         </div>
-                    </CardSection>
+                    </Panel>
 
-                    <CardSection title="Оборудование подразделения" action={<Action>Подробнее</Action>}>
+                    <Panel title="Оборудование подразделения" action={<Action>Подробнее</Action>}>
                         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
                             {EQUIPMENT.map((figure) => (
                                 <div key={figure.label} className="flex flex-col gap-1">
@@ -268,11 +268,11 @@ export function DepartmentOverview() {
                                 </div>
                             ))}
                         </div>
-                    </CardSection>
+                    </Panel>
                 </div>
 
                 <div className="flex min-w-0 flex-col gap-4">
-                    <CardSection title={`Сегодня · ${TODAY.date}`} action={<Action>Календарь</Action>}>
+                    <Panel title={`Сегодня · ${TODAY.date}`} action={<Action>Календарь</Action>}>
                         <p className="flex items-baseline gap-2">
                             <span className="text-[32px] leading-9 font-semibold tabular-nums">{TODAY.present}</span>
                             <span className="text-muted-foreground text-sm">из {TODAY.total} на работе</span>
@@ -299,9 +299,9 @@ export function DepartmentOverview() {
                                 </div>
                             ))}
                         </dl>
-                    </CardSection>
+                    </Panel>
 
-                    <CardSection title="KPI по отделам · 3 кв." action={<span className="text-muted-foreground text-xs">цель {KPI.target}%</span>}>
+                    <Panel title="KPI по отделам · 3 кв." action={<span className="text-muted-foreground text-xs">цель {KPI.target}%</span>}>
                         <div className="flex flex-col gap-3">
                             {KPI.rows.map((row) => (
                                 <div key={row.code} className="grid grid-cols-[3.5rem_minmax(0,1fr)_3rem] items-center gap-3">
@@ -316,9 +316,9 @@ export function DepartmentOverview() {
                                 </div>
                             ))}
                         </div>
-                    </CardSection>
+                    </Panel>
 
-                    <CardSection title="Ближайшие отсутствия" bodyClassName="-mx-4 -mb-5 md:-mx-6">
+                    <Panel title="Ближайшие отсутствия" bodyClassName="-mx-4 -mb-5 md:-mx-6">
                         {ABSENCES.map((absence) => (
                             <div key={absence.name} className="flex items-center gap-3 border-b px-4 py-3 last:border-0 md:px-6">
                                 <span className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
@@ -331,9 +331,9 @@ export function DepartmentOverview() {
                                 <span className="text-muted-foreground shrink-0 text-[13px] whitespace-nowrap">{absence.when}</span>
                             </div>
                         ))}
-                    </CardSection>
+                    </Panel>
 
-                    <CardSection title="Требует внимания">
+                    <Panel title="Требует внимания">
                         <ul className="flex flex-col gap-3">
                             {ATTENTION.map((item) => (
                                 <li key={item.text} className="flex gap-2.5">
@@ -345,7 +345,7 @@ export function DepartmentOverview() {
                                 </li>
                             ))}
                         </ul>
-                    </CardSection>
+                    </Panel>
                 </div>
             </div>
         </div>

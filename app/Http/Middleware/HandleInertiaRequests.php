@@ -53,6 +53,11 @@ class HandleInertiaRequests extends Middleware
                 // something is not a right at all: the company dashboard, which
                 // nobody is granted line by line.
                 'everything' => $request->user() !== null && Access::everything($request->user()),
+                // And whether this person is shown their own card and nothing
+                // else, which the menu asks: the sections they may not open are
+                // not hidden one by one — there is one group and that is the
+                // whole of it.
+                'ownCardOnly' => $request->user() !== null && Access::ownCardOnly($request->user()),
             ],
             // How the tables of the app open for whoever has not arranged them
             // themselves: one arrangement per table, set by that one account.

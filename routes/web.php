@@ -5,11 +5,13 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\DepartmentProfileController;
 use App\Http\Controllers\DepartmentRegulationController;
 use App\Http\Controllers\Directories;
+use App\Http\Controllers\DocumentReviewController;
 use App\Http\Controllers\EmployeeAvatarController;
 use App\Http\Controllers\EmployeeAwardController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EmployeeDegreeController;
 use App\Http\Controllers\EmployeeDetailsController;
+use App\Http\Controllers\EmployeeDocumentController;
 use App\Http\Controllers\EmployeeEducationController;
 use App\Http\Controllers\EmployeeEquipmentController;
 use App\Http\Controllers\EmployeeMilitaryController;
@@ -151,12 +153,18 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('can:'.DirectoryLists::viewPermission('positions'))
         ->name('positions.show');
 
-    // Who works where is nobody's secret: the structure of the company is open
-    // to everybody who signs in, and the pages show names and nothing more.
+    // Who works where is nobody's secret among the people who work with the
+    // company as a whole: the chart shows names and nothing more, and it is
+    // open to everybody who signs in — bar the two roles that are shown their
+    // own card and nothing besides. The gate is there for them alone, which is
+    // why it says yes to everybody else without asking anything: Gate::before
+    // refuses those two anything that is not on their own short list.
     // "Органограмма", the tab the section opens on.
     // The chart of the company at an address of its own: «/departments» is
     // the list of them, which is what it has always read as.
-    Route::get('org-chart', [DepartmentController::class, 'index'])->name('org-chart');
+    Route::get('org-chart', [DepartmentController::class, 'index'])
+        ->middleware('can:company.view')
+        ->name('org-chart');
 
     // "Подразделения": the same tree, written out as a list and kept there. It
     // was a tab of "Справочники" and is a tab of the structure now, because it
@@ -173,7 +181,12 @@ Route::middleware(['auth'])->group(function () {
     // Where the list used to be read from, for whatever still points there.
     Route::get('departments/units', RedirectController::class)->defaults('destination', '/departments')->defaults('status', 302);
 
-    Route::get('departments/{department}', [DepartmentController::class, 'show'])->name('departments.show');
+    // One department's own page: its people, its jobs, its regulation. Read
+    // by everybody who works with the company — and by nobody who is shown
+    // their own card and nothing else, which is what the gate is here for.
+    Route::get('departments/{department}', [DepartmentController::class, 'show'])
+        ->middleware('can:company.view')
+        ->name('departments.show');
 
     // Notifications are not built yet; the page says so, and the menu and the
     // bell both lead here rather than nowhere.
@@ -184,6 +197,13 @@ Route::middleware(['auth'])->group(function () {
 Route::post('employees', [EmployeeController::class, 'store'])
     ->middleware(['auth', 'can:employees.create'])
     ->name('employees.store');
+
+// Everything handed in and waiting to be looked at, across every card: work
+// for the office rather than news about one person, and therefore in one place
+// rather than found by opening cards one at a time.
+Route::get('documents', [DocumentReviewController::class, 'index'])
+    ->middleware(['auth', 'can:employees.documents.review'])
+    ->name('documents.index');
 
 // One card of the profile at a time, each form guarded by the block it saves:
 // whoever may change a passport is not thereby allowed to rewrite a family.
@@ -223,6 +243,17 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     // UpdateSheetRequest, which is also what refuses a viewer who may change
     // none of them.
     Route::put('sheet', [EmployeeSheetController::class, 'update'])->name('sheet');
+
+    // The papers the company asks everybody for, and what this person has
+    // handed in against them. Behind «auth» alone, like the sheet above: each
+    // of these asks its own question inside, and they are three different
+    // questions — attaching a document is changing the card, passing one is a
+    // right of its own, and reading one is neither.
+    Route::post('documents/{documentType}', [EmployeeDocumentController::class, 'store'])->name('documents.store');
+    Route::delete('documents/{document}', [EmployeeDocumentController::class, 'destroy'])->name('documents.destroy');
+    Route::put('documents/{document}/approve', [EmployeeDocumentController::class, 'approve'])->name('documents.approve');
+    Route::put('documents/{document}/reject', [EmployeeDocumentController::class, 'reject'])->name('documents.reject');
+    Route::get('documents/{document}/files/{file}', [EmployeeDocumentController::class, 'file'])->name('documents.file');
 
     // Education is kept record by record. The controller checks that the record
     // belongs to the employee in the URL, so one person's id cannot reach
@@ -531,6 +562,7 @@ Route::middleware(['auth'])->prefix('directories')->name('directories.')->group(
         'languages' => Directories\LanguageController::class,
         'citizenships' => Directories\CitizenshipController::class,
         'employment_types' => Directories\EmploymentTypeController::class,
+        'document_types' => Directories\DocumentTypeController::class,
         'equipment' => Directories\EquipmentTypeController::class,
     ];
 

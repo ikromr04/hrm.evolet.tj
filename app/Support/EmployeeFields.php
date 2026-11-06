@@ -58,6 +58,12 @@ final class EmployeeFields
         'award' => ['Государственные награды, поощрения', false],
         // And the third line of its kind, beside them for the same reason.
         'military' => ['Отношение к воинской обязанности', false],
+        // The papers the company asks everybody for, and what this person has
+        // handed in against them. One answer and not a line apiece: what is
+        // asked for is a list kept in «Справочники» and changes with the rules
+        // the office works under, so a right per paper would be a right
+        // invented every time somebody adds one.
+        'documents' => ['Документы', false],
         'experience' => ['Трудовая деятельность', false],
         'equipment' => ['Оборудование', false],
     ];
@@ -123,6 +129,8 @@ final class EmployeeFields
         'work_experiences' => ['experience', 'Места работы'],
 
         'equipment' => ['equipment', 'Оборудование на руках'],
+
+        'documents' => ['documents', 'Приложенные документы'],
     ];
 
     /**
@@ -146,6 +154,7 @@ final class EmployeeFields
         'phone', 'sos_phone',
         'marital_status', 'spouse', 'children', 'relatives',
         'educations', 'degree', 'award', 'military', 'work_experiences', 'hired_at', 'equipment',
+        'documents',
     ];
 
     /** @return list<string> */

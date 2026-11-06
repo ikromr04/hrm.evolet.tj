@@ -12,6 +12,7 @@ import {
     Briefcase,
     Building2,
     CircleUser,
+    FileCheck,
     FileText,
     Flag,
     Heart,
@@ -57,6 +58,14 @@ export const navGroups = (
     can: (permission: Permission) => boolean,
     everything: boolean,
     href: (url: string, key: string) => string,
+    /**
+     * Whether the person reading the menu is shown their own card and nothing
+     * else. Everything below «Обзор» is then left out whole — not because each
+     * entry is closed to them one by one, but because none of those sections is
+     * theirs at all, and a menu of greyed names is a menu about somebody else's
+     * application.
+     */
+    ownCardOnly = false,
 ): SidebarNavGroup[] => [
     {
         title: 'Обзор',
@@ -70,90 +79,104 @@ export const navGroups = (
             { title: 'Уведомления', icon: Bell },
         ],
     },
-    {
-        title: 'Организация',
-        items: [
-            { title: 'Оргструктура', url: '/org-chart', icon: Network },
-            ...(can('employees.view') ? [{ title: 'Сотрудники', url: href('/employees', TABLE_KEYS.employees), icon: Users }] : []),
-            ...(can('directories.view.departments')
-                ? [{ title: 'Подразделения', url: href('/departments', TABLE_KEYS.departments), icon: Building2 }]
-                : []),
-            ...(can('directories.view.positions') ? [{ title: 'Должности', url: href('/positions', TABLE_KEYS.positions), icon: Briefcase }] : []),
-            // No address: the ladder a grade is a step on is not written down
-            // yet, so the entry holds its place and cannot be opened.
-            { title: 'Грейды', icon: Layers },
-        ],
-    },
-    {
-        // What the company does rather than what it is made of. The design names
-        // nine of these; one of them is built, and the rest stand in the order
-        // they will be opened in, greyed and unpressable, so the menu reads as
-        // the plan it is rather than growing a line at a time.
-        title: 'Процессы',
-        items: [
-            { title: 'Рекрутмент ATS', icon: UserSearch },
-            { title: 'Онбординг', icon: Flag },
-            { title: 'Отпуск', icon: TreePalm },
-            {
-                title: 'Эффективность / KPI',
-                icon: Target,
-                items: [{ title: 'Посещаемость' }, { title: 'KPI' }, { title: 'OKR' }].map(named),
-            },
-            {
-                title: 'Развитие сотрудников',
-                icon: TrendingUp,
-                items: [{ title: 'Навыки' }, { title: 'Компетенции' }, { title: 'Оценки' }, { title: 'Курсы' }, { title: 'Карьерные пути' }].map(
-                    named,
-                ),
-            },
-            {
-                title: 'Total Reward',
-                icon: Package,
-                items: [{ title: 'Зарплата' }, { title: 'Премии' }, { title: 'Штрафы' }, { title: 'Помощь сотрудникам' }].map(named),
-            },
-            { title: 'Заявки', icon: FileText },
-            {
-                title: 'Инвентаризация',
-                icon: Boxes,
-                items: [
-                    // Everything the section holds at once, which is why it is
-                    // read before any one kind of it. It is to hold the fleet as
-                    // a list, so it opens to whoever may read some part of the
-                    // fleet — as the page under it does, and nobody else sees
-                    // either of them.
-                    ...(seesEquipment(can)
-                        ? [
-                              { title: 'Обзор', url: href('/inventory', TABLE_KEYS.inventory), exact: true },
-                              { title: 'Рабочее оборудование', url: href('/inventory/equipment', TABLE_KEYS.equipment) },
-                              // The same fleet read for furniture and for what
-                              // the office itself runs on. Until the categories
-                              // are divided between the three, each page shows
-                              // the whole of it — the division is a question
-                              // for the directory of categories, not for a page.
-                              { title: 'Мебель', url: href('/inventory/furniture', TABLE_KEYS.furniture) },
-                              { title: 'Оргтехника офиса', url: href('/inventory/office', TABLE_KEYS.office) },
-                          ]
-                        : []),
-                    // What has happened to all of it, after the lists of what
-                    // there is: read by whoever may read the journal of some
-                    // part of the fleet.
-                    ...(readsEquipmentJournal(can)
-                        ? [{ title: 'Журнал операций', url: href('/inventory/journal', TABLE_KEYS.inventoryJournal) }]
-                        : []),
-                ],
-            },
-            {
-                title: 'Корпоративная культура',
-                icon: Heart,
-                items: [
-                    { title: 'Тимбилдинги' },
-                    { title: 'Спортивные мероприятия' },
-                    { title: 'Благотворительная помощь' },
-                    { title: 'Корпоративные бенефиты' },
-                ].map(named),
-            },
-        ],
-    },
+    // Below this line is the company, which is not everybody's to read.
+    ...(ownCardOnly
+        ? []
+        : [
+              {
+                  title: 'Организация',
+                  items: [
+                      { title: 'Оргструктура', url: '/org-chart', icon: Network },
+                      ...(can('employees.view') ? [{ title: 'Сотрудники', url: href('/employees', TABLE_KEYS.employees), icon: Users }] : []),
+                      // Only for the people who pass documents: for everybody else
+                      // the queue is a page with nothing on it they could act on.
+                      ...(can('employees.documents.review') ? [{ title: 'Документы', url: '/documents', icon: FileCheck }] : []),
+                      ...(can('directories.view.departments')
+                          ? [{ title: 'Подразделения', url: href('/departments', TABLE_KEYS.departments), icon: Building2 }]
+                          : []),
+                      ...(can('directories.view.positions')
+                          ? [{ title: 'Должности', url: href('/positions', TABLE_KEYS.positions), icon: Briefcase }]
+                          : []),
+                      // No address: the ladder a grade is a step on is not written down
+                      // yet, so the entry holds its place and cannot be opened.
+                      { title: 'Грейды', icon: Layers },
+                  ],
+              },
+              {
+                  // What the company does rather than what it is made of. The design names
+                  // nine of these; one of them is built, and the rest stand in the order
+                  // they will be opened in, greyed and unpressable, so the menu reads as
+                  // the plan it is rather than growing a line at a time.
+                  title: 'Процессы',
+                  items: [
+                      { title: 'Рекрутмент ATS', icon: UserSearch },
+                      { title: 'Онбординг', icon: Flag },
+                      { title: 'Отпуск', icon: TreePalm },
+                      {
+                          title: 'Эффективность / KPI',
+                          icon: Target,
+                          items: [{ title: 'Посещаемость' }, { title: 'KPI' }, { title: 'OKR' }].map(named),
+                      },
+                      {
+                          title: 'Развитие сотрудников',
+                          icon: TrendingUp,
+                          items: [
+                              { title: 'Навыки' },
+                              { title: 'Компетенции' },
+                              { title: 'Оценки' },
+                              { title: 'Курсы' },
+                              { title: 'Карьерные пути' },
+                          ].map(named),
+                      },
+                      {
+                          title: 'Total Reward',
+                          icon: Package,
+                          items: [{ title: 'Зарплата' }, { title: 'Премии' }, { title: 'Штрафы' }, { title: 'Помощь сотрудникам' }].map(named),
+                      },
+                      { title: 'Заявки', icon: FileText },
+                      {
+                          title: 'Инвентаризация',
+                          icon: Boxes,
+                          items: [
+                              // Everything the section holds at once, which is why it is
+                              // read before any one kind of it. It is to hold the fleet as
+                              // a list, so it opens to whoever may read some part of the
+                              // fleet — as the page under it does, and nobody else sees
+                              // either of them.
+                              ...(seesEquipment(can)
+                                  ? [
+                                        { title: 'Обзор', url: href('/inventory', TABLE_KEYS.inventory), exact: true },
+                                        { title: 'Рабочее оборудование', url: href('/inventory/equipment', TABLE_KEYS.equipment) },
+                                        // The same fleet read for furniture and for what
+                                        // the office itself runs on. Until the categories
+                                        // are divided between the three, each page shows
+                                        // the whole of it — the division is a question
+                                        // for the directory of categories, not for a page.
+                                        { title: 'Мебель', url: href('/inventory/furniture', TABLE_KEYS.furniture) },
+                                        { title: 'Оргтехника офиса', url: href('/inventory/office', TABLE_KEYS.office) },
+                                    ]
+                                  : []),
+                              // What has happened to all of it, after the lists of what
+                              // there is: read by whoever may read the journal of some
+                              // part of the fleet.
+                              ...(readsEquipmentJournal(can)
+                                  ? [{ title: 'Журнал операций', url: href('/inventory/journal', TABLE_KEYS.inventoryJournal) }]
+                                  : []),
+                          ],
+                      },
+                      {
+                          title: 'Корпоративная культура',
+                          icon: Heart,
+                          items: [
+                              { title: 'Тимбилдинги' },
+                              { title: 'Спортивные мероприятия' },
+                              { title: 'Благотворительная помощь' },
+                              { title: 'Корпоративные бенефиты' },
+                          ].map(named),
+                      },
+                  ],
+              },
+          ]),
 ];
 
 /** Where the menu stood, kept for this tab alone. */
@@ -162,7 +185,7 @@ const SCROLL_KEY = 'evolet.sidebar.scroll';
 export function AppSidebar() {
     const can = useCan();
     const listHref = useListHref();
-    const { everything } = usePage<SharedData>().props.auth;
+    const { everything, ownCardOnly } = usePage<SharedData>().props.auth;
     const menu = useRef<HTMLDivElement>(null);
 
     /**
@@ -227,7 +250,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent ref={menu}>
-                {navGroups(can, everything, listHref)
+                {navGroups(can, everything, listHref, ownCardOnly)
                     .filter((group) => group.items.length > 0)
                     .map((group) => (
                         <NavMain key={group.title} group={group} />

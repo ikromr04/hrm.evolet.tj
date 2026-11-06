@@ -15,6 +15,12 @@ export interface Auth {
      * not rights at all.
      */
     everything: boolean;
+    /**
+     * Whether this account is shown its own card and nothing else — a head of
+     * department or a specialist. The menu holds one group for them, since
+     * every other section is a page they would be refused.
+     */
+    ownCardOnly: boolean;
 }
 
 export interface BreadcrumbItem {

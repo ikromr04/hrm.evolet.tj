@@ -24,6 +24,13 @@ class EmployeeFamilyTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The migration this test is about: the one that read the family as one
+     * list of people. Named and not counted, so that the next migration to be
+     * added does not quietly become the one this winds back.
+     */
+    private const MIGRATION = 'database/migrations/2026_11_04_000100_read_the_family_as_one_list_of_people.php';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -369,7 +376,9 @@ class EmployeeFamilyTest extends TestCase
         // the models would reach for columns the old shape has not got.
         $employee = User::factory()->has(UserDetail::factory(), 'details')->create();
 
-        Artisan::call('migrate:rollback', ['--step' => 1]);
+        // Named rather than counted: «the last migration» is whichever one
+        // was added most recently, and this test is about one in particular.
+        Artisan::call('migrate:rollback', ['--path' => self::MIGRATION]);
 
         DB::table('user_relatives')->insert([
             'user_id' => $employee->id,
@@ -393,7 +402,7 @@ class EmployeeFamilyTest extends TestCase
             ->where('user_id', $employee->id)
             ->update(['spouse_birth_date' => '1992-03-08']);
 
-        Artisan::call('migrate');
+        Artisan::call('migrate', ['--path' => self::MIGRATION]);
 
         $month = fn (string $table, string $column) => Carbon::parse(
             DB::table($table)->where('user_id', $employee->id)->value($column),

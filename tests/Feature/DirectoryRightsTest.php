@@ -36,6 +36,13 @@ class DirectoryRightsTest extends TestCase
     private const LISTS = [
         'languages' => ['/directories/languages', ['name' => 'Немецкий']],
         'employment_types' => ['/directories/employment_types', ['name' => 'Подработка']],
+        'document_types' => ['/directories/document_types', [
+            'name' => 'Копия паспорта',
+            'max_files' => 1,
+            'accepts_files' => true,
+            'accepts_camera' => false,
+            'is_required' => true,
+        ]],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
     ];
 
@@ -48,6 +55,7 @@ class DirectoryRightsTest extends TestCase
         'languages' => '/directories/languages',
         'citizenships' => '/directories/citizenships',
         'employment_types' => '/directories/employment_types',
+        'document_types' => '/directories/document_types',
         'equipment' => '/directories/equipment',
     ];
 

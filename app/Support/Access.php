@@ -73,16 +73,23 @@ final class Access
     public const EVERYTHING = [self::SOLE_ROLE, self::HR];
 
     /**
-     * The roles the site is not open to yet.
+     * The roles that are shown their own card and nothing else.
+     *
+     * The site used to answer these two with one screen saying it was being
+     * built. It is built: they sign in, land on their own card, read every line
+     * of it and hand in the documents the company asks them for. What they do
+     * not get is the company — no staff list, no fleet, no reference lists, no
+     * queue of anybody else's papers — and the menu says so by holding one
+     * group.
      *
      * Named rather than inferred from the two above, so that an account holding
      * neither — a fixture, an installation halfway through a migration — is not
-     * shut out by an accident of arithmetic. In a working company every account
-     * holds one of the four, and these are the two that wait.
+     * handed a card by an accident of arithmetic. In a working company every
+     * account holds one of the four.
      *
      * @var list<string>
      */
-    public const CLOSED = [self::HEAD, self::SPECIALIST];
+    public const OWN_CARD = [self::HEAD, self::SPECIALIST];
 
     /** Whether this person passes every check. */
     public static function everything(User $user): bool
@@ -90,10 +97,45 @@ final class Access
         return $user->hasAnyRole(self::EVERYTHING);
     }
 
-    /** Whether the site is still closed to this person. */
-    public static function closed(User $user): bool
+    /** Whether this person is shown their own card and nothing besides. */
+    public static function ownCardOnly(User $user): bool
     {
-        return $user->hasAnyRole(self::CLOSED);
+        return $user->hasAnyRole(self::OWN_CARD);
+    }
+
+    /**
+     * What those two may do, written out: every line of their own card, the
+     * documents of it, and the equipment they hold.
+     *
+     * A list and not a set of granted permissions, because these roles are the
+     * code's own — there is no page left on which a company could hand a right
+     * to one of them, and a list in a table nobody can edit is a list that
+     * drifts from what the code assumes.
+     *
+     * Reading is the whole of it, bar one thing. «profile.field.*» opens every
+     * line of their own card; «profile.edit.documents» lets them hand in the
+     * papers the office asks for, which is the one thing on a card that is
+     * theirs to do rather than to be told. Everything else about their card is
+     * personnel's to correct, as it was.
+     */
+    public static function allowedOnOwnCard(string $ability): bool
+    {
+        // Which role they hold is not among them. It is not a fact about the
+        // person the way a telephone number is — it is a statement about what
+        // the system lets them do, and a card that printed «Специалист» under
+        // somebody's own name would be answering a question they never asked
+        // and inviting the one that comes after it. Personnel know; the card
+        // does not say.
+        if ($ability === EmployeeFields::permission('role', EmployeeFields::OWN)) {
+            return false;
+        }
+
+        return str_starts_with($ability, EmployeeFields::OWN.'.field.')
+            || $ability === EmployeeFields::editPermission('documents', EmployeeFields::OWN)
+            // The units on their card, which the card reads through the fleet's
+            // own rule: without this the «Оборудование» tab is a heading over
+            // an empty list.
+            || $ability === 'equipment.view.own';
     }
 
     /**
@@ -170,6 +212,14 @@ final class Access
         // may be added at all.
         'employees.create' => ['Добавление', 'Завести нового сотрудника и заполнить его карточку целиком.'],
         'employees.transfer' => ['Перевод', 'Перевести сотрудника в другой отдел или на другую должность.'],
+        // Attaching a document and passing one are two different things, which
+        // is the whole of why this right exists. A person hands in a copy of
+        // their passport and somebody in the office says whether it will do;
+        // if the same hands could do both, nothing would ever be checked —
+        // which is also why a document attached by whoever holds this right
+        // needs no passing: it has been looked at by the person who would be
+        // doing the looking.
+        'employees.documents.review' => ['Проверка документов', 'Смотреть приложенные документы и принимать их или отклонять с причиной.'],
         'employees.fire' => ['Увольнение', 'Уволить сотрудника и восстановить уволенного.'],
         'employees.delete' => ['Удаление', 'Удалить сотрудника вместе со всем, что на него записано.'],
 

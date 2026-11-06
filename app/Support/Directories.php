@@ -57,6 +57,10 @@ final class Directories
             'Типы занятости',
             'Виды занятости, на которые принимают сотрудников.',
         ],
+        'document_types' => [
+            'Документы',
+            'Документы, которые сотрудник прикладывает в своей карточке.',
+        ],
         'equipment' => [
             'Категории техники',
             'Категории и поля, которыми описываются их единицы.',
@@ -74,7 +78,7 @@ final class Directories
      *
      * @var list<string>
      */
-    public const TABS = ['languages', 'citizenships', 'employment_types', 'equipment'];
+    public const TABS = ['languages', 'citizenships', 'employment_types', 'document_types', 'equipment'];
 
     /** The right to read one list. */
     public static function viewPermission(string $list): string

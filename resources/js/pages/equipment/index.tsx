@@ -1109,7 +1109,12 @@ export default function EquipmentIndex({
                         <div className="flex min-w-0 flex-col gap-0.5">
                             {/* Brand colour and an underline on hover: the app's mark of a link. */}
                             <span className="text-brand-strong truncate font-medium group-hover:underline dark:text-[#C5E27A]">{unit.name}</span>
-                            <span className="text-muted-foreground truncate text-[13px]">{unit.details}</span>
+
+                            {/* Wrapped rather than cut: what a category asks
+                                about first is a processor and a disk, and half
+                                of either tells one unit from another no better
+                                than none of it does. */}
+                            <span className="text-muted-foreground text-[13px] leading-tight break-words whitespace-normal">{unit.details}</span>
                         </div>
                     </Link>
                 );

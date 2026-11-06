@@ -89,11 +89,38 @@ class AppServiceProvider extends ServiceProvider
         // What only a system administrator can do — hand out «HR-специалист» — is
         // guarded where roles are assigned, since it is a rule about roles rather
         // than an ability, and Gate::before would wave it through.
-        Gate::before(fn (User $user) => Access::everything($user) ? true : null);
+        Gate::before(function (User $user, string $ability, array $arguments = []) {
+            if (Access::everything($user)) {
+                return true;
+            }
+
+            // A head of department and a specialist are shown their own card and
+            // nothing else, which is written in App\Support\Access and answered
+            // here: what is on the list they get, and everything else is refused
+            // outright rather than left to fall through.
+            //
+            // Refused outright matters. One of the things on the list is the
+            // right that shows the units on their own card, and «Инвентаризация»
+            // opens for whoever may see any part of the fleet — so a gate left
+            // to work itself out from that right would hand them the fleet page
+            // through a door nobody opened.
+            if (! Access::ownCardOnly($user)) {
+                return null;
+            }
+
+            if (Access::allowedOnOwnCard($ability)) {
+                return true;
+            }
+
+            // Except a question about their own card, which is left to whoever
+            // usually answers it: everybody reads their own, and the policy has
+            // said so since long before these two were let in.
+            return ($arguments[0] ?? null) instanceof User && $arguments[0]->is($user) ? null : false;
+        });
 
         // Every other right is a permission from App\Support\Access, carried by
-        // the role. Nothing carries any at the moment: the two roles above pass
-        // without them, and the site is closed to the two that would need them.
+        // the role. Nothing carries any: the two roles above pass without them,
+        // and the other two are answered by the rule just above.
 
         // The exception is a form that saves a whole block of a card: it asks one
         // question — "may this person change anything in here?" — which is an
@@ -111,6 +138,17 @@ class AppServiceProvider extends ServiceProvider
                 ) !== [],
             );
         }
+
+        // The company as something to look at: the chart of it, and the page
+        // one of its departments has. Who works where is nobody's secret among
+        // the people who work with the company as a whole, which is what this
+        // says — it lets everybody through without asking anything.
+        //
+        // It exists at all so that those pages have a gate to name. The two
+        // roles that are shown their own card are refused anything not on their
+        // own short list by the rule above, and an address with no gate on it is
+        // an address with nothing to refuse them by.
+        Gate::define('company.view', fn (User $user) => true);
 
         // The equipment section is open to whoever sees any part of the fleet,
         // and its journal to whoever reads any part of that.

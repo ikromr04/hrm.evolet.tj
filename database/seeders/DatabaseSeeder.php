@@ -28,6 +28,7 @@ class DatabaseSeeder extends Seeder
             RegulationTemplateSeeder::class,
             PositionProfileTemplateSeeder::class,
             LanguageSeeder::class,
+            DocumentTypeSeeder::class,
             EquipmentTypeSeeder::class,
             UserSeeder::class,
         ]);
