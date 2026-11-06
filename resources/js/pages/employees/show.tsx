@@ -582,7 +582,7 @@ function KpiSection() {
 
                 {/* The lines of the quarter. On a phone the table scrolls
                     sideways rather than squeezing five columns into a screen. */}
-                <div className="min-w-0 md:border-l md:pl-8">
+                <div className="min-w-0 md:pl-8">
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent">
