@@ -1829,7 +1829,7 @@ function SheetTab({
                                     {missing.length > 0 && (
                                         <section className="flex flex-col gap-2">
                                             <div className="flex items-center justify-between gap-3">
-                                                <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-normal">
+                                                <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-semibold">
                                                     Не заполнено
                                                     <span className="tabular-nums">{missing.length}</span>
                                                 </h3>
@@ -1873,7 +1873,7 @@ function SheetTab({
                                         short of and not by their headings. */}
                                     {unattached.length > 0 && (
                                         <section className="flex flex-col gap-2">
-                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-normal">
+                                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-semibold">
                                                 Документы не приложены
                                                 <span className="tabular-nums">{unattached.length}</span>
                                             </h3>
@@ -1956,24 +1956,6 @@ function SheetTab({
                     about what is on file either way. */}
                 <Panel
                     title="Документы (Чек-лист)"
-                    // Putting a paper on file from the head of the block, for
-                    // whoever came with one in hand rather than to read the
-                    // list: the header's own action, so it is where every other
-                    // block of the card keeps the thing it is for.
-                    action={
-                        // Named in a hint rather than beside the sign: a word
-                        // in the header would stand against the title and read
-                        // as part of it, and a plus at the head of a list of
-                        // papers is only half an answer on its own.
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="link" aria-label="Добавить документ" className="h-auto p-0 [&_svg]:size-4">
-                                    <Plus />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>Добавить документ</TooltipContent>
-                        </Tooltip>
-                    }
                     // How far the papers the company insists on have got, read
                     // the way the sheet beside it reads its own filling in.
                     // Nothing is said where nothing is insisted on.
@@ -1990,19 +1972,12 @@ function SheetTab({
 
                                 <span className="text-sm font-medium tabular-nums">{accepted.percent}%</span>
 
-                                {/* Asking the person for the papers still
-                                    missing, which is the one thing to be done
-                                    about a bar short of full — and so it goes
-                                    once the bar is full and there is nothing
-                                    left to ask for. */}
-                                {accepted.done < accepted.total && (
-                                    <Button
-                                        variant="link"
-                                        className="text-brand-strong ml-auto h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
-                                    >
-                                        Запросить
-                                    </Button>
-                                )}
+                                {/* The figures behind the bar: a share says
+                                    how far, and only the count says how much is
+                                    left to go and ask for. */}
+                                <span className="text-muted-foreground text-[13px] tabular-nums">
+                                    {accepted.done} из {accepted.total}
+                                </span>
                             </>
                         )
                     }

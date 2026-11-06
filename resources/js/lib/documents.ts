@@ -22,3 +22,26 @@ export function filesWanted(min: number, max: number | null): string {
 
     return min > 1 ? `от ${min} до ${max} файлов` : `до ${max} файлов`;
 }
+
+/**
+ * How heavy one file is, in the unit somebody would say it in.
+ *
+ * Read beside a limit of ten megabytes, so the unit is the one that limit is
+ * written in once a file is anywhere near it, and a smaller one below that:
+ * «0,3 МБ» says less about a scan than «341 КБ» does. A tenth of a megabyte is
+ * as fine as it is worth being — the figure is read to tell a photograph from a
+ * whole album, not to add it up.
+ */
+export function fileSize(bytes: number): string {
+    if (bytes < 1024) {
+        return `${bytes} Б`;
+    }
+
+    const kilobytes = bytes / 1024;
+
+    if (kilobytes < 1024) {
+        return `${Math.round(kilobytes)} КБ`;
+    }
+
+    return `${new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(kilobytes / 1024)} МБ`;
+}

@@ -1,16 +1,18 @@
 import { CameraDialog, useCameraMode } from '@/components/camera-capture';
+import { DocumentItem, documentState, documentStates, type DocumentState } from '@/components/document-item';
 import InputError from '@/components/input-error';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useClearingForm } from '@/hooks/use-clearing-form';
-import { filesWanted } from '@/lib/documents';
+import { fileSize, filesWanted } from '@/lib/documents';
 import { capitalize, formatDate } from '@/lib/employee';
-import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
-import { Camera, Check, FileText, LoaderCircle, Paperclip, Trash2, Upload, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Camera, FileText, LoaderCircle, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * «Документы» on a card: the papers the company asks everybody for, and what
@@ -72,20 +74,18 @@ export interface CardPaper {
 }
 
 /**
- * The groups, in the order the card reads them, what each is called, and the
- * colour of the dot its papers are read down.
+ * The groups, in the order the card reads them, and what each is called.
  *
- * The four hues are the palette's own — the greens, blues, reds and ambers the
- * badges are built from — and they say the same thing here as there: settled,
- * being looked at, sent back, not here yet. The dot is read before the name of
- * the paper and carries no word of its own, so it never stands alone: the
- * heading above it and the badge on the card both say it in writing.
+ * The settled papers come first and unheaded. The headings mark the parts of
+ * the list somebody still has to do something about, and a heading over the
+ * part nobody has to do anything about would be the first thing read in a
+ * block that is read to find out what is still wanted.
  */
-const GROUPS: { key: DocumentStatus | 'missing'; title: string; dot: string }[] = [
-    { key: 'approved', title: 'Принятые', dot: 'bg-[#A8CF45]' },
-    { key: 'pending', title: 'На рассмотрении', dot: 'bg-[#3B82F6]' },
-    { key: 'rejected', title: 'Отклонённые', dot: 'bg-[#EF4444]' },
-    { key: 'missing', title: 'Не приложены', dot: 'bg-[#F5A524]' },
+const GROUPS: { key: DocumentState; title?: string }[] = [
+    { key: 'approved' },
+    { key: 'pending', title: 'На рассмотрении' },
+    { key: 'rejected', title: 'Отклонённые' },
+    { key: 'missing', title: 'Не приложены' },
 ];
 
 /**
@@ -116,8 +116,8 @@ export function requiredAccepted(items: DocumentRow[]): { done: number; total: n
 }
 
 export function EmployeeDocumentsList({ employee, documents, papers }: { employee: number; documents: EmployeeDocuments; papers: CardPaper[] }) {
-    /** The paper being attached to, and the one being sent back, each in its own window. */
-    const [attaching, setAttaching] = useState<DocumentRow | null>(null);
+    /** The paper being read and answered, and the one being sent back. */
+    const [opened, setOpened] = useState<DocumentRow | null>(null);
     const [rejecting, setRejecting] = useState<DocumentRow | null>(null);
 
     const grouped = GROUPS.map((group) => ({
@@ -136,23 +136,31 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
             )}
 
             {grouped.map((group) => (
-                <section key={group.key} className="flex flex-col gap-2">
-                    <h3 className="text-muted-foreground flex min-w-0 items-center gap-2 text-xs font-normal">{group.title}</h3>
+                <section key={group.key} className="flex flex-col gap-3">
+                    {group.title !== undefined && (
+                        <div className="flex items-center justify-between gap-3">
+                            <h3 className="text-muted-foreground flex min-w-0 items-center gap-1.5 text-xs font-semibold">
+                                {group.title}
+                                {/* How many are still wanted, said in the one
+                                    line that asks for them: the other groups
+                                    are read for what is in them rather than for
+                                    how many, and a figure there would be a
+                                    score nobody is keeping. */}
+                                {group.key === 'missing' && <span className="tabular-nums">{group.rows.length}</span>}
+                            </h3>
+
+                            {group.key === 'missing' && (
+                                <Button variant="link" className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]">
+                                    Запросить
+                                </Button>
+                            )}
+                        </div>
+                    )}
 
                     <ul className="flex flex-col gap-2">
                         {group.rows.map((row) => (
-                            <li key={row.type_id} className="flex min-w-0 items-start gap-2">
-                                <span className={cn('mt-[7px] size-1.5 shrink-0 rounded-full', group.dot)} />
-
-                                <div className="min-w-0 flex-1">
-                                    <Paper
-                                        row={row}
-                                        employee={employee}
-                                        documents={documents}
-                                        onAttach={() => setAttaching(row)}
-                                        onReject={() => setRejecting(row)}
-                                    />
-                                </div>
+                            <li key={row.type_id}>
+                                <DocumentItem row={row} documents={documents} onOpen={() => setOpened(row)} />
                             </li>
                         ))}
                     </ul>
@@ -167,7 +175,7 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
                 somebody back to the sheet to look for them. */}
             {papers.length > 0 && (
                 <section className="flex flex-col gap-2">
-                    <h3 className="text-muted-foreground text-xs font-normal">Из личного листка</h3>
+                    <h3 className="text-muted-foreground text-xs font-semibold">Из личного листка</h3>
 
                     <ul className="flex flex-col gap-2">
                         {papers.map((paper) => (
@@ -187,184 +195,24 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
                 </section>
             )}
 
-            {attaching && <AttachDialog employee={employee} row={attaching} onClose={() => setAttaching(null)} />}
+            {opened && (
+                <DocumentDialog
+                    employee={employee}
+                    row={opened}
+                    documents={documents}
+                    // The reason is asked for in a window of its own, and this
+                    // one steps aside for it: what it was holding — the files —
+                    // is not what is being answered.
+                    onReject={() => {
+                        setRejecting(opened);
+                        setOpened(null);
+                    }}
+                    onClose={() => setOpened(null)}
+                />
+            )}
 
             {rejecting && <RejectDialog employee={employee} row={rejecting} onClose={() => setRejecting(null)} />}
         </div>
-    );
-}
-
-/** One paper: what it is called, what is attached to it, and what may be done about it. */
-function Paper({
-    row,
-    employee,
-    documents,
-    onAttach,
-    onReject,
-}: {
-    row: DocumentRow;
-    employee: number;
-    documents: EmployeeDocuments;
-    onAttach: () => void;
-    onReject: () => void;
-}) {
-    const [working, setWorking] = useState(false);
-
-    const act = (url: string, method: 'put' | 'delete') => {
-        setWorking(true);
-        router[method](url, {}, { preserveScroll: true, onFinish: () => setWorking(false) });
-    };
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex min-w-0 flex-col gap-0.5">
-                <span className="min-w-0 text-sm font-medium break-words">
-                    {row.name}
-                    {/* Marked where it is wanted of everybody and not here yet:
-                        once it is attached, that it was obligatory is no longer
-                        anything to act on. */}
-                    {row.is_required && row.status === null && <span className="text-destructive"> *</span>}
-                </span>
-                {row.hint !== null && row.status === null && <span className="text-muted-foreground text-[13px]">{row.hint}</span>}
-            </div>
-
-            {row.files.length > 0 && (
-                <ul className="flex flex-col gap-1">
-                    {row.files.map((file) => (
-                        <li key={file.id}>
-                            <a
-                                href={file.url}
-                                target="_blank"
-                                rel="noopener"
-                                className="text-muted-foreground hover:text-brand-strong flex min-w-0 items-center gap-1.5 text-[13px] underline-offset-4 hover:underline"
-                            >
-                                <FileText className="size-3.5 shrink-0" />
-                                <span className="min-w-0 truncate">{file.name}</span>
-                            </a>
-                        </li>
-                    ))}
-                </ul>
-            )}
-
-            {/* Who it came from and when, and — where it was sent back — what for.
-                A reason is the one thing the person it was sent back to has to
-                act on, so it is written out rather than kept behind a button. */}
-            {row.status === 'rejected' && row.comment !== null && <p className="text-destructive text-[13px]">{row.comment}</p>}
-
-            {row.status !== null && (
-                <p className="text-muted-foreground text-xs">
-                    {[
-                        row.submitted_by !== null && `Приложил ${row.submitted_by}`,
-                        row.submitted_at !== null && formatDate(row.submitted_at),
-                        row.status !== 'pending' &&
-                            row.reviewed_by !== null &&
-                            `${row.status === 'approved' ? 'Принял' : 'Отклонил'} ${row.reviewed_by}`,
-                    ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                </p>
-            )}
-
-            {(documents.canEdit || (documents.canReview && row.status === 'pending')) && (
-                <div className="flex flex-wrap items-center gap-1">
-                    {documents.canReview && row.status === 'pending' && (
-                        <>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 font-normal"
-                                disabled={working}
-                                onClick={() => act(route('employees.documents.approve', [employee, row.id]), 'put')}
-                            >
-                                <Check />
-                                Принять
-                            </Button>
-                            <Button variant="ghost" size="sm" className="text-destructive h-7 px-2 font-normal" onClick={onReject}>
-                                <X />
-                                Отклонить
-                            </Button>
-                        </>
-                    )}
-
-                    {documents.canEdit && (
-                        <>
-                            <Button variant="ghost" size="sm" className="h-7 px-2 font-normal" onClick={onAttach}>
-                                <Paperclip />
-                                {row.status === null ? 'Приложить' : 'Заменить'}
-                            </Button>
-
-                            {row.status !== null && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-muted-foreground size-7"
-                                    aria-label={`Убрать документ: ${row.name}`}
-                                    disabled={working}
-                                    onClick={() => act(route('employees.documents.destroy', [employee, row.id]), 'delete')}
-                                >
-                                    {working ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-                                </Button>
-                            )}
-                        </>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-/**
- * Attaching one paper: the files it is made of, chosen or photographed, and
- * nothing happens until «Сохранить» — so a window closed by mistake leaves the
- * card exactly as it was.
- */
-function AttachDialog({ employee, row, onClose }: { employee: number; row: DocumentRow; onClose: () => void }) {
-    const form = useClearingForm<{ files: File[] }>({ files: [] });
-
-    const submit = () => {
-        form.post(route('employees.documents.store', [employee, row.type_id]), {
-            forceFormData: true,
-            preserveScroll: true,
-            onSuccess: onClose,
-        });
-    };
-
-    return (
-        <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>{row.name}</DialogTitle>
-                    <DialogDescription>{row.hint ?? `Приложите ${filesWanted(row.min_files, row.max_files)}.`}</DialogDescription>
-                </DialogHeader>
-
-                <DocumentFilesInput
-                    row={row}
-                    files={form.data.files}
-                    onChange={(files) => form.setData('files', files)}
-                    error={
-                        (form.errors as Record<string, string | undefined>).files ?? (form.errors as Record<string, string | undefined>)['files.0']
-                    }
-                />
-
-                <DialogFooter className="gap-2">
-                    <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
-                        Отмена
-                    </Button>
-                    {/* As few as the paper asks for: a window that let one
-                        file be sent where two are wanted would be answered by a
-                        refusal the person could have been spared. */}
-                    <Button
-                        type="button"
-                        className="max-md:h-11"
-                        disabled={form.processing || form.data.files.length < row.min_files}
-                        onClick={submit}
-                    >
-                        {form.processing && <LoaderCircle className="animate-spin" />}
-                        Сохранить
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
     );
 }
 
@@ -399,26 +247,19 @@ function DocumentFilesInput({ row, files, onChange, error }: { row: DocumentRow;
             {files.length > 0 && (
                 <ul className="flex flex-col gap-1">
                     {files.map((file, index) => (
-                        <li key={index} className="flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2">
-                            {file.type.startsWith('image/') ? (
-                                <img src={URL.createObjectURL(file)} alt="" className="size-9 shrink-0 rounded border object-cover" />
-                            ) : (
-                                <FileText className="text-muted-foreground size-4 shrink-0" />
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-sm" title={file.name}>
-                                {file.name}
-                            </span>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="size-7 shrink-0"
-                                aria-label={`Убрать файл ${index + 1}`}
-                                onClick={() => onChange(files.filter((_, other) => other !== index))}
-                            >
-                                <X />
-                            </Button>
-                        </li>
+                        <ChosenFile
+                            key={index}
+                            file={file}
+                            index={index}
+                            onRename={(name) =>
+                                onChange(
+                                    files.map((item, other) =>
+                                        other === index ? new File([item], name, { type: item.type, lastModified: item.lastModified }) : item,
+                                    ),
+                                )
+                            }
+                            onRemove={() => onChange(files.filter((_, other) => other !== index))}
+                        />
                     ))}
                 </ul>
             )}
@@ -477,10 +318,378 @@ function DocumentFilesInput({ row, files, onChange, error }: { row: DocumentRow;
             )}
 
             <InputError message={error} />
-            <p className={cn('text-muted-foreground text-[13px]', room === 0 && 'text-destructive')}>
-                {`${capitalize(filesWanted(row.min_files, row.max_files))}, каждый до 10 МБ.`}
-            </p>
+            {/* The same colour however many have been chosen. It used to turn
+                red once there was no room for another, but the line says what
+                the paper takes rather than what is wrong with what is here —
+                and having chosen exactly as many as are asked for is the one
+                state it was shouting about. That there is no room for a fourth
+                is already said by the button that stops offering one. */}
+            <p className="text-muted-foreground text-[13px]">{`${capitalize(filesWanted(row.min_files, row.max_files))}, каждый до 10 МБ.`}</p>
         </div>
+    );
+}
+
+/** A file's name split where its kind begins: «Паспорт» and «.png». */
+const splitName = (name: string): [string, string] => {
+    const dot = name.lastIndexOf('.');
+
+    return dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ''];
+};
+
+/**
+ * One file about to be sent, under the name it will be filed under.
+ *
+ * The name is a box rather than a line of text, because what comes off a phone
+ * or a scanner is called «Screenshot 2026-11-05 120243.png», and that is the
+ * name the card then carries for ever. Renaming it here costs a click; renaming
+ * it afterwards means taking the document off and attaching it again.
+ *
+ * Only the name is anybody's to write. What follows the last dot is left where
+ * it is and shown beside the box: it is how the office knows a scan from a
+ * photograph, and a PDF renamed «.jpg» would be refused on the way in for a
+ * reason nobody could see.
+ */
+function ChosenFile({ file, index, onRename, onRemove }: { file: File; index: number; onRename: (name: string) => void; onRemove: () => void }) {
+    const [stem, kind] = splitName(file.name);
+    const [name, setName] = useState(stem);
+
+    // Made once per file and let go of with the row. A preview made while
+    // drawing would be a new one on every keystroke, and none of them ever
+    // released.
+    const preview = useMemo(() => (file.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file]);
+
+    useEffect(() => () => void (preview !== null && URL.revokeObjectURL(preview)), [preview]);
+
+    // On the way out of the box rather than on every letter: the file is
+    // replaced to be renamed, and replacing it at every keystroke would take
+    // the cursor out of the box it is being typed in.
+    const commit = () => {
+        // The dot at the end of «Резюме Рахимов И.» is the initial's, and the
+        // one in front of «pdf» is put back below: left as it was typed, the
+        // file would be filed under «Резюме Рахимов И..pdf».
+        const wanted = name.trim().replace(/\.+$/, '').trim();
+
+        // A file has to be called something, so an empty box is not an answer —
+        // it goes back to the name the file came with.
+        if (wanted === '') {
+            setName(stem);
+
+            return;
+        }
+
+        // What the box says is what the card will say: the dot taken off above
+        // is taken off here too, rather than left in a box that reads
+        // «Резюме Рахимов И.» beside a «.pdf» written after it.
+        setName(wanted);
+
+        if (wanted !== stem) {
+            onRename(wanted + kind);
+        }
+    };
+
+    return (
+        <li className="flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2">
+            {preview !== null ? (
+                <img src={preview} alt="" className="size-9 shrink-0 rounded border object-cover" />
+            ) : (
+                <FileText className="text-muted-foreground size-4 shrink-0" />
+            )}
+
+            <div className="flex min-w-0 flex-1 items-center">
+                <Input
+                    value={name}
+                    maxLength={120}
+                    aria-label={`Имя файла ${index + 1}`}
+                    className="focus-visible:border-ring hover:border-input h-7 min-w-0 border-transparent bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 md:text-sm"
+                    onChange={(event) => setName(event.target.value)}
+                    onBlur={commit}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                        }
+
+                        if (event.key === 'Escape') {
+                            setName(stem);
+                            event.currentTarget.blur();
+                        }
+                    }}
+                />
+                <span className="text-muted-foreground shrink-0 text-sm">{kind}</span>
+            </div>
+
+            {/* Read against the ten megabytes a file may weigh, which the line
+                under the list says: a scan near that figure is one to look at
+                again before it is sent. */}
+            <span className="text-muted-foreground shrink-0 text-[13px] tabular-nums">{fileSize(file.size)}</span>
+
+            <Button type="button" variant="ghost" size="icon" className="size-7 shrink-0" aria-label={`Убрать файл ${index + 1}`} onClick={onRemove}>
+                <X />
+            </Button>
+        </li>
+    );
+}
+
+/**
+ * One paper, read and answered in one window.
+ *
+ * Whichever of the four it is in, the same window opens: what is wanted, where
+ * it stands and who decided that, why it came back where it did, and the files
+ * it is made of. The ones already on file are fetched back to be worked on, so
+ * this window renames one, takes one off and adds another — and the card
+ * changes only when it is saved.
+ *
+ * What the button at the end says depends on who is pressing it, and so does
+ * what it does. Personnel are the people who pass papers, so a paper they save
+ * is a paper that has been looked at by the one person who would be looking: it
+ * goes straight among the accepted. Anybody else is handing one in, and what
+ * they hand in waits to be looked at.
+ */
+function DocumentDialog({
+    employee,
+    row,
+    documents,
+    onReject,
+    onClose,
+}: {
+    employee: number;
+    row: DocumentRow;
+    documents: EmployeeDocuments;
+    /** Send it back with a reason, which is asked for in a window of its own. */
+    onReject: () => void;
+    onClose: () => void;
+}) {
+    const form = useClearingForm<{ files: File[] }>({ files: [] });
+    /** Whether the files on file are in hand and may be worked on. */
+    const [ready, setReady] = useState(false);
+    const [unreachable, setUnreachable] = useState(false);
+    /** Whether the window that asks before deleting is open. */
+    const [removing, setRemoving] = useState(false);
+    const [working, setWorking] = useState(false);
+    /** The files as they came, to tell a window that was only looked at from one that was worked in. */
+    const asFound = useRef<File[]>([]);
+
+    const state = documentState(row);
+    const { setData } = form;
+
+    // Fetched back rather than named to the server: a document is saved as the
+    // whole set of its files, so a file that is to stay has to be sent again
+    // with the ones that are new. A paper nobody has handed in has none, and
+    // the window opens straight into an empty box.
+    useEffect(() => {
+        if (!documents.canEdit) {
+            return;
+        }
+
+        let reading = true;
+
+        Promise.all(
+            row.files.map(async (file) => {
+                const answer = await fetch(file.url, { credentials: 'same-origin' });
+
+                if (!answer.ok) {
+                    throw new Error(String(answer.status));
+                }
+
+                return new File([await answer.blob()], file.name, { type: file.mime });
+            }),
+        ).then(
+            (kept) => {
+                if (reading) {
+                    asFound.current = kept;
+                    setData('files', kept);
+                    setReady(true);
+                }
+            },
+            () => reading && setUnreachable(true),
+        );
+
+        return () => {
+            reading = false;
+        };
+    }, [documents.canEdit, row.files, setData]);
+
+    /** Whether the files are exactly the ones that were opened — none added, renamed or taken off. */
+    const untouched = form.data.files.length === asFound.current.length && form.data.files.every((file, index) => file === asFound.current[index]);
+
+    /**
+     * Whether pressing the button would do anything.
+     *
+     * Saving sends the files up again, and a paper sent up again is a paper
+     * handed in again: for anybody who does not pass papers that means an
+     * accepted document falling back into the queue because its window was
+     * opened and closed by the button. The one window where touching nothing
+     * still means something is a paper waiting in front of somebody who passes
+     * them — that press is the passing.
+     */
+    const idle = untouched && !(documents.canReview && state === 'pending');
+
+    const save = () => {
+        // A paper that is waiting, opened by somebody who passes papers and
+        // closed without a file being touched, is a paper they have looked at
+        // and are accepting. Sending the files back up to say so would upload
+        // ten megabytes to write one word in a row.
+        if (untouched && documents.canReview && state === 'pending') {
+            setWorking(true);
+            router.put(
+                route('employees.documents.approve', [employee, row.id]),
+                {},
+                { preserveScroll: true, onSuccess: onClose, onFinish: () => setWorking(false) },
+            );
+
+            return;
+        }
+
+        form.post(route('employees.documents.store', [employee, row.type_id]), {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: onClose,
+        });
+    };
+
+    const remove = () => {
+        setWorking(true);
+        router.delete(route('employees.documents.destroy', [employee, row.id]), {
+            preserveScroll: true,
+            onSuccess: onClose,
+            onFinish: () => setWorking(false),
+        });
+    };
+
+    /** Where it stands, who handed it in and who decided — one line of it. */
+    const said = [
+        documentStates[state].title,
+        row.submitted_by !== null && `приложил ${row.submitted_by}`,
+        row.submitted_at !== null && formatDate(row.submitted_at),
+        state === 'approved' && row.reviewed_by !== null && `принял ${row.reviewed_by}`,
+        state === 'rejected' && row.reviewed_by !== null && `отклонил ${row.reviewed_by}`,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+
+    return (
+        <Dialog open onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle className="break-words">{row.name}</DialogTitle>
+                    <DialogDescription>{row.hint ?? `Приложите ${filesWanted(row.min_files, row.max_files)}.`}</DialogDescription>
+                </DialogHeader>
+
+                {/* Read before the files and before anything is done about
+                    them: a paper comes back for a reason, and the reason is
+                    what the window was opened for. */}
+                {state === 'rejected' && row.comment !== null && (
+                    <Alert variant="destructive">
+                        <AlertTitle>Причина отклонения</AlertTitle>
+                        <AlertDescription className="break-words">{row.comment}</AlertDescription>
+                    </Alert>
+                )}
+
+                {state !== 'missing' && <p className="text-muted-foreground text-[13px]">{said}</p>}
+
+                {documents.canEdit ? (
+                    <>
+                        {ready && (
+                            <DocumentFilesInput
+                                row={row}
+                                files={form.data.files}
+                                onChange={(files) => form.setData('files', files)}
+                                error={
+                                    (form.errors as Record<string, string | undefined>).files ??
+                                    (form.errors as Record<string, string | undefined>)['files.0']
+                                }
+                            />
+                        )}
+
+                        {/* The files are on the disk and the card names them,
+                            so this is a lost connection rather than a lost
+                            document — said as what it is, and the window stays
+                            open with nothing in it that would save over them. */}
+                        {unreachable && <p className="text-destructive text-sm">Не удалось открыть приложенные файлы. Обновите страницу.</p>}
+
+                        {!ready && !unreachable && (
+                            <p className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <LoaderCircle className="size-4 animate-spin" />
+                                Открываем приложенные файлы…
+                            </p>
+                        )}
+                    </>
+                ) : (
+                    <ul className="flex flex-col gap-1">
+                        {row.files.map((file) => (
+                            <li key={file.id}>
+                                <a
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener"
+                                    className="text-muted-foreground hover:text-brand-strong flex min-w-0 items-center gap-1.5 text-[13px] underline-offset-4 hover:underline"
+                                >
+                                    <FileText className="size-3.5 shrink-0" />
+                                    <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                                    <span className="shrink-0 tabular-nums">{fileSize(file.size)}</span>
+                                </a>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+
+                {/* «Удалить» at the far end of the row: it throws the paper
+                    away, and a destructive button beside the one everybody
+                    presses is a destructive button pressed by mistake. */}
+                <DialogFooter className="sm:justify-between">
+                    {row.id !== null && documents.canEdit ? (
+                        <Button type="button" variant="destructive" className="max-md:h-11" disabled={working} onClick={() => setRemoving(true)}>
+                            Удалить
+                        </Button>
+                    ) : (
+                        <span className="max-sm:hidden" />
+                    )}
+
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+                        {documents.canReview && state === 'pending' && (
+                            <Button type="button" variant="outline" className="max-md:h-11" disabled={working || form.processing} onClick={onReject}>
+                                Отклонить
+                            </Button>
+                        )}
+
+                        {documents.canEdit && (
+                            <Button
+                                type="button"
+                                className="max-md:h-11"
+                                disabled={!ready || idle || form.processing || working || form.data.files.length < row.min_files}
+                                onClick={save}
+                            >
+                                {(form.processing || working) && <LoaderCircle className="animate-spin" />}
+                                {documents.canReview ? 'Сохранить' : 'Отправить'}
+                            </Button>
+                        )}
+                    </div>
+                </DialogFooter>
+
+                <Dialog open={removing} onOpenChange={(open) => !open && setRemoving(false)}>
+                    <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle className="break-words">Удалить документ «{row.name}»?</DialogTitle>
+                            <DialogDescription asChild>
+                                <div className="flex flex-col gap-1.5">
+                                    {row.files.length > 0 && <p>Приложенные файлы ({row.files.length}) удалятся вместе с записью.</p>}
+                                    <p>Документ вернётся в список не приложенных — его придётся приложить и проверить заново.</p>
+                                </div>
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" className="max-md:h-11" onClick={() => setRemoving(false)}>
+                                Отмена
+                            </Button>
+                            <Button type="button" variant="destructive" className="max-md:h-11" disabled={working} onClick={remove}>
+                                {working && <LoaderCircle className="animate-spin" />}
+                                Удалить
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -517,7 +726,7 @@ function RejectDialog({ employee, row, onClose }: { employee: number; row: Docum
                     </p>
                 </div>
 
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
                         Отмена
                     </Button>
