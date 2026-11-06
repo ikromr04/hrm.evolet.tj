@@ -47,14 +47,8 @@ export interface EditableRecord {
     has_accessories?: boolean;
     /** Documents only: what exactly is wanted, in the office's own words. */
     hint?: string | null;
-    /** Documents only: how few files one answer may be made of. */
-    min_files?: number;
-    /** Documents only: and how many are too many; empty where no number is. */
-    max_files?: number | null;
-    /** Documents only: whether a file may be chosen from a disk. */
-    accepts_files?: boolean;
-    /** Documents only: whether it may be photographed on the spot. */
-    accepts_camera?: boolean;
+    /** Documents only: whether the original is handed over instead of sent. */
+    on_paper?: boolean;
     /** Documents only: whether it is wanted from everybody. */
     is_required?: boolean;
 }
@@ -167,10 +161,7 @@ export function DirectoryEditor({
         icon: string | null;
         section: string;
         hint: string;
-        min_files: string;
-        max_files: string;
-        accepts_files: boolean;
-        accepts_camera: boolean;
+        on_paper: boolean;
         is_required: boolean;
     }>({
         label: item?.label ?? '',
@@ -178,16 +169,10 @@ export function DirectoryEditor({
         parent_id: item?.parent_id ?? null,
         icon: item?.icon ?? null,
         hint: item?.hint ?? '',
-        // Kept as they are typed, like every other box here: a number input
-        // hands back a string, and the second of them is a box that is meant to
-        // be left empty — that is how a paper says no number of files is too
-        // many.
-        min_files: String(item?.min_files ?? 1),
-        max_files: item?.max_files == null ? '' : String(item.max_files),
-        // A new paper is one somebody scans and hands in, which is what most of
-        // them are; photographing is turned on where it suits the paper.
-        accepts_files: item?.accepts_files ?? true,
-        accepts_camera: item?.accepts_camera ?? false,
+        // A new paper is one somebody scans and sends, which is what most of
+        // them are; the ones handed over across a desk are the exception and
+        // are marked as such.
+        on_paper: item?.on_paper ?? false,
         // And asked of everybody until somebody says otherwise: a paper nobody
         // has to bring is the rarer case, and the one worth stating.
         is_required: item?.is_required ?? true,
@@ -226,12 +211,7 @@ export function DirectoryEditor({
                       // Left blank it stays blank: a paper whose name says it
                       // all wants nothing written under it.
                       hint: data.hint.trim() || null,
-                      min_files: Number(data.min_files) || 1,
-                      // Empty means unlimited and travels as nothing, which is
-                      // what the column holds for it.
-                      max_files: data.max_files.trim() === '' ? null : Number(data.max_files),
-                      accepts_files: data.accepts_files,
-                      accepts_camera: data.accepts_camera,
+                      on_paper: data.on_paper,
                       is_required: data.is_required,
                   }
                 : {}),
@@ -359,78 +339,7 @@ export function DirectoryEditor({
                                 />
                                 <InputError message={errors.hint} />
                                 <p className="text-muted-foreground text-[13px]">
-                                    Что именно приложить — «Разворот с фотографией и страница с пропиской». Читается под названием там, где документ
-                                    прикладывают.
-                                </p>
-                            </div>
-
-                            <div className="grid content-start gap-2">
-                                <Label required>Чем можно приложить</Label>
-                                <label className="flex items-start gap-2 text-sm">
-                                    <Checkbox
-                                        checked={form.data.accepts_files}
-                                        onCheckedChange={() => form.setData('accepts_files', !form.data.accepts_files)}
-                                        className="mt-0.5"
-                                    />
-                                    <span className="min-w-0">Выбрать файл</span>
-                                </label>
-                                <label className="flex items-start gap-2 text-sm">
-                                    <Checkbox
-                                        checked={form.data.accepts_camera}
-                                        onCheckedChange={() => form.setData('accepts_camera', !form.data.accepts_camera)}
-                                        className="mt-0.5"
-                                    />
-                                    <span className="min-w-0">
-                                        Сфотографировать
-                                        <span className="text-muted-foreground block text-[13px]">
-                                            На телефоне откроется камера, на компьютере — окно со съёмкой. Там, где камеры нет, кнопки не будет.
-                                        </span>
-                                    </span>
-                                </label>
-                                {/* One complaint for the pair: the rule that asks
-                                    for at least one way is written on the first
-                                    of them, and somebody who has unticked both is
-                                    not looking at either box in particular. */}
-                                <InputError message={errors.accepts_files ?? errors.accepts_camera} />
-                            </div>
-
-                            <div className="grid content-start gap-2">
-                                <Label htmlFor="document-min-files" required>
-                                    Количество файлов
-                                </Label>
-                                {/* Two numbers and one question, so they stand
-                                    on one line with the words that tell them
-                                    apart — «от 2 до 3» reads as a range, two
-                                    stacked boxes read as two settings. */}
-                                <div className="flex items-center gap-2">
-                                    <span className="text-muted-foreground text-sm">от</span>
-                                    <Input
-                                        id="document-min-files"
-                                        type="number"
-                                        min={1}
-                                        max={20}
-                                        inputMode="numeric"
-                                        className="w-20 max-md:h-11"
-                                        value={form.data.min_files}
-                                        onChange={(event) => form.setData('min_files', event.target.value)}
-                                    />
-                                    <span className="text-muted-foreground text-sm">до</span>
-                                    <Input
-                                        id="document-max-files"
-                                        type="number"
-                                        min={1}
-                                        max={20}
-                                        inputMode="numeric"
-                                        placeholder="без ограничения"
-                                        className="w-44 max-md:h-11"
-                                        value={form.data.max_files}
-                                        onChange={(event) => form.setData('max_files', event.target.value)}
-                                    />
-                                </div>
-                                <InputError message={errors.min_files ?? errors.max_files} />
-                                <p className="text-muted-foreground text-[13px]">
-                                    Сколько файлов принимается: паспорт прикладывают разворотами, диплом — одним листом. Второе число можно оставить
-                                    пустым — тогда файлов может быть сколько угодно.
+                                    Что именно приложить. Читается под названием там, где документ прикладывают.
                                 </p>
                             </div>
 
@@ -442,12 +351,30 @@ export function DirectoryEditor({
                                         className="mt-0.5"
                                     />
                                     <span className="min-w-0">
-                                        Обязателен для всех
+                                        Обязательный документ
                                         <span className="text-muted-foreground block text-[13px]">
                                             Без галочки документ остаётся в списке, но не числится недостающим у тех, кто его не приложил.
                                         </span>
                                     </span>
                                 </label>
+                            </div>
+
+                            <div className="grid content-start gap-2">
+                                <label className="flex items-start gap-2 text-sm">
+                                    <Checkbox
+                                        checked={form.data.on_paper}
+                                        onCheckedChange={() => form.setData('on_paper', !form.data.on_paper)}
+                                        className="mt-0.5"
+                                    />
+                                    <span className="min-w-0">
+                                        Оригинал сдают
+                                        <span className="text-muted-foreground block text-[13px]">
+                                            Всё, что приносят в отдел кадров и кладут в сейф. В карточке такой документ отмечают галочкой, а файл при
+                                            желании прикладывают сверху.
+                                        </span>
+                                    </span>
+                                </label>
+                                <InputError message={errors.on_paper} />
                             </div>
                         </>
                     )}

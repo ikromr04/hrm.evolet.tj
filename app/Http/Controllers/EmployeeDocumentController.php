@@ -31,35 +31,55 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 class EmployeeDocumentController extends Controller
 {
     /**
+     * How many files one document may be made of.
+     *
+     * A document is as many pages as it is, and nobody was counting them —
+     * until the number is the point: twenty files of ten megabytes is two
+     * hundred megabytes under one line of a checklist, and nothing above this
+     * rule would have stopped a thousand of them.
+     *
+     * Twenty rather than some rounder number because that is what PHP itself
+     * takes in one request (`max_file_uploads`). Beyond it the extra files are
+     * dropped on the way in without a word, and a refusal that says so is
+     * better than a save that quietly keeps the first twenty.
+     */
+    private const MOST_FILES = 20;
+
+    /**
      * What one person hands in against one paper, attached or attached again.
      *
      * One row per person per paper: a second attempt replaces the first rather
      * than standing beside it. Nobody reads the history of a passport copy —
      * what is wanted is the copy that stands now and whether it will do.
+     *
+     * A paper kept on paper is handed in across a desk, so the same call makes
+     * its row with no files at all: the row is then the tick that says the
+     * office is holding the original, and files sent later are clipped to it.
      */
     public function store(Request $request, User $employee, DocumentType $documentType): RedirectResponse
     {
         $this->mayAttach($request, $employee);
 
+        // Saying «оригинал у нас» is a judgement about a paper in somebody's
+        // safe, not a scan anybody can send, so it belongs to the same hands
+        // that pass documents — on their own card as much as on anybody's.
+        if ($documentType->on_paper) {
+            $this->mayPass($request);
+        }
+
         $request->validate([
-            // As many as the paper asks for and no more than it takes — and
-            // where it names no number that is too many, there is no «no more».
-            'files' => array_filter([
-                'required',
-                'array',
-                'min:'.$documentType->min_files,
-                $documentType->max_files === null ? null : 'max:'.$documentType->max_files,
-            ]),
-            // A photograph is an image and never a PDF, so a paper the office
-            // will only take photographed takes images alone. Where files are
-            // allowed at all, a scan is the usual thing and arrives as either.
-            'files.*' => ['bail', 'file', 'mimes:'.$this->kinds($documentType), 'max:10240'],
+            // One document, as many files as it takes: a passport is two pages
+            // and a diploma is a sheet with an appendix. A paper kept on paper
+            // asks for none at all — the tick is the answer.
+            'files' => [$documentType->on_paper ? 'nullable' : 'required', 'array', 'max:'.self::MOST_FILES],
+            // PDF and nothing else. The office prints, signs and scans, and a
+            // page photographed on a telephone arrives as a document that
+            // cannot be printed back out at the size it was.
+            'files.*' => ['bail', 'file', 'mimes:pdf', 'max:10240'],
         ], [
-            'files.min' => "Нужно приложить не меньше {$documentType->min_files} файлов.",
-            'files.max' => "Можно приложить не больше {$documentType->max_files} файлов.",
-            'files.*.mimes' => $documentType->accepts_files
-                ? 'Файл должен быть PDF или изображением.'
-                : 'Этот документ прикладывают фотографией: нужен файл изображения.',
+            'files.required' => 'Приложите хотя бы один файл.',
+            'files.max' => 'Можно приложить не больше '.self::MOST_FILES.' файлов.',
+            'files.*.mimes' => 'Документ прикладывают файлом PDF.',
             'files.*.max' => 'Файл должен быть не тяжелее 10 МБ.',
         ], [
             'files' => 'файлы',
@@ -87,13 +107,21 @@ class EmployeeDocumentController extends Controller
                 ],
             );
 
+            // A save that carries no files at all leaves the ones on file
+            // alone: that is a paper being ticked, not one being emptied. The
+            // window that takes files away sends what is left, and an empty
+            // list arrives as an empty array rather than as nothing.
+            if (! $request->has('files')) {
+                return [];
+            }
+
             // What was there before, out of the way of what is replacing it.
             // Deleted as rows rather than one at a time, so the paths are
             // collected here and forgotten once the save has gone through.
             $replaced = $document->files()->pluck('path')->all();
             $document->files()->delete();
 
-            foreach ($request->file('files') as $file) {
+            foreach ($request->file('files') ?? [] as $file) {
                 $document->files()->create([
                     'path' => DocumentStore::keep($file, $employee->id),
                     'name' => $file->getClientOriginalName(),
@@ -120,6 +148,13 @@ class EmployeeDocumentController extends Controller
     {
         $this->belongsTo($employee, $document);
         $this->mayAttach($request, $employee);
+
+        // Unticking one kept on paper is the office saying it no longer holds
+        // the original, which is the same sentence as the tick and belongs to
+        // the same hands.
+        if ($document->type->on_paper) {
+            $this->mayPass($request);
+        }
 
         $paths = $document->files()->pluck('path')->all();
 
@@ -197,12 +232,6 @@ class EmployeeDocumentController extends Controller
         abort_unless(DocumentStore::disk()->exists($file->path), 404);
 
         return DocumentStore::answer($request, $file->path, $file->name);
-    }
-
-    /** What a paper will take, as a list of extensions for the rules. */
-    private function kinds(DocumentType $type): string
-    {
-        return $type->accepts_files ? 'pdf,jpg,jpeg,png,webp' : 'jpg,jpeg,png,webp';
     }
 
     /** Whether this viewer is one of the people who pass documents. */

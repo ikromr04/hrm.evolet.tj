@@ -125,7 +125,6 @@ class OwnCardOnlyTest extends TestCase
             '/positions',
             '/inventory',
             '/directories',
-            '/documents',
         ];
 
         foreach ($addresses as $address) {
@@ -154,17 +153,10 @@ class OwnCardOnlyTest extends TestCase
         Storage::fake('documents');
 
         $person = $this->person();
-        $passport = DocumentType::create([
-            'name' => 'Копия паспорта',
-            'min_files' => 1,
-            'max_files' => 2,
-            'accepts_files' => true,
-            'accepts_camera' => true,
-            'is_required' => true,
-        ]);
+        $passport = DocumentType::create(['name' => 'Копия паспорта', 'on_paper' => false, 'is_required' => true]);
 
         $this->actingAs($person)
-            ->post("/employees/{$person->id}/documents/{$passport->id}", ['files' => [UploadedFile::fake()->image('passport.jpg')]])
+            ->post("/employees/{$person->id}/documents/{$passport->id}", ['files' => [UploadedFile::fake()->create('passport.pdf', 120, 'application/pdf')]])
             ->assertSessionHasNoErrors();
 
         $document = EmployeeDocument::sole();
@@ -180,17 +172,10 @@ class OwnCardOnlyTest extends TestCase
     public function test_a_colleagues_documents_are_not_theirs_to_touch()
     {
         $colleague = User::factory()->create();
-        $passport = DocumentType::create([
-            'name' => 'Копия паспорта',
-            'min_files' => 1,
-            'max_files' => 1,
-            'accepts_files' => true,
-            'accepts_camera' => false,
-            'is_required' => true,
-        ]);
+        $passport = DocumentType::create(['name' => 'Копия паспорта', 'on_paper' => false, 'is_required' => true]);
 
         $this->actingAs($this->person())
-            ->post("/employees/{$colleague->id}/documents/{$passport->id}", ['files' => [UploadedFile::fake()->image('passport.jpg')]])
+            ->post("/employees/{$colleague->id}/documents/{$passport->id}", ['files' => [UploadedFile::fake()->create('passport.pdf', 120, 'application/pdf')]])
             ->assertForbidden();
 
         $this->assertSame(0, EmployeeDocument::count());

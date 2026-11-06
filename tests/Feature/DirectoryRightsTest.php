@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Language;
+use App\Models\EquipmentType;
 use App\Models\Position;
 use App\Models\User;
 use App\Support\Directories;
@@ -24,6 +24,11 @@ use Tests\TestCase;
  * with every other one here, although neither page is a tab of it: they are kept
  * at /positions and /departments now, and moving a page moved nothing
  * about what it takes to open.
+ *
+ * The languages, the citizenships and the types of employment are no lists at
+ * all any more — they are free text on a card, suggested from what the cards
+ * already say — so there is nothing here to read or keep, and the six rights
+ * they took have left the catalogue with them.
  */
 class DirectoryRightsTest extends TestCase
 {
@@ -34,13 +39,9 @@ class DirectoryRightsTest extends TestCase
      * add.
      */
     private const LISTS = [
-        'languages' => ['/directories/languages', ['name' => 'Немецкий']],
-        'employment_types' => ['/directories/employment_types', ['name' => 'Подработка']],
         'document_types' => ['/directories/document_types', [
             'name' => 'Копия паспорта',
-            'max_files' => 1,
-            'accepts_files' => true,
-            'accepts_camera' => false,
+            'on_paper' => false,
             'is_required' => true,
         ]],
         'equipment' => ['/directories/equipment', ['name' => 'Проекторы']],
@@ -52,9 +53,6 @@ class DirectoryRightsTest extends TestCase
      * PositionPagesTest and DepartmentPagesTest read the rights there.
      */
     private const READABLE = [
-        'languages' => '/directories/languages',
-        'citizenships' => '/directories/citizenships',
-        'employment_types' => '/directories/employment_types',
         'document_types' => '/directories/document_types',
         'equipment' => '/directories/equipment',
     ];
@@ -103,19 +101,19 @@ class DirectoryRightsTest extends TestCase
 
     public function test_changing_a_list_is_a_right_of_its_own()
     {
-        $reader = $this->person(Directories::viewPermission('languages'));
+        $reader = $this->person(Directories::viewPermission('equipment'));
 
-        $this->actingAs($reader)->get('/directories/languages')->assertOk();
-        $this->actingAs($reader)->post('/directories/languages', ['name' => 'Немецкий'])->assertForbidden();
-        $this->assertSame(0, Language::where('name', 'Немецкий')->count());
+        $this->actingAs($reader)->get('/directories/equipment')->assertOk();
+        $this->actingAs($reader)->post('/directories/equipment', ['name' => 'Проекторы'])->assertForbidden();
+        $this->assertSame(0, EquipmentType::where('name', 'Проекторы')->count());
 
-        $keeper = $this->person(Directories::viewPermission('languages'), Directories::editPermission('languages'));
+        $keeper = $this->person(Directories::viewPermission('equipment'), Directories::editPermission('equipment'));
 
-        $this->actingAs($keeper)->post('/directories/languages', ['name' => 'Немецкий'])->assertRedirect();
-        $this->assertSame(1, Language::where('name', 'Немецкий')->count());
+        $this->actingAs($keeper)->post('/directories/equipment', ['name' => 'Проекторы'])->assertRedirect();
+        $this->assertSame(1, EquipmentType::where('name', 'Проекторы')->count());
 
-        // And only that list: keeping the languages is not keeping the job titles,
-        // wherever those are now kept.
+        // And only that list: keeping the categories of hardware is not keeping
+        // the job titles, wherever those are now kept.
         $this->actingAs($keeper)->post('/positions', ['name' => 'Переводчик'])->assertForbidden();
         $this->assertSame(0, Position::count());
     }
@@ -134,29 +132,32 @@ class DirectoryRightsTest extends TestCase
 
     public function test_renaming_and_deleting_go_with_adding()
     {
-        $keeper = $this->person(Directories::viewPermission('languages'), Directories::editPermission('languages'));
-        $language = Language::create(['name' => 'Немецкий']);
+        $keeper = $this->person(Directories::viewPermission('equipment'), Directories::editPermission('equipment'));
+        $category = EquipmentType::create(['name' => 'Проекторы']);
 
-        $this->actingAs($keeper)->put("/directories/languages/{$language->id}", ['name' => 'Французский'])->assertRedirect();
-        $this->assertSame('Французский', $language->fresh()->name);
-        $this->actingAs($keeper)->delete("/directories/languages/{$language->id}")->assertRedirect();
-        $this->assertNull(Language::find($language->id));
+        $this->actingAs($keeper)->put("/directories/equipment/{$category->id}", ['name' => 'Мониторы'])->assertRedirect();
+        $this->assertSame('Мониторы', $category->fresh()->name);
+        $this->actingAs($keeper)->delete("/directories/equipment/{$category->id}")->assertRedirect();
+        $this->assertNull(EquipmentType::find($category->id));
     }
 
     public function test_the_section_opens_on_the_first_list_its_reader_may_see()
     {
-        $this->actingAs($this->person(Directories::viewPermission('languages')))
+        $this->actingAs($this->person(Directories::viewPermission('document_types')))
             ->get('/directories')
-            ->assertRedirect('/directories/languages');
+            ->assertRedirect('/directories/document_types');
 
-        $this->actingAs($this->person(Directories::viewPermission('citizenships'), Directories::viewPermission('equipment')))
+        // The second tab, for somebody the first one is shut to: the section
+        // lands where its reader may actually look, not on the tab that happens
+        // to come first.
+        $this->actingAs($this->person(Directories::viewPermission('equipment')))
             ->get('/directories')
-            ->assertRedirect('/directories/citizenships');
+            ->assertRedirect('/directories/equipment');
 
         // And whoever may read every one of them lands on the first tab of all.
         $this->actingAs(User::factory()->create()->assignRole('sysadmin'))
             ->get('/directories')
-            ->assertRedirect('/directories/languages');
+            ->assertRedirect('/directories/document_types');
     }
 
     public function test_each_page_says_whether_its_list_is_this_persons_to_keep()

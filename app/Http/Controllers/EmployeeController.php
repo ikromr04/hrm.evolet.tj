@@ -1539,7 +1539,7 @@ class EmployeeController extends Controller
             ->keyBy('document_type_id');
 
         return DocumentType::query()
-            ->orderBy('name')
+            ->inOrder()
             ->get()
             ->map(function (DocumentType $type) use ($employee, $handed) {
                 $document = $handed->get($type->id);
@@ -1548,10 +1548,9 @@ class EmployeeController extends Controller
                     'type_id' => $type->id,
                     'name' => $type->name,
                     'hint' => $type->hint,
-                    'min_files' => $type->min_files,
-                    'max_files' => $type->max_files,
-                    'accepts_files' => $type->accepts_files,
-                    'accepts_camera' => $type->accepts_camera,
+                    // Handed over rather than sent: the row is a tick, and only
+                    // somebody who passes papers may make it.
+                    'on_paper' => $type->on_paper,
                     'is_required' => $type->is_required,
                     // Null where nobody has handed anything in — which is not a
                     // status of its own: «не приложен» is the absence of an

@@ -22,6 +22,11 @@ use Tests\TestCase;
  * says whether it will do. A document handed in by the office itself has
  * already been looked at by the person who would be doing the looking, so it
  * needs no passing — and nobody else's «approved» can be had by attaching one.
+ *
+ * A paper kept on paper is the one thing nobody sends at all: the original goes
+ * across a desk, and the card holds the office's word that it is in the safe.
+ * That word is a judgement rather than a correction to the card, so it belongs
+ * to the hands that pass documents and to no others.
  */
 class EmployeeDocumentTest extends TestCase
 {
@@ -45,10 +50,7 @@ class EmployeeDocumentTest extends TestCase
         $this->passport = DocumentType::create([
             'name' => 'Копия паспорта',
             'hint' => 'Разворот с фотографией',
-            'min_files' => 1,
-            'max_files' => 2,
-            'accepts_files' => true,
-            'accepts_camera' => true,
+            'on_paper' => false,
             'is_required' => true,
         ]);
     }
@@ -64,6 +66,17 @@ class EmployeeDocumentTest extends TestCase
     private function scan(string $name = 'passport.pdf'): UploadedFile
     {
         return UploadedFile::fake()->create($name, 120, 'application/pdf');
+    }
+
+    /** The paper whose original is handed over across a desk instead of being sent. */
+    private function book(): DocumentType
+    {
+        return DocumentType::create([
+            'name' => 'Трудовая книжка',
+            'hint' => 'Оригинал сдают в отдел кадров',
+            'on_paper' => true,
+            'is_required' => true,
+        ]);
     }
 
     /** Somebody who may read and attach the documents of their own card and nothing else. */
@@ -128,51 +141,20 @@ class EmployeeDocumentTest extends TestCase
         Storage::disk('documents')->assertMissing($first);
     }
 
-    /** A paper takes no more files than its own entry in the list allows. */
-    public function test_a_paper_takes_no_more_files_than_it_was_told_to()
-    {
-        $this->actingAs($this->admin)
-            ->post($this->url(), ['files' => [$this->scan('one.pdf'), $this->scan('two.pdf'), $this->scan('three.pdf')]])
-            ->assertSessionHasErrors('files');
-
-        $this->assertSame(0, EmployeeDocument::count());
-    }
-
     /**
-     * And as few as it asks for: «две фотографии» is not answered by one of
-     * them, and a paper that names no upper bound takes as many as it is given.
+     * One document is as many files as the paper itself takes: a passport is
+     * two pages and a list of certificates is as long as somebody's courses
+     * were. No number of them is too many, and they are one answer rather than
+     * a row each.
      */
-    public function test_a_paper_takes_as_few_files_as_it_asks_for_and_as_many_as_it_allows()
+    public function test_one_document_is_as_many_files_as_it_takes()
     {
-        $photographs = DocumentType::create([
-            'name' => 'Фотографии 3×4',
-            'min_files' => 2,
-            'max_files' => 2,
-            'accepts_files' => true,
-            'accepts_camera' => true,
-            'is_required' => true,
-        ]);
-
         $certificates = DocumentType::create([
             'name' => 'Сертификаты',
-            'min_files' => 1,
-            'max_files' => null,
-            'accepts_files' => true,
-            'accepts_camera' => false,
+            'on_paper' => false,
             'is_required' => false,
         ]);
 
-        $this->actingAs($this->admin)
-            ->post("/employees/{$this->employee->id}/documents/{$photographs->id}", ['files' => [UploadedFile::fake()->image('one.jpg')]])
-            ->assertSessionHasErrors('files');
-
-        $this->actingAs($this->admin)
-            ->post("/employees/{$this->employee->id}/documents/{$photographs->id}", [
-                'files' => [UploadedFile::fake()->image('one.jpg'), UploadedFile::fake()->image('two.jpg')],
-            ])
-            ->assertSessionHasNoErrors();
-
-        // No number of certificates is too many, so six are six and not a refusal.
         $this->actingAs($this->admin)
             ->post("/employees/{$this->employee->id}/documents/{$certificates->id}", [
                 'files' => array_map(fn (int $i) => $this->scan("course-{$i}.pdf"), range(1, 6)),
@@ -180,31 +162,136 @@ class EmployeeDocumentTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $this->assertSame(6, EmployeeDocument::where('document_type_id', $certificates->id)->sole()->files()->count());
+
+        // And a paper that is sent at all is sent with something: an empty
+        // window is somebody who has not handed the thing in yet.
+        $this->actingAs($this->admin)
+            ->post($this->url(), ['files' => []])
+            ->assertSessionHasErrors(['files' => 'Приложите хотя бы один файл.']);
     }
 
     /**
-     * A paper the office will only take photographed takes images alone: a
-     * photograph is an image and never a PDF, and the rule is the only part of
-     * «сфотографировать» a server can tell apart from «выбрать файл».
+     * A document arrives as a PDF and as nothing else.
+     *
+     * The office prints, signs and scans, and a page photographed on a
+     * telephone arrives as a picture that cannot be printed back out at the
+     * size it was — so the photograph is refused where the scan of it is taken.
      */
-    public function test_a_paper_that_is_only_photographed_takes_no_pdf()
+    public function test_a_document_arrives_as_a_pdf_and_nothing_else()
     {
-        $book = DocumentType::create([
-            'name' => 'Трудовая книжка',
-            'min_files' => 1,
-            'max_files' => 2,
-            'accepts_files' => false,
-            'accepts_camera' => true,
-            'is_required' => false,
-        ]);
+        $this->actingAs($this->admin)
+            ->post($this->url(), ['files' => [UploadedFile::fake()->image('passport.jpg')]])
+            ->assertSessionHasErrors(['files.0' => 'Документ прикладывают файлом PDF.']);
+
+        $this->assertSame(0, EmployeeDocument::count());
 
         $this->actingAs($this->admin)
-            ->post("/employees/{$this->employee->id}/documents/{$book->id}", ['files' => [$this->scan()]])
-            ->assertSessionHasErrors('files.0');
-
-        $this->actingAs($this->admin)
-            ->post("/employees/{$this->employee->id}/documents/{$book->id}", ['files' => [UploadedFile::fake()->image('book.jpg')]])
+            ->post($this->url(), ['files' => [$this->scan()]])
             ->assertSessionHasNoErrors();
+    }
+
+    /**
+     * A paper kept on paper is ticked rather than sent: the office says it is
+     * holding the original, and that word is the whole answer — a row with no
+     * files at all, passed by the person who gave it.
+     */
+    public function test_a_paper_kept_on_paper_is_ticked_with_no_files_at_all()
+    {
+        $book = $this->book();
+
+        $this->actingAs($this->admin)
+            ->post("/employees/{$this->employee->id}/documents/{$book->id}")
+            ->assertSessionHasNoErrors();
+
+        $document = EmployeeDocument::where('document_type_id', $book->id)->sole();
+
+        $this->assertSame(EmployeeDocument::APPROVED, $document->status);
+        $this->assertSame($this->admin->id, $document->reviewed_by);
+        $this->assertNotNull($document->reviewed_at);
+        $this->assertSame(0, $document->files()->count());
+    }
+
+    /**
+     * And nobody ticks their own: «оригинал у нас» is a sentence about a paper
+     * in the office's safe rather than about anything its owner can send, so
+     * somebody who may attach every other document to their own card is refused
+     * this one — and refused taking it off again, which is the same sentence
+     * withdrawn.
+     */
+    public function test_the_owner_of_a_card_neither_ticks_nor_unticks_a_paper_kept_on_paper()
+    {
+        $owner = $this->owner();
+        $book = $this->book();
+        $url = "/employees/{$owner->id}/documents/{$book->id}";
+
+        // The same hand, the same card, an ordinary paper: attaching is theirs.
+        $this->actingAs($owner)
+            ->post("/employees/{$owner->id}/documents/{$this->passport->id}", ['files' => [$this->scan()]])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($owner)->post($url)->assertForbidden();
+        $this->assertSame(0, EmployeeDocument::where('document_type_id', $book->id)->count());
+
+        $this->actingAs($this->admin)->post($url)->assertSessionHasNoErrors();
+        $document = EmployeeDocument::where('document_type_id', $book->id)->sole();
+
+        $this->actingAs($owner)
+            ->delete("/employees/{$owner->id}/documents/{$document->id}")
+            ->assertForbidden();
+        $this->assertNotNull($document->fresh());
+    }
+
+    /**
+     * A scan of the original may still be clipped to a ticked paper — the
+     * office photocopies what it is holding — and clipping one changes nothing
+     * about the tick: the original is where it was, and the row stays passed.
+     */
+    public function test_a_scan_clipped_to_a_ticked_paper_is_kept_and_it_stays_passed()
+    {
+        $book = $this->book();
+        $url = "/employees/{$this->employee->id}/documents/{$book->id}";
+
+        $this->actingAs($this->admin)->post($url)->assertSessionHasNoErrors();
+
+        $this->actingAs($this->admin)
+            ->post($url, ['files' => [$this->scan('book.pdf')]])
+            ->assertSessionHasNoErrors();
+
+        $document = EmployeeDocument::where('document_type_id', $book->id)->sole();
+        $file = $document->files()->sole();
+
+        $this->assertSame(EmployeeDocument::APPROVED, $document->status);
+        $this->assertSame('book.pdf', $file->name);
+        Storage::disk('documents')->assertExists($file->path);
+    }
+
+    /**
+     * Saving a paper again without sending any files leaves the ones on file
+     * where they are: a tick is not an emptying. The window that takes files
+     * away sends what is left of them, so an empty list arrives as an empty
+     * list and is told apart from no list at all.
+     */
+    public function test_a_save_that_carries_no_files_leaves_the_ones_on_file_alone()
+    {
+        $book = $this->book();
+        $url = "/employees/{$this->employee->id}/documents/{$book->id}";
+
+        $this->actingAs($this->admin)->post($url, ['files' => [$this->scan('book.pdf')]])->assertSessionHasNoErrors();
+
+        $document = EmployeeDocument::where('document_type_id', $book->id)->sole();
+        $path = $document->files()->sole()->path;
+
+        $this->actingAs($this->admin)->post($url)->assertSessionHasNoErrors();
+
+        $this->assertSame(['book.pdf'], $document->fresh()->files()->pluck('name')->all());
+        Storage::disk('documents')->assertExists($path);
+
+        // And an empty list is the window emptied on purpose, which takes the
+        // scan off the card and off the disk.
+        $this->actingAs($this->admin)->post($url, ['files' => []])->assertSessionHasNoErrors();
+
+        $this->assertSame(0, $document->fresh()->files()->count());
+        Storage::disk('documents')->assertMissing($path);
     }
 
     /**
@@ -306,7 +393,7 @@ class EmployeeDocumentTest extends TestCase
      */
     public function test_the_card_reads_every_paper_asked_for_with_this_persons_answer()
     {
-        DocumentType::create(['name' => 'ИНН', 'max_files' => 1, 'accepts_files' => true, 'accepts_camera' => false, 'is_required' => false]);
+        DocumentType::create(['name' => 'ИНН', 'on_paper' => false, 'is_required' => false]);
 
         $this->actingAs($this->admin)->post($this->url(), ['files' => [$this->scan()]]);
 
@@ -327,36 +414,5 @@ class EmployeeDocumentTest extends TestCase
         $this->actingAs($this->colleague())
             ->get("/employees/{$this->employee->id}")
             ->assertInertia(fn (Assert $page) => $page->where('documents', null));
-    }
-
-    /**
-     * The queue is everything waiting to be looked at, across every card, and
-     * it belongs to whoever passes documents.
-     */
-    public function test_the_queue_holds_what_is_waiting_and_opens_for_whoever_passes()
-    {
-        $owner = $this->owner();
-        $this->actingAs($owner)->post("/employees/{$owner->id}/documents/{$this->passport->id}", ['files' => [$this->scan()]]);
-
-        // Passed already, so nobody is waiting on it.
-        $this->actingAs($this->admin)->post($this->url(), ['files' => [$this->scan()]]);
-
-        // And handed in by somebody who has left, which the office is not waiting on either.
-        $gone = User::factory()->create(['status' => 'fired']);
-        $this->actingAs($this->admin)->post("/employees/{$gone->id}/documents/{$this->passport->id}", ['files' => [$this->scan()]]);
-        EmployeeDocument::where('user_id', $gone->id)->update(['status' => EmployeeDocument::PENDING]);
-
-        $this->actingAs($this->colleague())->get('/documents')->assertForbidden();
-        $this->actingAs($owner)->get('/documents')->assertForbidden();
-
-        $this->actingAs($this->admin)
-            ->get('/documents')
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('documents')
-                ->has('items', 1)
-                ->where('items.0.employee.id', $owner->id)
-                ->where('items.0.name', 'Копия паспорта')
-                ->has('items.0.files', 1)
-            );
     }
 }

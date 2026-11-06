@@ -1,17 +1,17 @@
-import { CameraDialog, useCameraMode } from '@/components/camera-capture';
 import { DocumentItem, documentState, documentStates, type DocumentState } from '@/components/document-item';
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useClearingForm } from '@/hooks/use-clearing-form';
-import { fileSize, filesWanted } from '@/lib/documents';
-import { capitalize, formatDate } from '@/lib/employee';
+import { fileSize } from '@/lib/documents';
+import { formatDate } from '@/lib/employee';
 import { router } from '@inertiajs/react';
-import { Camera, FileText, LoaderCircle, Upload, X } from 'lucide-react';
+import { FileText, LoaderCircle, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 /**
@@ -31,11 +31,13 @@ export interface DocumentRow {
     name: string;
     /** What exactly is wanted, in the office's own words. */
     hint: string | null;
-    min_files: number;
-    /** Null where no number of files is too many. */
-    max_files: number | null;
-    accepts_files: boolean;
-    accepts_camera: boolean;
+    /**
+     * Whether the original is handed over rather than sent: a labour book goes
+     * into the personnel officer's safe, and the card holds their word for it
+     * instead of a scan. Such a paper is ticked by whoever passes papers, and a
+     * scan may be clipped to it afterwards but is never waited for.
+     */
+    on_paper: boolean;
     is_required: boolean;
     /** The answer, where somebody has handed one in; null while nobody has. */
     id: number | null;
@@ -216,29 +218,23 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
     );
 }
 
+/** How many files one document may be made of — the same ceiling the server keeps. */
+const MOST_FILES = 20;
+
 /**
- * The files one document is made of, on the terms its own type sets: how many,
- * and whether they may be chosen from a disk, photographed, or either.
+ * The files one document is made of: one or more PDFs, as many as the paper
+ * runs to.
  *
- * Images are shown as themselves and anything else as its name — a PDF has no
- * thumbnail to draw, and a grey square with «PDF» in it says less than the name
- * of the file does.
+ * Each is named rather than drawn: a PDF has no thumbnail, and a grey square
+ * with «PDF» in it says less than the name of the file does.
  */
-function DocumentFilesInput({ row, files, onChange, error }: { row: DocumentRow; files: File[]; onChange: (files: File[]) => void; error?: string }) {
+function DocumentFilesInput({ files, onChange, error }: { files: File[]; onChange: (files: File[]) => void; error?: string }) {
     const picker = useRef<HTMLInputElement>(null);
-    const camera = useRef<HTMLInputElement>(null);
-    const mode = useCameraMode();
-    const [shooting, setShooting] = useState(false);
 
-    /** Never more than the paper takes: the extra ones are refused by the server anyway. */
-    const room = row.max_files === null ? Infinity : Math.max(0, row.max_files - files.length);
-    const add = (chosen: FileList | File[] | null) =>
-        chosen && onChange(row.max_files === null ? [...files, ...Array.from(chosen)] : [...files, ...Array.from(chosen)].slice(0, row.max_files));
-
-    // A paper the office will only take photographed takes images alone, which
-    // is what the picker then offers: a PDF chosen here would be refused on the
-    // way in, and a box that offers one is a box that lies.
-    const accept = row.accepts_files ? 'application/pdf,image/jpeg,image/png,image/webp' : 'image/jpeg,image/png,image/webp';
+    // The server's own ceiling, kept here so that the extra files are refused
+    // in the window rather than by a complaint after the upload: twenty of ten
+    // megabytes is two hundred megabytes up the wire before anybody is told.
+    const add = (chosen: FileList | File[] | null) => chosen && onChange([...files, ...Array.from(chosen)].slice(0, MOST_FILES));
 
     return (
         <div className="grid content-start gap-2">
@@ -265,37 +261,17 @@ function DocumentFilesInput({ row, files, onChange, error }: { row: DocumentRow;
             )}
 
             <div className="flex flex-wrap gap-2">
-                {row.accepts_files && (
-                    <Button type="button" variant="outline" size="sm" disabled={room === 0} onClick={() => picker.current?.click()}>
-                        <Upload />
-                        {row.max_files === 1 ? 'Выбрать файл' : 'Выбрать файлы'}
-                    </Button>
-                )}
-
-                {/* Offered where the paper takes a photograph and there is a
-                    camera to take it with. On a machine without one the button
-                    is not drawn at all, rather than drawn and refused. */}
-                {row.accepts_camera && mode !== 'none' && (
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={room === 0}
-                        onClick={() => (mode === 'native' ? camera.current?.click() : setShooting(true))}
-                    >
-                        <Camera />
-                        Сфотографировать
-                    </Button>
-                )}
+                <Button type="button" variant="outline" size="sm" disabled={files.length >= MOST_FILES} onClick={() => picker.current?.click()}>
+                    <Upload />
+                    Выбрать файлы
+                </Button>
             </div>
-
-            {shooting && <CameraDialog onShot={(photo) => add([photo])} onClose={() => setShooting(false)} />}
 
             <input
                 ref={picker}
                 type="file"
-                accept={accept}
-                multiple={row.max_files !== 1}
+                accept="application/pdf"
+                multiple
                 hidden
                 onChange={(event) => {
                     add(event.target.files);
@@ -303,28 +279,8 @@ function DocumentFilesInput({ row, files, onChange, error }: { row: DocumentRow;
                 }}
             />
 
-            {mode === 'native' && (
-                <input
-                    ref={camera}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    capture="environment"
-                    hidden
-                    onChange={(event) => {
-                        add(event.target.files);
-                        event.target.value = '';
-                    }}
-                />
-            )}
-
             <InputError message={error} />
-            {/* The same colour however many have been chosen. It used to turn
-                red once there was no room for another, but the line says what
-                the paper takes rather than what is wrong with what is here —
-                and having chosen exactly as many as are asked for is the one
-                state it was shouting about. That there is no room for a fourth
-                is already said by the button that stops offering one. */}
-            <p className="text-muted-foreground text-[13px]">{`${capitalize(filesWanted(row.min_files, row.max_files))}, каждый до 10 МБ.`}</p>
+            <p className="text-muted-foreground text-[13px]">PDF, до 20 файлов, каждый до 10 МБ.</p>
         </div>
     );
 }
@@ -465,6 +421,15 @@ function DocumentDialog({
     const [unreachable, setUnreachable] = useState(false);
     /** Whether the window that asks before deleting is open. */
     const [removing, setRemoving] = useState(false);
+    /**
+     * Whether the office is holding the original, for a paper that is handed
+     * over rather than sent.
+     *
+     * A document of such a type exists on the card exactly when somebody has
+     * said so, which is why the box starts out as the answer to that: ticked
+     * where there is a row, empty where there is none.
+     */
+    const [held, setHeld] = useState(row.on_paper && documentState(row) !== 'missing');
     const [working, setWorking] = useState(false);
     /** The files as they came, to tell a window that was only looked at from one that was worked in. */
     const asFound = useRef<File[]>([]);
@@ -524,7 +489,19 @@ function DocumentDialog({
      */
     const idle = untouched && !(documents.canReview && state === 'pending');
 
+    /** Whether the tick has been changed since the window opened. */
+    const ticked = row.on_paper && held !== (state !== 'missing');
+
     const save = () => {
+        // The office saying it no longer holds the original: the row goes, and
+        // with it anything clipped to it. Asked about first where there is
+        // something to lose.
+        if (row.on_paper && !held && row.id !== null) {
+            remove();
+
+            return;
+        }
+
         // A paper that is waiting, opened by somebody who passes papers and
         // closed without a file being touched, is a paper they have looked at
         // and are accepting. Sending the files back up to say so would upload
@@ -572,7 +549,12 @@ function DocumentDialog({
             <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle className="break-words">{row.name}</DialogTitle>
-                    <DialogDescription>{row.hint ?? `Приложите ${filesWanted(row.min_files, row.max_files)}.`}</DialogDescription>
+                    <DialogDescription>
+                        {row.hint ??
+                            (row.on_paper
+                                ? 'Оригинал сдают на руки — карточка хранит отметку о том, что он есть.'
+                                : 'Приложите один или несколько файлов PDF.')}
+                    </DialogDescription>
                 </DialogHeader>
 
                 {/* Read before the files and before anything is done about
@@ -587,11 +569,34 @@ function DocumentDialog({
 
                 {state !== 'missing' && <p className="text-muted-foreground text-[13px]">{said}</p>}
 
+                {/* The whole answer a paper kept on paper has: the office is
+                    holding the original, or it is not. Ticked by the people who
+                    pass papers and nobody else — it is their word, not a file
+                    anybody could send — and saved with the files below, so one
+                    press settles both. */}
+                {row.on_paper && (
+                    <label className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                            checked={held}
+                            disabled={!documents.canReview || working || form.processing}
+                            onCheckedChange={(next) => setHeld(next === true)}
+                            className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                            Оригинал сдан в отдел кадров
+                            {!documents.canReview && (
+                                <span className="text-muted-foreground block text-[13px]">
+                                    Отмечает системный администратор или HR-специалист — тот, кто принимает оригинал.
+                                </span>
+                            )}
+                        </span>
+                    </label>
+                )}
+
                 {documents.canEdit ? (
                     <>
                         {ready && (
                             <DocumentFilesInput
-                                row={row}
                                 files={form.data.files}
                                 onChange={(files) => form.setData('files', files)}
                                 error={
@@ -656,7 +661,12 @@ function DocumentDialog({
                             <Button
                                 type="button"
                                 className="max-md:h-11"
-                                disabled={!ready || idle || form.processing || working || form.data.files.length < row.min_files}
+                                // A paper kept on paper is saved with
+                                // nothing attached: the row itself is the word
+                                // that the office is holding the original.
+                                disabled={
+                                    !ready || (idle && !ticked) || form.processing || working || (!row.on_paper && form.data.files.length === 0)
+                                }
                                 onClick={save}
                             >
                                 {(form.processing || working) && <LoaderCircle className="animate-spin" />}

@@ -61,9 +61,8 @@ export function DocumentItem({
     const state = documentState(row);
     const { icon: Mark, tone } = documentStates[state];
 
-    const inside = (
+    const said = (
         <>
-            <Mark className={cn('size-4 shrink-0', tone)} />
             <span className="min-w-0 flex-1 text-sm break-words">
                 {row.name}
                 {/* Marked where it is wanted of everybody and not here yet:
@@ -81,6 +80,20 @@ export function DocumentItem({
                     {fileSize(row.files.reduce((weight, file) => weight + file.size, 0))}
                 </span>
             )}
+        </>
+    );
+
+    /**
+     * Every paper reads the same way in the list, whichever group it is in and
+     * however it is answered: the mark of the state, the name, what is on file.
+     * A paper the office keeps in a safe is ticked in the window the line
+     * opens — the list is for reading, and a box in it would be the one row
+     * that is also a control.
+     */
+    const inside = (
+        <>
+            <Mark className={cn('size-4 shrink-0', tone)} />
+            {said}
         </>
     );
 

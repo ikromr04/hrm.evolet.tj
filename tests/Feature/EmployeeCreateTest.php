@@ -3,15 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Department;
-use App\Models\EmploymentType;
 use App\Models\Equipment;
 use App\Models\EquipmentType;
-use App\Models\Language;
 use App\Models\Position;
 use App\Models\PositionDuty;
 use App\Models\User;
 use App\Models\UserChild;
 use App\Models\UserEducation;
+use App\Models\UserLanguage;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
@@ -76,7 +75,7 @@ class EmployeeCreateTest extends TestCase
             // The one list of the card that is not optional: everybody speaks
             // something, so an empty «Знание языков» is a part somebody skipped
             // rather than an answer, and the page refuses the card without it.
-            'languages' => [['name' => 'Русский', 'level' => Language::LEVELS[0]]],
+            'languages' => [['name' => 'Русский', 'level' => UserLanguage::LEVELS[0]]],
             ...$overrides,
         ];
     }
@@ -85,9 +84,10 @@ class EmployeeCreateTest extends TestCase
      * The same card with every other section of the page filled in too, which
      * is what the one request carries when somebody fills the page out whole.
      *
-     * The language is named rather than numbered on purpose: a language the
-     * directory has not heard of is added to it on the way in, and that is the
-     * one thing about saving this section which is not a plain write.
+     * The language is a word rather than a pick from a list on purpose: a
+     * language nobody here has been written down as speaking is typed into this
+     * page and filed on the card as it was typed, so a card can be filled in
+     * without a trip to «Справочники» first.
      *
      * @param  array<string, mixed>  $overrides
      * @return array<string, mixed>
@@ -99,7 +99,7 @@ class EmployeeCreateTest extends TestCase
             'phone' => '901112233',
             'sos_phone' => '902223344',
             'sos_contact' => 'Мама',
-            'languages' => [['name' => 'Английский', 'level' => Language::LEVELS[0]]],
+            'languages' => [['name' => 'Английский', 'level' => UserLanguage::LEVELS[0]]],
 
             /* Паспорт и семья */
             'passport_series' => 'A',
@@ -244,10 +244,10 @@ class EmployeeCreateTest extends TestCase
      * The company's own number for somebody, and the kind of work they were
      * taken on for.
      *
-     * Both sit on the account rather than on the details beside it, and the kind
-     * of work is named rather than numbered: one the directory has not heard of
-     * is written into the directory on the way in, so a card can be filled in
-     * without a trip to «Справочники» first.
+     * Both sit on the account rather than on the details beside it, and both are
+     * words rather than picks from a list: the kind of work is a line of the
+     * account like the number beside it, kept as it was typed, so a card can be
+     * filled in without a trip to «Справочники» first.
      */
     public function test_the_number_and_the_kind_of_work_land_on_the_account()
     {
@@ -263,8 +263,9 @@ class EmployeeCreateTest extends TestCase
         // Kept as typed: the nought in front is the company's numbering and not
         // an accident, which a number would have eaten.
         $this->assertSame('00418', $employee->employee_number);
-        $this->assertSame('Полная занятость', $employee->employmentType->name);
-        $this->assertSame(['Полная занятость'], EmploymentType::query()->pluck('name')->all());
+        // And the kind of work on the line of the account that holds it, as the
+        // word it was typed as: there is no entry anywhere for it to point at.
+        $this->assertSame('Полная занятость', $employee->employment_type);
     }
 
     /**
@@ -318,9 +319,12 @@ class EmployeeCreateTest extends TestCase
         // file in E.164, as it would be from the card's own form.
         $this->assertSame('+992901112233', $employee->details->phone);
         $this->assertSame('Мама', $employee->details->sos_contact);
-        // The language was named, so it is on the directory now as well.
-        $this->assertSame(['Английский'], $employee->languages->pluck('name')->all());
-        $this->assertNotNull(Language::firstWhere('name', 'Английский'));
+        // The language was typed rather than picked, and it is on the card with
+        // the level it was given — the word itself is all there is of it.
+        $this->assertSame(
+            ['Английский' => UserLanguage::LEVELS[0]],
+            $employee->languages->mapWithKeys(fn (UserLanguage $l) => [$l->name => $l->level])->all(),
+        );
 
         // Паспорт и семья.
         $this->assertSame('1234567', $employee->details->passport_number);

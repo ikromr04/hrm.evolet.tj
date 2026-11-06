@@ -9,7 +9,9 @@ use App\Support\Directories;
 use App\Support\DocumentStore;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -34,14 +36,54 @@ class DocumentTypeController extends Controller
             // the office is still waiting for.
             'items' => DocumentType::query()
                 ->withCount(['documents' => fn ($query) => $query->whereHas('employee', fn ($employee) => $employee->where('status', 'active'))])
-                ->orderBy('name')
-                ->get(['id', 'name', 'hint', 'min_files', 'max_files', 'accepts_files', 'accepts_camera', 'is_required']),
+                ->inOrder()
+                ->get(['id', 'name', 'position', 'hint', 'on_paper', 'is_required']),
         ]);
     }
 
     public function store(Request $request): RedirectResponse
     {
-        DocumentType::create($this->validated($request));
+        // At the end of the list, a hundred past the last of them: a new paper
+        // is one the office has just thought of, and where it belongs in the
+        // order is a question for whoever dragged the others into theirs.
+        DocumentType::create([
+            ...$this->validated($request),
+            'position' => ((int) DocumentType::max('position')) + 100,
+        ]);
+
+        return back();
+    }
+
+    /**
+     * The order the list is read in, as it has just been dragged into.
+     *
+     * The whole list arrives, not the one row that moved: what is being saved
+     * is an order, and an order is the arrangement of all of it. Spaced a
+     * hundred apart, so a paper added later has somewhere to go between any
+     * two of them.
+     */
+    public function order(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'distinct'],
+        ], attributes: ['ids' => 'порядок документов', 'ids.*' => 'документ']);
+
+        $ids = array_map('intval', $data['ids']);
+        $known = DocumentType::query()->pluck('id');
+
+        // Every paper once and no paper that is not on the list: a partial
+        // arrangement would leave the rest where they were and read as an
+        // order nobody asked for.
+        if ($known->sort()->values()->all() !== collect($ids)->sort()->values()->all()) {
+            throw ValidationException::withMessages(['ids' => 'Нужно перечислить все документы, каждый по одному разу.']);
+        }
+
+        DB::transaction(function () use ($ids) {
+            foreach ($ids as $place => $id) {
+                DocumentType::whereKey($id)->update(['position' => ($place + 1) * 100]);
+            }
+        });
 
         return back();
     }
@@ -79,37 +121,21 @@ class DocumentTypeController extends Controller
     }
 
     /**
-     * @return array{name: string, hint: ?string, min_files: int, max_files: ?int, accepts_files: bool, accepts_camera: bool, is_required: bool}
+     * @return array{name: string, hint: ?string, on_paper: bool, is_required: bool}
      */
     private function validated(Request $request, ?DocumentType $type = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:100', Rule::unique('document_types', 'name')->ignore($type)],
             'hint' => ['nullable', 'string', 'max:255'],
-            // How few will do, and how many are too many. Twenty is not a
-            // rule anybody asked for; it is the point past which a list of
-            // files stops being a document and starts being an archive, and it
-            // bounds the numbers somebody may type rather than the answer: left
-            // empty, the second of them means there is no such number at all.
-            'min_files' => ['required', 'integer', 'min:1', 'max:20'],
-            'max_files' => ['nullable', 'integer', 'min:1', 'max:20', 'gte:min_files'],
-            // A paper that can arrive neither way cannot arrive at all, so one
-            // of the two is asked for. Said as a rule on the first of them,
-            // which is where the complaint then reads, and written against both
-            // the figure a form sends and the word a JSON body does.
-            'accepts_files' => ['required', 'boolean', 'accepted_if:accepts_camera,0,false'],
-            'accepts_camera' => ['required', 'boolean'],
+            // Whether the original is handed over rather than sent, in which
+            // case the card holds a tick instead of a file.
+            'on_paper' => ['required', 'boolean'],
             'is_required' => ['required', 'boolean'],
-        ], [
-            'accepts_files.accepted_if' => 'Выберите хотя бы один способ: файл или фотография.',
-            'max_files.gte' => 'Второе число не может быть меньше первого.',
-        ], [
+        ], attributes: [
             'name' => 'название',
             'hint' => 'подсказка',
-            'min_files' => 'количество файлов',
-            'max_files' => 'количество файлов',
-            'accepts_files' => 'способ',
-            'accepts_camera' => 'способ',
+            'on_paper' => 'хранение',
             'is_required' => 'обязательность',
         ]);
     }

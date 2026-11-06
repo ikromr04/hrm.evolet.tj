@@ -5,11 +5,8 @@ interface DocumentTypeItem {
     id: number;
     name: string;
     hint: string | null;
-    min_files: number;
-    /** Null where no number of files is too many. */
-    max_files: number | null;
-    accepts_files: boolean;
-    accepts_camera: boolean;
+    /** Whether the original is handed over and kept in a safe rather than sent. */
+    on_paper: boolean;
     is_required: boolean;
     /** Working employees who have handed this one in. */
     documents_count: number;
@@ -21,9 +18,9 @@ interface DocumentTypeItem {
  *
  * A list rather than a set of columns on a card, because what a personnel
  * office asks for changes with the rules it works under. What a record says is
- * how its answer may arrive — how many files, chosen from a disk or
- * photographed — and whether it is wanted from everybody; a card reads the list
- * and shows one person's answers against it.
+ * what the paper is called, whether its original is handed over instead of
+ * sent, and whether it is wanted from everybody; a card reads the list and
+ * shows one person's answers against it.
  */
 export default function DocumentTypes({ items, canEdit }: { items: DocumentTypeItem[]; canEdit: boolean }) {
     return (
@@ -33,10 +30,7 @@ export default function DocumentTypes({ items, canEdit }: { items: DocumentTypeI
                     id: item.id,
                     label: item.name,
                     hint: item.hint,
-                    min_files: item.min_files,
-                    max_files: item.max_files,
-                    accepts_files: item.accepts_files,
-                    accepts_camera: item.accepts_camera,
+                    on_paper: item.on_paper,
                     is_required: item.is_required,
                     // The column counts the people who have handed this paper
                     // in, which is what a list of papers is read for: not how
@@ -47,6 +41,7 @@ export default function DocumentTypes({ items, canEdit }: { items: DocumentTypeI
                 field="name"
                 route="directories.document_types"
                 documents
+                orderable
                 countLabel="Приложили"
                 labels={{
                     add: 'Добавить документ',

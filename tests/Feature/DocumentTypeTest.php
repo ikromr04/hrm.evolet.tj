@@ -19,10 +19,10 @@ use Tests\TestCase;
  * people: what a personnel office asks for changes with the rules it works
  * under, and a card answers the list rather than carrying a column per paper.
  *
- * What a record of it says is how its answer may arrive — how many files,
- * chosen from a disk or photographed on the spot — and whether everybody is
- * asked for it. A paper that can arrive no way at all cannot be asked for, and
- * the list refuses to hold one.
+ * What a record of it says is four things: what the paper is called, what is
+ * wanted of it in a word, whether the original is handed over across a desk
+ * instead of being sent, and whether everybody is asked for it. How it arrives
+ * is no question any more — a document that is sent at all is one or more PDFs.
  */
 class DocumentTypeTest extends TestCase
 {
@@ -45,10 +45,7 @@ class DocumentTypeTest extends TestCase
         return array_merge([
             'name' => 'Копия паспорта',
             'hint' => 'Разворот с фотографией и страница с пропиской',
-            'min_files' => 1,
-            'max_files' => 3,
-            'accepts_files' => true,
-            'accepts_camera' => true,
+            'on_paper' => false,
             'is_required' => true,
         ], $extra);
     }
@@ -62,15 +59,14 @@ class DocumentTypeTest extends TestCase
         $this->post('/directories/document_types', $this->payload())->assertSessionHasNoErrors();
 
         $passport = DocumentType::firstWhere('name', 'Копия паспорта');
-        $this->assertSame(3, $passport->max_files);
-        $this->assertTrue($passport->accepts_camera);
+        $this->assertFalse($passport->on_paper);
         $this->assertTrue($passport->is_required);
 
         $this->get('/directories/document_types')->assertInertia(fn (Assert $page) => $page
             ->component('directories/document-types')
             ->where('items.0.name', 'Копия паспорта')
-            ->where('items.0.max_files', 3)
-            ->where('items.0.accepts_camera', true)
+            ->where('items.0.on_paper', false)
+            ->where('items.0.is_required', true)
             ->where('items.0.documents_count', 0)
             ->where('canEdit', true)
         );
@@ -79,61 +75,30 @@ class DocumentTypeTest extends TestCase
         // lines on every card asking for the same thing.
         $this->post('/directories/document_types', $this->payload())->assertSessionHasErrors('name');
 
-        $this->put("/directories/document_types/{$passport->id}", $this->payload(['name' => 'Паспорт', 'max_files' => 1]))
+        $this->put("/directories/document_types/{$passport->id}", $this->payload(['name' => 'Паспорт', 'on_paper' => true]))
             ->assertSessionHasNoErrors();
-        $this->assertSame(['Паспорт', 1], [$passport->fresh()->name, $passport->fresh()->max_files]);
+        $this->assertSame(['Паспорт', true], [$passport->fresh()->name, $passport->fresh()->on_paper]);
 
         $this->delete("/directories/document_types/{$passport->id}")->assertSessionHasNoErrors();
         $this->assertSame(0, DocumentType::count());
     }
 
     /**
-     * A paper that can be neither chosen nor photographed cannot be handed in,
-     * so the list will not hold one. Either way on its own is enough.
+     * Where the original is kept is a question with two answers and no third
+     * one, so it is asked rather than guessed: a row that says nothing about it
+     * would be a paper nobody knows whether to wait for a scan of.
      */
-    public function test_a_paper_that_can_arrive_no_way_at_all_is_refused()
+    public function test_a_paper_says_whether_its_original_is_handed_over()
     {
         $this->actingAs($this->admin);
 
-        $this->post('/directories/document_types', $this->payload(['accepts_files' => false, 'accepts_camera' => false]))
-            ->assertSessionHasErrors('accepts_files');
+        $this->post('/directories/document_types', $this->payload(['on_paper' => null]))
+            ->assertSessionHasErrors('on_paper');
 
-        $this->post('/directories/document_types', $this->payload(['name' => 'Трудовая книжка', 'accepts_files' => false]))
+        $this->post('/directories/document_types', $this->payload(['name' => 'Трудовая книжка', 'on_paper' => true]))
             ->assertSessionHasNoErrors();
 
-        $this->assertFalse(DocumentType::firstWhere('name', 'Трудовая книжка')->accepts_files);
-    }
-
-    /**
-     * How many files one answer is made of: two numbers, and the second of them
-     * may be left out altogether.
-     *
-     * A paper that names no upper bound is one no number of files is too many
-     * for — a list of certificates is as long as somebody's courses were — and
-     * that is said by leaving the box empty rather than by typing a number
-     * large enough to be no limit in practice.
-     */
-    public function test_how_many_files_are_wanted_is_a_pair_whose_second_half_may_be_left_out()
-    {
-        $this->actingAs($this->admin);
-
-        $this->post('/directories/document_types', $this->payload(['max_files' => 0]))->assertSessionHasErrors('max_files');
-        $this->post('/directories/document_types', $this->payload(['max_files' => 21]))->assertSessionHasErrors('max_files');
-        $this->post('/directories/document_types', $this->payload(['min_files' => 0]))->assertSessionHasErrors('min_files');
-        // Fewer at most than at least is not a range at all.
-        $this->post('/directories/document_types', $this->payload(['min_files' => 3, 'max_files' => 2]))->assertSessionHasErrors('max_files');
-
-        $this->post('/directories/document_types', $this->payload(['name' => 'Сертификаты', 'max_files' => null]))->assertSessionHasNoErrors();
-        $this->assertNull(DocumentType::firstWhere('name', 'Сертификаты')->max_files);
-
-        // Exactly two, which is what «две фотографии» means and what a single
-        // upper bound could never say.
-        $this->post('/directories/document_types', $this->payload(['name' => 'Фотографии', 'min_files' => 2, 'max_files' => 2]))
-            ->assertSessionHasNoErrors();
-        $this->assertSame([2, 2], [
-            DocumentType::firstWhere('name', 'Фотографии')->min_files,
-            DocumentType::firstWhere('name', 'Фотографии')->max_files,
-        ]);
+        $this->assertTrue(DocumentType::firstWhere('name', 'Трудовая книжка')->on_paper);
     }
 
     /**
