@@ -27,7 +27,7 @@ interface DocumentTypeItem {
  */
 export default function DocumentTypes({ items, canEdit }: { items: DocumentTypeItem[]; canEdit: boolean }) {
     return (
-        <DirectoriesLayout title="Документы">
+        <DirectoriesLayout title="Документы (Чек-лист)">
             <DirectoryManager
                 items={items.map((item) => ({
                     id: item.id,

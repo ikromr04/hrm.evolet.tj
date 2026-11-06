@@ -155,7 +155,7 @@ export const directoryLists: DirectoryList[] = [
     },
     {
         key: 'document_types',
-        title: 'Документы',
+        title: 'Документы (Чек-лист)',
         view: 'directories.view.document_types',
         edit: 'directories.edit.document_types',
         add: 'Добавить документ',
