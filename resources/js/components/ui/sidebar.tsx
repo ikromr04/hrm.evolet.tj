@@ -91,7 +91,14 @@ const SidebarProvider = React.forwardRef<
     // Adds a keyboard shortcut to toggle the sidebar.
     React.useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
+            // By the key's place on the board rather than by what it prints:
+            // in a Russian layout that very key says «и», and a shortcut that
+            // stopped working the moment somebody switched layouts is not a
+            // shortcut. `code` is empty for a keystroke the browser made up
+            // rather than took from the board, so the letter still counts.
+            const pressed = event.code === 'KeyB' || event.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT;
+
+            if (pressed && (event.metaKey || event.ctrlKey) && !event.altKey) {
                 event.preventDefault();
                 toggleSidebar();
             }

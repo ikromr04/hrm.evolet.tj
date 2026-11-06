@@ -3,7 +3,8 @@ import { GlobalSearch } from '@/components/global-search';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { SidebarTrigger } from '@/components/ui/sidebar';
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { type BreadcrumbItem as BreadcrumbItemType } from '@/types';
 import { Bell } from 'lucide-react';
 import { type ReactNode } from 'react';
@@ -21,6 +22,48 @@ import { type ReactNode } from 'react';
  * whole way down does not fit across 390px, and the step somebody is on is the
  * one worth saying.
  */
+/**
+ * The button the menu opens and closes by, and the hint that says it can be
+ * done from the keyboard instead.
+ *
+ * The hint names the shortcut rather than only the button's job: somebody who
+ * reaches for the mouse a dozen times a day is exactly the person who should be
+ * told there is a key for it, and the only moment they are looking at the
+ * button is while the hint is up. The key is written the way the machine writes
+ * it — ⌘ on a Mac, Ctrl everywhere else — and in the same little box the search
+ * writes its own shortcut in, so the two read as one habit.
+ *
+ * On a phone the menu is a drawer and there is no keyboard to press, so the
+ * hint says what the button does and stops there.
+ */
+function MenuButton() {
+    const { state, isMobile } = useSidebar();
+    const shuts = !isMobile && state === 'expanded';
+
+    return (
+        <TooltipProvider delayDuration={400}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <SidebarTrigger className="-ml-1" aria-label="Меню" />
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="flex items-center gap-2 py-1 text-[13px]">
+                    {isMobile ? 'Меню' : shuts ? 'Свернуть меню' : 'Развернуть меню'}
+                    {!isMobile && (
+                        <kbd className="border-border bg-muted rounded border px-[5px] py-px font-sans text-[11px] font-medium">
+                            {onApple() ? '⌘ B' : 'Ctrl B'}
+                        </kbd>
+                    )}
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    );
+}
+
+/** Whether this is a board whose own key is ⌘ rather than Ctrl. */
+function onApple() {
+    return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+}
+
 export function AppSidebarHeader({ breadcrumbs = [], title }: { breadcrumbs?: BreadcrumbItemType[]; title?: ReactNode }) {
     // A page with no trail at all still has a name, and it is better than the
     // product's.
@@ -31,7 +74,7 @@ export function AppSidebarHeader({ breadcrumbs = [], title }: { breadcrumbs?: Br
 
     return (
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 md:px-4 lg:px-6">
-            <SidebarTrigger className="-ml-1" aria-label="Меню" />
+            <MenuButton />
             <Separator orientation="vertical" className="mx-2 h-4!" />
 
             <div className="min-w-0 flex-1">
