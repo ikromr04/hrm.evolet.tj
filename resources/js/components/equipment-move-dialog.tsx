@@ -318,7 +318,7 @@ export function EquipmentMoveDialog({
 
                     <PhotoInput photos={photos} onChange={setPhotos} error={at(form.errors, 'photos')} hint={photoHint[kind]} />
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>

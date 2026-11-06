@@ -190,7 +190,7 @@ export function CameraDialog({ onShot, onClose }: { onShot: (photo: File) => voi
 
                 {taken > 0 && <p className="text-muted-foreground text-[13px]">Снято: {taken}. Снимки уже в форме — можно сделать ещё.</p>}
 
-                <DialogFooter className="gap-2 sm:justify-between">
+                <DialogFooter className="sm:justify-between">
                     {cameras.length > 1 ? (
                         <Button type="button" variant="outline" onClick={another}>
                             <RefreshCw />

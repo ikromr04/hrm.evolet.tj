@@ -217,7 +217,7 @@ function LeaveDialog({ kind, employee, name, onClose }: { kind: 'transfer' | 'fi
                         <InputError message={form.errors.note} />
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -258,7 +258,7 @@ function DeleteDialog({ open, employee, name, onClose }: { open: boolean; employ
                         </div>
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Отмена
                     </Button>

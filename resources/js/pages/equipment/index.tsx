@@ -358,7 +358,7 @@ function DeleteDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
                     своё — её нужно <span className="font-medium">списать</span>, а не удалять.
                 </p>
 
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Отмена
                     </Button>

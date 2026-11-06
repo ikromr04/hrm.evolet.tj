@@ -663,7 +663,7 @@ function DeleteDialog({ unit, units, onClose }: { unit: DepartmentItem | null; u
                         </div>
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
                         Отмена
                     </Button>

@@ -662,7 +662,7 @@ export function EquipmentForm({ options, section, forEmployee, layout = 'page', 
                 <>
                     {refused && <p className="text-sm text-red-600 dark:text-red-400">{refused}</p>}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onCancel}>
                             Отмена
                         </Button>

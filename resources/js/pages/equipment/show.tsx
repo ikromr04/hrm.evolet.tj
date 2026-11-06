@@ -641,7 +641,7 @@ function SpecsDialog({
                         </p>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -735,7 +735,7 @@ function StateDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
                         hint="Снимки прошлых проверок остаются в журнале — новые их не заменяют."
                     />
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -804,7 +804,7 @@ function AccessoriesDialog({ unit, onClose }: { unit: Unit; onClose: () => void 
                         </Button>
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -954,7 +954,7 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
                         </>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -991,7 +991,7 @@ function DeleteDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
                     нужно <span className="font-medium">списать</span>, а не удалять.
                 </p>
 
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Отмена
                     </Button>
@@ -1033,7 +1033,7 @@ function RepairDeleteDialog({ unit, repair, onClose }: { unit: Unit; repair: Rep
 
                 <p className="text-sm">Запись исчезнет из вкладки «Обслуживание». В журнале останется отметка о том, что её удалили.</p>
 
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Отмена
                     </Button>

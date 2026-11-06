@@ -862,7 +862,7 @@ export default function SectionForm({
                 <InputError message={form.errors.body} />
             </div>
 
-            <DialogFooter className="gap-2">
+            <DialogFooter>
                 <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
                     Отмена
                 </Button>

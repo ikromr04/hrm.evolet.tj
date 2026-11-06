@@ -464,7 +464,7 @@ function ContactsDialog({ employee, details, onClose }: { employee: Employee; de
                         )}
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -2812,7 +2812,7 @@ function MainDialog({
                         )}
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -2943,7 +2943,7 @@ function LanguagesDialog({ employee, options, onClose }: { employee: Employee; o
                         </Button>
                     </div>
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
                         </Button>
@@ -2979,7 +2979,7 @@ function DeleteRecordDialog({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{description}</DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" onClick={onClose}>
                         Отмена
                     </Button>
@@ -3374,7 +3374,7 @@ function IssueEquipmentDialog({
                         </div>
                     )}
 
-                    <DialogFooter className="gap-2">
+                    <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             {stock.length === 0 ? 'Закрыть' : 'Отмена'}
                         </Button>

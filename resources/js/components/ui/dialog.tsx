@@ -77,7 +77,14 @@ const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 DialogHeader.displayName = 'DialogHeader';
 
 const DialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-    <div className={cn('flex flex-col-reverse max-sm:gap-2 sm:flex-row sm:justify-end sm:space-x-2', className)} {...props} />
+    <div
+        // One gap, the same one in a column and in a row. It used to be a gap
+        // down the phone and margins between the buttons on a screen, and every
+        // caller that asked for «gap-2» — all of them — got the two added
+        // together: eight pixels of gap and eight more of margin.
+        className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+        {...props}
+    />
 );
 DialogFooter.displayName = 'DialogFooter';
 

@@ -148,7 +148,7 @@ function RejectDialog({ row, onClose }: { row: Waiting; onClose: () => void }) {
                     <p className="text-muted-foreground text-[13px]">Её прочтёт тот, кто прикладывал документ.</p>
                 </div>
 
-                <DialogFooter className="gap-2">
+                <DialogFooter>
                     <Button type="button" variant="outline" className="max-md:h-11" onClick={onClose}>
                         Отмена
                     </Button>
