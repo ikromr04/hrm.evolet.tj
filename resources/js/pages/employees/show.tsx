@@ -2788,13 +2788,6 @@ function MainDialog({
                             </div>
                         )}
 
-                        {/* Nothing keeps it yet, so it says the same word every
-                            card says and cannot be answered differently. */}
-                        <div className="grid content-start gap-2">
-                            <Label htmlFor="main-probation">Испытательный срок</Label>
-                            <Input id="main-probation" readOnly value="Пройден" className="bg-muted/40" />
-                        </div>
-
                         {hire && (
                             <div className="grid content-start gap-2">
                                 <Label htmlFor="main-hired-at">Начало работы</Label>
@@ -4182,14 +4175,6 @@ export default function EmployeeProfile({
                                             <Fact label="Тип занятости" field="employment_type">
                                                 {employee.employment_type}
                                             </Fact>
-
-                                            {/* Nothing keeps it yet: every card says the same word
-                                                until there is somewhere to write the answer — which is
-                                                why the person whose card it is does not see it. A card
-                                                that told somebody their probation was passed when
-                                                nobody had said so would be a record of nothing,
-                                                read as a record of something. */}
-                                            {!ownCardOnly && <Fact label="Испытательный срок">Пройден</Fact>}
 
                                             {/* The date, and how long it has been — one line, because
                                                 the second is read off the first and not kept anywhere:
