@@ -47,10 +47,14 @@ class EquipmentTypeController extends Controller
             // Reading a list and keeping it are two rights, so the page says
             // which one it is looking at.
             'canEdit' => Directories::canEdit($request->user(), 'equipment'),
+            // Newest first, which is the order the page rests in: a list
+            // sorted by name has nothing for a third press on «Название» to
+            // land on, and the category somebody has just added is the one
+            // they are looking for.
             'items' => EquipmentType::query()
                 ->with('fields')
                 ->withCount(['equipment as users_count' => fn ($q) => $q->inService()])
-                ->orderBy('name')
+                ->orderByDesc('id')
                 ->get()
                 ->map(fn (EquipmentType $type) => [
                     'id' => $type->id,

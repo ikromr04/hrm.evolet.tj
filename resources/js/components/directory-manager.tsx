@@ -106,8 +106,15 @@ const PER_PAGE = [10, 25, 50, 100];
 /** And how many it opens with: enough that a short list is read whole without paging at all. */
 const PER_PAGE_OPENS = 25;
 
-/** The order a list opens in — by name, which is how the server sends it. */
-const DEFAULT_SORT: Sort = { key: 'name', direction: 'asc' };
+/**
+ * The order a list opens in where it has no order of its own: newest first,
+ * as the server sends it.
+ *
+ * Neither «position» nor «created» heads a column, which is the point of
+ * both — a list resting in one of them is a list nothing has been sorted by,
+ * and the third press on a column's name has somewhere to land.
+ */
+const DEFAULT_SORT: Sort = { key: 'created', direction: 'desc' };
 
 /** A list nobody has narrowed yet. */
 const NOTHING_NARROWED = {
@@ -173,12 +180,11 @@ export function DirectoryManager({
      * The order the list opens in: its own where it has one, by name where it
      * has not.
      *
-     * «position» heads no column, which is the point — it is the order the
-     * server sends the rows in, and a list resting in it is a list nothing has
-     * been sorted by. That is what makes the third press on a column's name
-     * mean something here: up, down, and back to the order the office put them
-     * in. Sorted by name, the third press used to land on the order it had
-     * just left.
+     * Neither heads a column, which is the point: a list resting in one of
+     * them is a list nothing has been sorted by, and the third press on a
+     * column's name lands on the order the page opened in — the one the office
+     * dragged its papers into, or newest first. Sorted by name, the third
+     * press used to land on the order it had just left.
      */
     const opening = useMemo<Sort>(() => (orderable ? { key: 'position', direction: 'asc' } : DEFAULT_SORT), [orderable]);
     const [sort, setSort] = useState<Sort>(opening);
@@ -191,10 +197,16 @@ export function DirectoryManager({
 
     const columns = useMemo<ColumnDef[]>(
         () => [
+            {
+                key: 'name',
+                label: 'Название',
+                width: 320,
+                filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
+            },
             // Which part of the list a record belongs to, where the list is
-            // kept in parts: the page it is read on follows from it, so the
-            // list is read down the parts first and the names inside them
-            // after.
+            // kept in parts. After the name rather than before it: a row is
+            // found by what it is called, and what it belongs to is read off
+            // the row once it has been found.
             ...(sections
                 ? [
                       {
@@ -205,12 +217,6 @@ export function DirectoryManager({
                       },
                   ]
                 : []),
-            {
-                key: 'name',
-                label: 'Название',
-                width: 320,
-                filter: { type: 'text', param: 'name', placeholder: 'Поиск по названию' },
-            },
             // A paper says what is wanted of it, where its original lives and
             // whether everybody is asked for it. How many people have handed it
             // in is a number about the asking rather than about the paper, and
