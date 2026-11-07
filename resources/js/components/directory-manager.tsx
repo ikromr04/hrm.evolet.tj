@@ -16,6 +16,7 @@ import { DirectoryEditor, type DirectoryItem, type Labels } from '@/components/d
 import { IconChip } from '@/components/equipment-icon';
 import { MobileFab } from '@/components/mobile-fab';
 import { Pagination } from '@/components/pagination';
+import { RowActions, type RowAction } from '@/components/row-actions';
 
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
@@ -25,7 +26,6 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
@@ -36,7 +36,7 @@ import { type CategoryField, type FieldTypeOption } from '@/lib/equipment-fields
 import { equipmentIcons, fallbackIcon } from '@/lib/equipment-icons';
 import { plural } from '@/lib/plural';
 import { Link, router } from '@inertiajs/react';
-import { ChevronDown, LoaderCircle, Lock, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 interface DirectoryManagerProps {
@@ -449,6 +449,19 @@ export function DirectoryManager({
         );
     };
 
+    /**
+     * What may be done to one record: write it again, or take it off the list.
+     *
+     * The same pair on the phone and on the desktop, so a row answers the same
+     * two presses wherever the list is read. A system record keeps its delete
+     * button, greyed out rather than gone: the lock beside the name says why,
+     * and the two are read together.
+     */
+    const rowActions = (row: DirectoryItem): RowAction[] => [
+        { key: 'edit', label: 'Изменить', Icon: Pencil, onSelect: () => setEditing(row) },
+        { key: 'delete', label: 'Удалить', Icon: Trash2, disabled: row.protected, danger: true, onSelect: () => setDeleting(row) },
+    ];
+
     const addButton = (
         <Button onClick={() => setEditing('new')}>
             <Plus />
@@ -472,8 +485,8 @@ export function DirectoryManager({
              * A phone gets a list rather than the table: three columns squeezed
              * into 320px leave the names wrapping letter by letter. A row is one
              * target there, not a name and a number side by side, so it leads to
-             * the people behind it; changing and deleting sit in the row's menu,
-             * outside the link.
+             * the people behind it; changing and deleting stand as buttons at
+             * the end of the row, outside the link.
              */}
             <Card className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-none md:hidden">
                 {visible.length > 0 ? (
@@ -508,36 +521,7 @@ export function DirectoryManager({
                                             ? `${row.on_paper === true ? 'Оригинал сдают' : 'Файлом'} · ${count} ${plural(count, countWords)}`
                                             : `${count} ${plural(count, countWords)}`
                                     }
-                                    trailing={
-                                        canEdit ? (
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="size-10" aria-label={`Действия: ${row.label}`}>
-                                                        <MoreHorizontal className="size-5" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end" className="min-w-44">
-                                                    <DropdownMenuItem
-                                                        className="min-h-10 text-[15px]"
-                                                        aria-label={`Изменить: ${row.label}`}
-                                                        onSelect={() => setEditing(row)}
-                                                    >
-                                                        <Pencil />
-                                                        Изменить
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        className="min-h-10 text-[15px] text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current"
-                                                        aria-label={`Удалить: ${row.label}`}
-                                                        disabled={row.protected}
-                                                        onSelect={() => setDeleting(row)}
-                                                    >
-                                                        <Trash2 />
-                                                        Удалить
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        ) : undefined
-                                    }
+                                    trailing={canEdit ? <RowActions of={row.label} actions={rowActions(row)} /> : undefined}
                                 />
                             );
                         })}
@@ -626,34 +610,7 @@ export function DirectoryManager({
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="name"
                     onRowDrop={draggable ? dropRow : undefined}
-                    actionsWidth={112}
-                    actions={
-                        canEdit
-                            ? (row) => (
-                                  <div className="flex justify-end gap-1">
-                                      <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8"
-                                          aria-label={`Изменить: ${row.label}`}
-                                          onClick={() => setEditing(row)}
-                                      >
-                                          <Pencil className="size-4" />
-                                      </Button>
-                                      <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8 text-[#B42318] hover:text-[#B42318] dark:text-[#F7A19A]"
-                                          aria-label={`Удалить: ${row.label}`}
-                                          disabled={row.protected}
-                                          onClick={() => setDeleting(row)}
-                                      >
-                                          <Trash2 className="size-4" />
-                                      </Button>
-                                  </div>
-                              )
-                            : undefined
-                    }
+                    actions={canEdit ? (row) => <RowActions of={row.label} actions={rowActions(row)} /> : undefined}
                     empty={<span className="text-sm">{items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}</span>}
                     footer={
                         <>

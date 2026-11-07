@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { ListFilter, Search } from 'lucide-react';
 import { useState } from 'react';
-import { HeaderHint } from './hint';
+import { Hint } from './hint';
 import { type ColumnDef, type FilterDef, type FilterValues } from './types';
 
 /** Whether a filter narrows anything, which is what lights its icon up. */
@@ -210,21 +210,30 @@ export function ColumnFilter({
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
-            <HeaderHint label={active ? 'Фильтр включён' : 'Фильтр'}>
+            <Hint label={active ? 'Фильтр включён' : 'Фильтр'}>
                 <PopoverTrigger asChild>
                     <button
                         type="button"
                         aria-label={`Фильтр: ${column.label}`}
                         className={cn(
-                            'hover:bg-accent hover:text-foreground relative rounded p-1',
-                            active ? 'text-brand-strong dark:text-[#C5E27A]' : 'opacity-50 hover:opacity-100',
+                            'hover:bg-accent hover:text-foreground relative rounded p-1 transition-opacity',
+                            // A filter that is narrowing the table is shown on
+                            // every row of headings whether or not anybody is
+                            // pointing at it — it is the reason some rows are
+                            // missing, and that has to be visible from across
+                            // the room. One that is merely on offer waits until
+                            // its heading is pointed at, or until it is opened,
+                            // which happens somewhere else on the page.
+                            active
+                                ? 'text-brand-strong dark:text-[#C5E27A]'
+                                : 'opacity-0 group-hover/header:opacity-50 hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
                         )}
                     >
                         <ListFilter className="size-3.5" />
                         {active && <span className="bg-brand absolute top-0.5 right-0.5 size-1.5 rounded-full" />}
                     </button>
                 </PopoverTrigger>
-            </HeaderHint>
+            </Hint>
             <PopoverContent align="start" className={cn('max-w-[calc(100vw-2rem)] p-3', roomy ? 'w-96' : 'w-64')}>
                 <div className="mb-2 flex items-center justify-between">
                     <span className="text-sm font-semibold">{column.label}</span>

@@ -22,6 +22,7 @@ import { PageTitle } from '@/components/page-title';
 import { Pagination, type Paginated } from '@/components/pagination';
 import { PersonFace } from '@/components/person-face';
 import { PersonLink } from '@/components/person-link';
+import { RowActions, type RowAction } from '@/components/row-actions';
 import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -30,7 +31,6 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuItem,
     DropdownMenuRadioGroup,
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
@@ -43,7 +43,7 @@ import { statusLabel, statusTone, type EquipmentStatus as Status } from '@/lib/e
 import { INVENTORY_PLACES, type InventoryPlace } from '@/lib/inventory';
 import { cn } from '@/lib/utils';
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowDownToLine, ChevronDown, Ellipsis, Eraser, LoaderCircle, Plus, Trash2, UserPlus, Wrench, type LucideIcon } from 'lucide-react';
+import { ArrowDownToLine, ChevronDown, Eraser, LoaderCircle, Plus, Trash2, UserPlus, Wrench, type LucideIcon } from 'lucide-react';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 
 interface Department {
@@ -262,18 +262,16 @@ const OPENING_LABEL = 'Структура';
 /** How many units of one category a row names before counting off the rest. */
 const HELD_SHOWN = 3;
 
-/** Red, for the one action that cannot be undone. */
-const dangerItem = 'text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] [&_svg]:text-current!';
-
 /**
- * The "⋯" at the end of a row. A written-off unit has nowhere left to go: the
- * only thing left to do with it is strike it off the books for good.
+ * What may be done to one unit, at the end of its row. A written-off unit has
+ * nowhere left to go: the only thing left to do with it is strike it off the
+ * books for good.
  *
- * Every item is a right of its own, so a storekeeper who hands units out and an
- * accountant who writes them off are offered different menus — and a viewer left
- * with no item at all is offered no menu, rather than one that opens on nothing.
+ * Every entry is a right of its own, so a storekeeper who hands units out and
+ * an accountant who writes them off are offered different buttons — and a
+ * viewer with no entry at all is offered nothing, not an empty column.
  */
-function RowActions({
+function UnitActions({
     unit,
     can,
     onAsk,
@@ -298,41 +296,19 @@ function RowActions({
         if (can.write_off) moves.push({ kind: 'write-off', icon: Trash2 });
     }
 
-    const removable = unit.status === 'written_off' && can.delete;
+    const actions: RowAction[] = moves.map(({ kind, icon }) => ({
+        key: kind,
+        label: moveLabel[kind],
+        Icon: icon,
+        onSelect: () => onAsk({ unit, kind }),
+        danger: kind === 'write-off',
+    }));
 
-    if (moves.length === 0 && !removable) {
-        return null;
+    if (unit.status === 'written_off' && can.delete) {
+        actions.push({ key: 'delete', label: 'Удалить запись', Icon: Eraser, onSelect: () => onDelete(unit), danger: true });
     }
 
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground size-10 md:size-9 lg:size-8"
-                    aria-label={`Действия: ${unit.name}`}
-                >
-                    <Ellipsis className="size-5!" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-                {moves.map(({ kind, icon: Icon }) => (
-                    <DropdownMenuItem key={kind} onSelect={() => onAsk({ unit, kind })} className={cn(kind === 'write-off' && dangerItem)}>
-                        <Icon />
-                        {moveLabel[kind]}
-                    </DropdownMenuItem>
-                ))}
-
-                {removable && (
-                    <DropdownMenuItem onSelect={() => onDelete(unit)} className={dangerItem}>
-                        <Eraser />
-                        Удалить запись…
-                    </DropdownMenuItem>
-                )}
-            </DropdownMenuContent>
-        </DropdownMenu>
-    );
+    return <RowActions actions={actions} of={unit.name} />;
 }
 
 /**
@@ -927,10 +903,10 @@ export default function EquipmentIndex({
     const byHolder = view === 'holders';
     const place = INVENTORY_PLACES[section];
     // The journal is open where at least one part of the fleet carries it.
-    // Whether there is anything at all to do with a row. Which item a row offers
-    // depends on where its unit is, so the column stays wherever one of them
-    // could come up, and goes for a viewer who only reads the list. Nothing is
-    // done to a unit from «По сотрудникам»: it is a table for reading.
+    // Whether there is anything at all to do with a row. Which buttons a row
+    // offers depends on where its unit is, so the column stays wherever one of
+    // them could come up, and goes for a viewer who only reads the list. Nothing
+    // is done to a unit from «По сотрудникам»: it is a table for reading.
     const actsOnRows = !byHolder && (can.issue || can.take || can.write_off || can.delete);
     const notice = narrowedTo(scopes);
     const unitColumns = useMemo(() => buildColumns(options), [options]);
@@ -1435,7 +1411,7 @@ export default function EquipmentIndex({
                         onReorder={reorder}
                         onHide={(key) => toggleHidden(key, true)}
                         lockedKey="holder"
-                        actions={actsOnRows ? (unit) => <RowActions unit={unit} can={can} onAsk={setAsking} onDelete={setDeleting} /> : undefined}
+                        actions={actsOnRows ? (unit) => <UnitActions unit={unit} can={can} onAsk={setAsking} onDelete={setDeleting} /> : undefined}
                         empty="Ничего не найдено."
                         mobileRow={(unit) => (
                             <MobileRow
@@ -1476,7 +1452,7 @@ export default function EquipmentIndex({
                                         </span>
                                     )
                                 }
-                                trailing={actsOnRows ? <RowActions unit={unit} can={can} onAsk={setAsking} onDelete={setDeleting} /> : undefined}
+                                trailing={actsOnRows ? <UnitActions unit={unit} can={can} onAsk={setAsking} onDelete={setDeleting} /> : undefined}
                             />
                         )}
                         footer={footer(equipment)}

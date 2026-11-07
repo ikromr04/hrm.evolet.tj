@@ -24,9 +24,9 @@ import {
     PinOff,
     RotateCcw,
 } from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent, type ReactNode } from 'react';
 import { ColumnFilter, isFilterActive } from './filters';
-import { HeaderHint } from './hint';
+import { Hint } from './hint';
 import { type CellRenderer, type ColumnDef, type FilterValues, type Sort, type TableView } from './types';
 import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, orderedKeys } from './view';
 
@@ -37,12 +37,6 @@ import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, orderedKeys } from './view';
  * again rather than of finding the menu again.
  */
 const WIDTH_STEP = 40;
-
-/** Room for the sticky column of row actions at the right edge. */
-export const ACTIONS_WIDTH = 56;
-
-/** The air on either side of the row's actions. */
-const ACTIONS_PADDING = 16;
 
 interface DataTableProps<Row> {
     columns: ColumnDef[];
@@ -120,17 +114,17 @@ interface DataTableProps<Row> {
      */
     rowSpan?: (column: ColumnDef, row: Row) => number;
 
-    /** The right-hand sticky cell, when the viewer may act on a row. */
-    actions?: (row: Row) => ReactNode;
     /**
-     * How wide to draw that cell on the first frame, before it has been
-     * measured: the width it settles at is what the buttons in it come to. The
-     * default holds one icon button, which is what a row of these tables
-     * usually offers — a menu of what can be done to it. A page whose rows wear
-     * their actions openly, two buttons side by side, says so here, and the
-     * column does not jump when it is drawn.
+     * What can be done to a row, floated over its right-hand end while the
+     * cursor is on it.
+     *
+     * It takes no width of its own. A column of buttons standing open down the
+     * whole table is read once and ignored afterwards, and it costs every other
+     * column the room it sits in; these appear on the row being pointed at and
+     * lie over whatever that row's last column was showing, the way the actions
+     * of a mail list do.
      */
-    actionsWidth?: number;
+    actions?: (row: Row) => ReactNode;
     /**
      * What to do when one row is dragged onto another: the key of the row that
      * was dragged, the key it was dropped on, and which side of it.
@@ -179,7 +173,6 @@ export function DataTable<Row>({
     gridlines,
     rowSpan,
     actions,
-    actionsWidth: actionsCell = ACTIONS_WIDTH,
     onRowDrop,
     empty,
     footer,
@@ -500,28 +493,9 @@ export function DataTable<Row>({
         setResizing(null);
     };
 
-    /**
-     * How wide that column is drawn: what the buttons in it come to, plus the
-     * air on either side. It is read off the cell rather than declared, because
-     * the pins at the right edge and the width of the whole table are measured
-     * from it, and a page may hang one button there or several.
-     */
-    const [measured, setMeasured] = useState<number | null>(null);
-    const actionsCellRef = useRef<HTMLTableCellElement>(null);
-
-    useLayoutEffect(() => {
-        const held = actionsCellRef.current?.firstElementChild;
-        if (!held) return;
-
-        const next = Math.ceil(held.getBoundingClientRect().width) + ACTIONS_PADDING * 2;
-        setMeasured((current) => (current === next ? current : next));
-        // What stands in the cell can change with the rows it belongs to — a
-        // menu a viewer may not open is not drawn — so it is read again when
-        // they do, and only then.
-    }, [actions, rows]);
-
-    const actionsWidth = actions ? (measured ?? actionsCell) : 0;
-    const tableWidth = visible.reduce((sum, column) => sum + widthOf(column), 0) + actionsWidth;
+    // The actions take no width, so the table is as wide as its columns and the
+    // last of them runs to the edge.
+    const tableWidth = visible.reduce((sum, column) => sum + widthOf(column), 0);
 
     /**
      * Where a pinned column comes to rest: as far in as the columns pinned
@@ -538,7 +512,7 @@ export function DataTable<Row>({
         }
         if (side === 'right') {
             const index = right.indexOf(column);
-            return { right: right.slice(index + 1).reduce((sum, c) => sum + widthOf(c), actionsWidth) };
+            return { right: right.slice(index + 1).reduce((sum, c) => sum + widthOf(c), 0) };
         }
 
         return {};
@@ -559,18 +533,12 @@ export function DataTable<Row>({
         //
         // The line is drawn inside the cell rather than beside it: the borders
         // of this table are collapsed, and a collapsed table paints nothing a
-        // cell puts outside its own edge, shadows included. Inside, it does. A
-        // header cell carries the line under the head in the same shadow — one
-        // box-shadow is all a cell has, and the later rule would otherwise take
-        // the first — and both are spelled out in full, a class built by halves
-        // being a class the stylesheet never hears of.
+        // cell puts outside its own edge, shadows included. Inside, it does.
         return cn(
             'lg:sticky',
             header ? 'bg-sidebar z-20' : 'bg-card z-[1] transition-colors group-hover/row:bg-(--row-hover)',
-            side === 'left' &&
-                (header ? 'lg:shadow-[inset_-1px_0_0_var(--border),inset_0_-1px_0_var(--border)]' : 'lg:shadow-[inset_-1px_0_0_var(--border)]'),
-            side === 'right' &&
-                (header ? 'lg:shadow-[inset_1px_0_0_var(--border),inset_0_-1px_0_var(--border)]' : 'lg:shadow-[inset_1px_0_0_var(--border)]'),
+            side === 'left' && 'lg:shadow-[inset_-1px_0_0_var(--border)]',
+            side === 'right' && 'lg:shadow-[inset_1px_0_0_var(--border)]',
         );
     };
 
@@ -603,7 +571,16 @@ export function DataTable<Row>({
     };
 
     return (
-        <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0 md:flex-1">
+        // As tall as what it holds, and no taller than there is room for.
+        //
+        // It neither grows nor is given a height: a card of four rows is four
+        // rows tall and the page ends under it, instead of a frame standing to
+        // the foot of the window with a field of nothing in it. `min-h-0` is
+        // what lets it shrink past its own content when the rows outrun the
+        // window — the page is locked to the viewport, the card gives way, and
+        // the box of rows inside it starts to scroll while the head and the
+        // paging stay where they are.
+        <Card className="flex flex-col gap-0 overflow-hidden rounded-xl p-0 max-md:rounded-2xl max-md:border-0 max-md:shadow-none md:min-h-0">
             {/* relative: absolutely placed things inside the table — screen-reader
             labels, for one — take this box as their frame and are clipped by it,
             instead of escaping it and stretching the whole page sideways. */}
@@ -616,7 +593,14 @@ export function DataTable<Row>({
                 </ul>
             )}
             <div
-                className={cn('scroll-soft relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}
+                // No reserved gutter here, unlike the panes that scroll inside a
+                // dialog or a menu: a table short enough to need no bar would
+                // otherwise keep an empty channel down its right-hand edge, in
+                // the one place a reader looks for the end of a row. The cost is
+                // that the rows shift by the width of a bar when a page of them
+                // first runs past the window, which happens once and at the
+                // moment the bar itself appears to explain it.
+                className={cn('scroll-soft scroll-framed relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}
                 // This box is the one that scrolls, so this is where a cell inside
                 // it reads how far down the header reaches.
                 style={{ '--table-head': `${headHeight}px` } as CSSProperties}
@@ -675,12 +659,7 @@ export function DataTable<Row>({
                                             // relative: the handle that widens the column lies
                                             // along this cell's own right edge.
                                             //
-                                            // The line under the head is drawn by the cells
-                                            // themselves rather than by the border of the first
-                                            // row: a collapsed border belongs to the table, and
-                                            // the head holds still while the table runs past it,
-                                            // so the line would stay behind with the rows.
-                                            'group/header relative px-4 py-2.5 font-semibold shadow-[inset_0_-1px_0_var(--border)]',
+                                            'group/header relative px-4 py-2.5 font-semibold',
                                             index === 0 && 'pl-6',
                                             index === visible.length - 1 && !actions && 'pr-6',
                                             stickyClass(column, true),
@@ -704,7 +683,19 @@ export function DataTable<Row>({
                                                     )}
                                                 >
                                                     <span className="truncate">{column.label}</span>
-                                                    <SortIcon className={cn('size-3.5 shrink-0', !active && 'opacity-40')} aria-hidden="true" />
+                                                    {/* The arrow stays on a column that is sorted,
+                                                        because that is the column saying how the
+                                                        table is ordered. On the rest it is an
+                                                        offer, and an offer repeated over every
+                                                        heading is a row of arrows that mean
+                                                        nothing until one of them is pressed. */}
+                                                    <SortIcon
+                                                        className={cn(
+                                                            'size-3.5 shrink-0 transition-opacity',
+                                                            active ? 'opacity-100' : 'opacity-0 group-hover/header:opacity-40',
+                                                        )}
+                                                        aria-hidden="true"
+                                                    />
                                                 </button>
                                             ) : (
                                                 <span className="truncate">{column.label}</span>
@@ -712,7 +703,7 @@ export function DataTable<Row>({
 
                                             <div data-head-controls className="ml-auto flex shrink-0 items-center gap-0.5">
                                                 {reorderable && (
-                                                    <HeaderHint label="Перетащите, чтобы изменить порядок">
+                                                    <Hint label="Перетащите, чтобы изменить порядок">
                                                         {/* A grip of its own, rather than the whole header: the
                                                             label beside it is the button that sorts, and a press
                                                             that might turn into a drag would make every sort and
@@ -738,7 +729,7 @@ export function DataTable<Row>({
                                                         >
                                                             <GripVertical className="size-3.5" />
                                                         </span>
-                                                    </HeaderHint>
+                                                    </Hint>
                                                 )}
 
                                                 {column.filter && canFilter(column) && (
@@ -746,17 +737,25 @@ export function DataTable<Row>({
                                                 )}
 
                                                 <DropdownMenu>
-                                                    <HeaderHint label={canSort ? 'Сортировка и вид колонки' : 'Вид колонки'}>
+                                                    <Hint label={canSort ? 'Сортировка и вид колонки' : 'Вид колонки'}>
                                                         <DropdownMenuTrigger asChild>
                                                             <button
                                                                 type="button"
                                                                 aria-label={`Действия с колонкой: ${column.label}`}
-                                                                className="hover:bg-accent hover:text-foreground rounded p-1 opacity-50 hover:opacity-100"
+                                                                className={cn(
+                                                                    'hover:bg-accent hover:text-foreground rounded p-1 transition-opacity',
+                                                                    'opacity-0 group-hover/header:opacity-50 hover:opacity-100',
+                                                                    // Open, it stays: the menu itself is
+                                                                    // drawn elsewhere on the page, so the
+                                                                    // heading is no longer under the
+                                                                    // cursor while it is being read.
+                                                                    'focus-visible:opacity-100 data-[state=open]:opacity-100',
+                                                                )}
                                                             >
                                                                 <EllipsisVertical className="size-3.5" />
                                                             </button>
                                                         </DropdownMenuTrigger>
-                                                    </HeaderHint>
+                                                    </Hint>
                                                     <DropdownMenuContent align="end" className="w-52">
                                                         {canSort && (
                                                             <>
@@ -905,11 +904,11 @@ export function DataTable<Row>({
                                 );
                             })}
                             {actions && (
-                                <th
-                                    scope="col"
-                                    style={{ width: actionsWidth }}
-                                    className="bg-sidebar sticky right-0 z-20 shadow-[inset_1px_0_0_var(--border),inset_0_-1px_0_var(--border)]"
-                                >
+                                // Width nought, and no rule down its left: there
+                                // is nothing under this head to divide from the
+                                // column before it. The word stays for whoever
+                                // is read the table aloud.
+                                <th scope="col" className="w-0 p-0">
                                     <span className="sr-only">Действия</span>
                                 </th>
                             )}
@@ -1011,11 +1010,33 @@ export function DataTable<Row>({
                                     );
                                 })}
                                 {actions && (
-                                    <td
-                                        ref={actionsCellRef}
-                                        className="bg-card sticky right-0 z-[1] px-4 py-2 shadow-[inset_1px_0_0_var(--border)] transition-colors group-hover/row:bg-(--row-hover)"
-                                    >
-                                        <div className="flex w-max items-center justify-end gap-1">{actions(row)}</div>
+                                    // A cell of no width, holding a box that
+                                    // hangs out of it to the left. Pinned to the
+                                    // right edge, so it keeps its place while
+                                    // the table is scrolled sideways.
+                                    <td className="sticky right-0 z-[2] w-0 p-0">
+                                        <div
+                                            className={cn(
+                                                'absolute inset-y-0 right-0 flex items-center',
+                                                // Out of the way until the row
+                                                // is pointed at — and out of
+                                                // reach too, or a press meant
+                                                // for the column underneath
+                                                // would land on a button nobody
+                                                // can see.
+                                                'pointer-events-none opacity-0 transition-opacity',
+                                                'group-hover/row:pointer-events-auto group-hover/row:opacity-100',
+                                                'focus-within:pointer-events-auto focus-within:opacity-100',
+                                            )}
+                                        >
+                                            {/* What the row was showing does not
+                                                stop at the buttons: it is let
+                                                run under them and faded out, so
+                                                the join reads as the row being
+                                                covered rather than cut. */}
+                                            <span aria-hidden className="h-full w-10 bg-linear-to-r from-transparent to-(--row-hover)" />
+                                            <span className="flex h-full items-center gap-1 bg-(--row-hover) pr-4 pl-1">{actions(row)}</span>
+                                        </div>
                                     </td>
                                 )}
                             </tr>
@@ -1034,8 +1055,10 @@ export function DataTable<Row>({
 
             {footer && (
                 // From sm up rows-per-page and the paging share a line; a phone shows only the paging.
-                // The same ground the head stands on: the two bands hold the rows between them and read as one frame.
-                <div className="bg-sidebar flex shrink-0 flex-col items-stretch gap-2 border-t px-4 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 md:px-6 md:py-3">
+                // The same ground the head stands on: the two bands hold the rows between them and
+                // read as one frame. Neither is ruled off from the rows — the change of ground is
+                // the edge, and a line on top of it only says the same thing twice.
+                <div className="bg-sidebar flex shrink-0 flex-col items-stretch gap-2 px-4 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2 md:px-6 md:py-3">
                     {footer}
                 </div>
             )}

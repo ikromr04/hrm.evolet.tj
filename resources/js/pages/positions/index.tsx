@@ -18,11 +18,12 @@ import { MobileFab } from '@/components/mobile-fab';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
 import { PositionEditor } from '@/components/position-editor';
+import { RowActions } from '@/components/row-actions';
 import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
 import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
@@ -30,7 +31,7 @@ import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { Ellipsis, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 interface Department {
@@ -397,34 +398,16 @@ function StructureLine({ position }: { position: Position }) {
     return <span>{unit === null ? department.name : `${department.name} › ${unit.name}`}</span>;
 }
 
-/** The "⋯" at the end of a row, for whoever keeps the list. */
-function RowActions({ position, onEdit, onDelete }: { position: Position; onEdit: () => void; onDelete: () => void }) {
+/** The two things to do with a position, for whoever keeps the list. */
+function PositionActions({ position, onEdit, onDelete }: { position: Position; onEdit: () => void; onDelete: () => void }) {
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground size-10 md:size-9 lg:size-8"
-                    aria-label={`Действия: ${position.display_name}`}
-                >
-                    <Ellipsis className="size-5!" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-44">
-                <DropdownMenuItem className="max-md:min-h-9 max-md:text-[15px]" onSelect={onEdit}>
-                    <Pencil />
-                    Изменить
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    className="text-[#B42318] focus:text-[#B42318] max-md:min-h-9 max-md:text-[15px] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current!"
-                    onSelect={onDelete}
-                >
-                    <Trash2 />
-                    Удалить…
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <RowActions
+            of={position.display_name}
+            actions={[
+                { key: 'edit', label: 'Изменить', Icon: Pencil, onSelect: onEdit },
+                { key: 'delete', label: 'Удалить', Icon: Trash2, onSelect: onDelete, danger: true },
+            ]}
+        />
     );
 }
 
@@ -750,7 +733,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                     actions={
                         canEdit
                             ? (position) => (
-                                  <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
+                                  <PositionActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
                               )
                             : undefined
                     }
@@ -780,7 +763,7 @@ export default function PositionsIndex({ positions, options, canEdit }: Props) {
                             }
                             trailing={
                                 canEdit ? (
-                                    <RowActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
+                                    <PositionActions position={position} onEdit={() => setEditing(position)} onDelete={() => setDeleting(position)} />
                                 ) : undefined
                             }
                         />

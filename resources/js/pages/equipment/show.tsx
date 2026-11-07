@@ -440,7 +440,7 @@ function PhoneActions({ actions }: { actions: { key: string; label: string; icon
 /** A plain table, for the service tab. */
 function Table({ head, children }: { head: string[]; children: ReactNode }) {
     return (
-        <div className="scroll-soft -mx-4 overflow-x-auto sm:-mx-6">
+        <div className="scroll-soft scroll-stable -mx-4 overflow-x-auto sm:-mx-6">
             <table className="w-full min-w-[640px] border-collapse text-sm">
                 <thead>
                     <tr className="text-muted-foreground text-left text-[13px]">
@@ -571,7 +571,7 @@ function SpecsDialog({
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="scroll-soft max-h-[85vh] overflow-y-auto sm:max-w-lg">
+            <DialogContent className="scroll-soft scroll-stable max-h-[85vh] overflow-y-auto sm:max-w-lg">
                 {/* noValidate: the server's rules are the real ones. */}
                 <form onSubmit={submit} noValidate className="flex flex-col gap-5">
                     <DialogHeader>
@@ -682,7 +682,7 @@ function StateDialog({ unit, onClose }: { unit: Unit; onClose: () => void }) {
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="scroll-soft max-h-[85vh] overflow-y-auto sm:max-w-md">
+            <DialogContent className="scroll-soft scroll-stable max-h-[85vh] overflow-y-auto sm:max-w-md">
                 {/* noValidate: the server's rules are the real ones. */}
                 <form onSubmit={submit} noValidate className="flex flex-col gap-5">
                     <DialogHeader>
@@ -767,7 +767,7 @@ function AccessoriesDialog({ unit, onClose }: { unit: Unit; onClose: () => void 
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="scroll-soft max-h-[85vh] overflow-y-auto sm:max-w-md">
+            <DialogContent className="scroll-soft scroll-stable max-h-[85vh] overflow-y-auto sm:max-w-md">
                 {/* noValidate: the server's rules are the real ones. */}
                 <form onSubmit={submit} noValidate className="flex flex-col gap-5">
                     <DialogHeader>
@@ -853,7 +853,7 @@ function RepairDialog({ unit, repair, finishing, onClose }: { unit: Unit; repair
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className={cn('scroll-soft max-h-[85vh] overflow-y-auto', finishing ? 'sm:max-w-md' : 'sm:max-w-lg')}>
+            <DialogContent className={cn('scroll-soft scroll-stable max-h-[85vh] overflow-y-auto', finishing ? 'sm:max-w-md' : 'sm:max-w-lg')}>
                 {/* noValidate: the server's rules are the real ones. */}
                 <form onSubmit={submit} noValidate className="flex flex-col gap-5">
                     <DialogHeader>

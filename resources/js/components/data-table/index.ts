@@ -1,4 +1,4 @@
-export { ACTIONS_WIDTH, DataTable, countActiveFilters } from './data-table';
+export { DataTable, countActiveFilters } from './data-table';
 export { ColumnFilter, clearedFilter, isFilterActive } from './filters';
 export { TableMemoryButton } from './memory';
 export { MobileListTools, MobileRow } from './mobile';

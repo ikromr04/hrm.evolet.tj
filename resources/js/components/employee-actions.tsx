@@ -1,8 +1,8 @@
 import { DatePicker } from '@/components/date-picker';
 import InputError from '@/components/input-error';
+import { RowActions } from '@/components/row-actions';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useClearingForm } from '@/hooks/use-clearing-form';
@@ -10,8 +10,8 @@ import { useCan } from '@/lib/access';
 import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
 import { format } from 'date-fns';
-import { ArrowRightLeft, Ellipsis, LoaderCircle, RotateCcw, Trash2, UserX, type LucideIcon } from 'lucide-react';
-import { Fragment, useState, type FormEventHandler } from 'react';
+import { ArrowRightLeft, LoaderCircle, RotateCcw, Trash2, UserX, type LucideIcon } from 'lucide-react';
+import { useState, type FormEventHandler } from 'react';
 
 export type EmploymentStatus = 'active' | 'transferred' | 'fired';
 
@@ -24,13 +24,15 @@ export interface ActionTarget {
 
 type OpenDialog = 'transfer' | 'fire' | 'delete' | null;
 
-/** Red, for the one action that cannot be undone. */
-const dangerItem = 'text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] [&_svg]:text-current!';
-
 /**
- * Transfer, fire, restore and delete for one employee, either behind a "⋯"
- * menu (the list) or as a segmented group of buttons (the profile sidebar).
- * Both share the same dialogs, so the confirmations stay in one place.
+ * Transfer, fire, restore and delete for one employee, either as the row of
+ * icon buttons the staff list ends with or as the segmented group of buttons
+ * the profile sidebar carries. Both share the same dialogs, so the
+ * confirmations stay in one place.
+ *
+ * The list used to hide them behind a «⋯» menu. Three actions are not a menu's
+ * worth: they cost two presses apiece and said nothing about a row until it was
+ * opened, where now a card nobody may delete simply shows one button fewer.
  */
 export function EmployeeActions({ employee, isSelf, variant = 'menu' }: { employee: ActionTarget; isSelf: boolean; variant?: 'menu' | 'group' }) {
     const can = useCan();
@@ -40,7 +42,6 @@ export function EmployeeActions({ employee, isSelf, variant = 'menu' }: { employ
     const restore = () => router.post(route('employees.restore', employee.id), {}, { preserveScroll: true });
 
     // A working employee can leave; one who already left can only come back.
-    // `asks` marks the ones that open a dialog, which the menu spells with "…".
     const actions = [
         // Moving somebody about and ending an employment are asked separately;
         // taking somebody back is the counterpart of the latter.
@@ -53,21 +54,16 @@ export function EmployeeActions({ employee, isSelf, variant = 'menu' }: { employ
                                 label: 'Перевести',
                                 Icon: ArrowRightLeft,
                                 disabled: isSelf,
-                                asks: true,
                                 run: () => setDialog('transfer'),
                             },
                         ]
                       : []),
-                  ...(can('employees.fire')
-                      ? [{ key: 'fire', label: 'Уволить', Icon: UserX, disabled: isSelf, asks: true, run: () => setDialog('fire') }]
-                      : []),
+                  ...(can('employees.fire') ? [{ key: 'fire', label: 'Уволить', Icon: UserX, disabled: isSelf, run: () => setDialog('fire') }] : []),
               ]
             : can('employees.fire')
-              ? [{ key: 'restore', label: 'Восстановить', Icon: RotateCcw, disabled: false, asks: false, run: restore }]
+              ? [{ key: 'restore', label: 'Восстановить', Icon: RotateCcw, disabled: false, run: restore }]
               : []),
-        ...(can('employees.delete')
-            ? [{ key: 'delete', label: 'Удалить', Icon: Trash2, disabled: isSelf, asks: true, run: () => setDialog('delete') }]
-            : []),
+        ...(can('employees.delete') ? [{ key: 'delete', label: 'Удалить', Icon: Trash2, disabled: isSelf, run: () => setDialog('delete') }] : []),
     ];
 
     // Nothing this viewer may do to this card: no menu, no empty button group.
@@ -78,24 +74,22 @@ export function EmployeeActions({ employee, isSelf, variant = 'menu' }: { employ
     return (
         <>
             {variant === 'menu' ? (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="text-muted-foreground size-9 lg:size-8" aria-label={`Действия: ${name}`}>
-                            <Ellipsis className="size-5!" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                        {actions.map(({ key, label, Icon, disabled, asks, run }) => (
-                            <Fragment key={key}>
-                                {key === 'delete' && <DropdownMenuSeparator />}
-                                <DropdownMenuItem disabled={disabled} onSelect={run} className={cn(key === 'delete' && dangerItem)}>
-                                    <Icon />
-                                    {asks ? `${label}…` : label}
-                                </DropdownMenuItem>
-                            </Fragment>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                // In the staff list: the two or three things that can be done
+                // to a card, as the buttons themselves. The «…» a menu entry
+                // wore to say «this asks first» goes with the menu — a button
+                // that opens a window is the ordinary kind, and the window says
+                // what it wants.
+                <RowActions
+                    of={name}
+                    actions={actions.map(({ key, label, Icon, disabled, run }) => ({
+                        key,
+                        label,
+                        Icon,
+                        disabled,
+                        danger: key === 'delete',
+                        onSelect: run,
+                    }))}
+                />
             ) : (
                 <>
                     {/* On a phone the actions are a grouped list of their own, one

@@ -178,30 +178,60 @@
 
     /*
      * Windows draws a wide, high-contrast scrollbar, and the profile now has
-     * two panes side by side. These are thinner, tied to the theme and only
-     * as loud as they need to be. Firefox takes the standard properties;
-     * Chromium and Safari take the WebKit pseudo-elements below.
+     * two panes side by side. These are thinner, tied to the theme and only as
+     * loud as they need to be.
+     *
+     * Two ways of saying it, and only ever one of them in force at a time.
+     * Firefox has the standard properties and nothing else; Chromium and Safari
+     * have the WebKit pseudo-elements, which give the exact width, the shape of
+     * the thumb and the stepper buttons at the ends — and which they ignore
+     * outright on any element that also carries `scrollbar-width` or
+     * `scrollbar-color`. Set both and Chromium quietly keeps the system bar,
+     * arrows and all, while every rule below reads as if it had been applied.
+     * So the standard pair is shut inside a query no WebKit browser enters.
      */
-    * {
-        scrollbar-width: thin;
-        scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+    @supports not selector(::-webkit-scrollbar) {
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+        }
     }
 
     ::-webkit-scrollbar {
-        width: 10px;
-        height: 10px;
+        width: 8px;
+        height: 8px;
     }
 
     ::-webkit-scrollbar-track {
         background: transparent;
     }
 
-    /* The border plus background-clip leaves the thumb floating in its track. */
+    /*
+     * No arrows at the ends. Chromium draws a pair of stepper buttons on
+     * Windows and keeps them once the bar is styled; nobody scrolls a page a
+     * line at a time by pressing them, and at 10px they are two grey specks
+     * that make a thin bar look like a broken one.
+     */
+    ::-webkit-scrollbar-button {
+        display: none;
+    }
+
+    /*
+     * The thumb fills the bar: square corners, no inset, the whole 8px of it.
+     * It used to float in the middle of the track behind a transparent border,
+     * which at this width left a thread of colour with air on either side —
+     * read as padding somebody had forgotten to take off rather than as a
+     * deliberate gap.
+     *
+     * It is never shorter than a finger's width of bar. On a long page the
+     * thumb shrinks in proportion to what is below it, and a very long one
+     * leaves a stub at the top of the track that reads as a mark in the corner
+     * — a button, a stray icon — rather than as the handle of a scrollbar.
+     */
     ::-webkit-scrollbar-thumb {
         background-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
-        background-clip: content-box;
-        border: 3px solid transparent;
-        border-radius: 9999px;
+        min-height: 40px;
+        min-width: 40px;
     }
 
     ::-webkit-scrollbar-thumb:hover {
@@ -213,24 +243,25 @@
     }
 
     /*
-     * For panes that scroll inside a page that does not: the bar stays out of
-     * sight until the pointer is over the pane or something in it has focus.
-     * The gutter is reserved either way, so nothing shifts when it appears.
-     *
-     * Hiding it outright was tempting, but then nothing says a pane holds more
-     * than it shows, and the position within it is lost too.
+     * For panes that scroll inside a page that does not: the room for the bar
+     * is held from the start, so nothing shifts sideways the first time one is
+     * scrolled.
      */
-    .scroll-soft {
+    .scroll-stable {
         scrollbar-gutter: stable;
-        scrollbar-color: transparent transparent;
-        transition: scrollbar-color 150ms ease;
     }
 
-    .scroll-soft:hover,
-    .scroll-soft:focus-within {
-        scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
-    }
-
+    /*
+     * And the bar itself kept quiet until the pointer is over the pane or
+     * something in it has focus: a page carrying four of them at once is a page
+     * with four grey rules down it, none of which is being used.
+     *
+     * The thumb fades rather than appears, so a bar that was not there a moment
+     * ago is still read as the same object. Through the WebKit thumb and not
+     * through `scrollbar-color`, which Chromium takes as a sign to draw the
+     * system bar and ignore every rule here; Firefox, which has no thumb to
+     * paint, is answered in the query below.
+     */
     .scroll-soft::-webkit-scrollbar-thumb {
         background-color: transparent;
         transition: background-color 150ms ease;
@@ -243,6 +274,49 @@
 
     .scroll-soft:hover::-webkit-scrollbar-thumb:hover {
         background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    }
+
+    /*
+     * A bar that runs along the inside of a frame — a table's, between its head
+     * and its foot — takes their ground for its track rather than leaving a
+     * pale channel down the edge of the card. The three then read as one band
+     * around the rows instead of a frame with a gap cut out of it.
+     *
+     * Chromium and Safari take the track on its own. Firefox has one property
+     * for both, so the thumb every other bar is given is named again beside it
+     * — and, like the pair above, only where the pseudo-elements do not exist,
+     * or naming it here would switch Chromium back to the system bar for this
+     * one box.
+     */
+    .scroll-framed::-webkit-scrollbar-track,
+    .scroll-framed::-webkit-scrollbar-corner {
+        background-color: var(--sidebar-background);
+    }
+
+    @supports not selector(::-webkit-scrollbar) {
+        .scroll-framed {
+            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) var(--sidebar-background);
+        }
+
+        /* The same two states, in the one property Firefox has for both. */
+        .scroll-soft {
+            scrollbar-color: transparent transparent;
+            transition: scrollbar-color 150ms ease;
+        }
+
+        .scroll-soft:hover,
+        .scroll-soft:focus-within {
+            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
+        }
+
+        .scroll-soft.scroll-framed {
+            scrollbar-color: transparent var(--sidebar-background);
+        }
+
+        .scroll-soft.scroll-framed:hover,
+        .scroll-soft.scroll-framed:focus-within {
+            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) var(--sidebar-background);
+        }
     }
 }
 

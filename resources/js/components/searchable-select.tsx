@@ -185,7 +185,7 @@ export function SearchableSelect({
                     )}
                 </div>
 
-                <div ref={listRef} className="scroll-soft max-h-64 overflow-y-auto overscroll-contain p-1" role="listbox">
+                <div ref={listRef} className="scroll-soft scroll-stable max-h-64 overflow-y-auto overscroll-contain p-1" role="listbox">
                     {matches.length === 0 && !canCreate && <p className="text-muted-foreground px-2 py-6 text-center text-sm">{empty}</p>}
 
                     {matches.map((option, index) => (

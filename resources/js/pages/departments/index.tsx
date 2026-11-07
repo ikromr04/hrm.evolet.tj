@@ -18,19 +18,20 @@ import { MobileFab } from '@/components/mobile-fab';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
 import { PositionName } from '@/components/position-name';
+import { RowActions, type RowAction } from '@/components/row-actions';
 import { SearchInput } from '@/components/search-input';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenuCheckboxItem } from '@/components/ui/dropdown-menu';
 import { useAskedToAdd } from '@/hooks/use-asked-to-add';
 import AppLayout from '@/layouts/app-layout';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 
 /**
@@ -383,6 +384,16 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
         ].join(' · ');
     };
 
+    /**
+     * What may be done to one department: write it again, or take it out of the
+     * structure. The same pair on the phone and on the desktop, so a row
+     * answers the same two presses wherever the list is read.
+     */
+    const rowActions = (row: Row): RowAction[] => [
+        { key: 'edit', label: 'Изменить', Icon: Pencil, onSelect: () => setEditing(row) },
+        { key: 'delete', label: 'Удалить', Icon: Trash2, danger: true, onSelect: () => setDeleting(row) },
+    ];
+
     return (
         <AppLayout breadcrumbs={breadcrumbs} fitViewport>
             <Head title="Подразделения" />
@@ -407,7 +418,8 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
                  * side, so it leads where the name leads on a desktop — the
                  * department's own page, empty or not, since that page holds the
                  * units and the chart whether anybody is counted in it or not;
-                 * changing and deleting sit in the row's menu, outside the link.
+                 * changing and deleting stand as buttons at the end of the row,
+                 * outside the link.
                  */}
                 <Card className="gap-0 overflow-hidden rounded-2xl border-0 p-0 shadow-none md:hidden">
                     {visible.length > 0 ? (
@@ -436,40 +448,7 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
                                             </span>
                                         }
                                         subtitle={`${row.positions_count} ${plural(row.positions_count, POSITION_WORDS)}`}
-                                        trailing={
-                                            canEdit ? (
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="size-10"
-                                                            aria-label={`Действия: ${titleOf(row)}`}
-                                                        >
-                                                            <MoreHorizontal className="size-5" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="min-w-44">
-                                                        <DropdownMenuItem
-                                                            className="min-h-10 text-[15px]"
-                                                            aria-label={`Изменить: ${titleOf(row)}`}
-                                                            onSelect={() => setEditing(row)}
-                                                        >
-                                                            <Pencil />
-                                                            Изменить
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem
-                                                            className="min-h-10 text-[15px] text-[#B42318] focus:text-[#B42318] dark:text-[#F7A19A] dark:focus:text-[#F7A19A] [&_svg]:text-current"
-                                                            aria-label={`Удалить: ${titleOf(row)}`}
-                                                            onSelect={() => setDeleting(row)}
-                                                        >
-                                                            <Trash2 />
-                                                            Удалить
-                                                        </DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            ) : undefined
-                                        }
+                                        trailing={canEdit ? <RowActions of={titleOf(row)} actions={rowActions(row)} /> : undefined}
                                     />
                                 );
                             })}
@@ -566,33 +545,7 @@ export default function Departments({ items, canEdit }: { items: DepartmentItem[
                     onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="department"
-                    actionsWidth={112}
-                    actions={
-                        canEdit
-                            ? (row) => (
-                                  <div className="flex justify-end gap-1">
-                                      <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8"
-                                          aria-label={`Изменить: ${titleOf(row)}`}
-                                          onClick={() => setEditing(row)}
-                                      >
-                                          <Pencil className="size-4" />
-                                      </Button>
-                                      <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8 text-[#B42318] hover:text-[#B42318] dark:text-[#F7A19A]"
-                                          aria-label={`Удалить: ${titleOf(row)}`}
-                                          onClick={() => setDeleting(row)}
-                                      >
-                                          <Trash2 className="size-4" />
-                                      </Button>
-                                  </div>
-                              )
-                            : undefined
-                    }
+                    actions={canEdit ? (row) => <RowActions of={titleOf(row)} actions={rowActions(row)} /> : undefined}
                     empty={<span className="text-sm">{items.length === 0 ? 'Пока пусто.' : 'Ничего не найдено.'}</span>}
                 />
 
