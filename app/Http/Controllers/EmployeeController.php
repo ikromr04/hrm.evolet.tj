@@ -12,6 +12,7 @@ use App\Models\EquipmentEvent;
 use App\Models\EquipmentField;
 use App\Models\EquipmentType;
 use App\Models\Position;
+use App\Models\SheetChangeRequest;
 use App\Models\User;
 use App\Models\UserAward;
 use App\Models\UserChild;
@@ -773,6 +774,14 @@ class EmployeeController extends Controller
                 // answered and still be waiting for the diploma that proves it.
                 'papers' => PersonnelSheet::papers($employee, $request->user()),
             ],
+            // And the sheet this person has sent in and nobody has answered
+            // yet, where there is one: see SheetChangeRequestController, which
+            // is the door it came in by. The two roles that are shown their own
+            // card retype the sheet and press «Отправить» rather than
+            // «Сохранить», so the card has to say that what they typed is
+            // waiting — otherwise they open it again, find their old answers
+            // and send the same corrections a second time.
+            'sheetRequest' => $this->filedSheet($request->user(), $employee),
             // The papers the company asks everybody for, with this person's
             // answers against them. Sent whole — the ones handed in and the
             // ones still wanted — because the card shows both, and a list of
@@ -1708,6 +1717,47 @@ class EmployeeController extends Controller
             // Empty while the person still works there, and on the records
             // filed before the card asked.
             'reason' => $job->reason,
+        ];
+    }
+
+    /**
+     * «Личный листок» this person sent in, where the card still has something
+     * to say about it.
+     *
+     * The last one they filed and no others: a request is the whole sheet, so
+     * the one before it is the same sheet with fewer corrections on it and has
+     * nothing left to tell anybody. Two of the three states are worth showing.
+     * Waiting, so that the card says the corrections are with the office and
+     * the person does not send them again; sent back, so that they read why —
+     * and that one stays on the card until they send the sheet again, since a
+     * refusal nobody is shown is a refusal nobody acts on. Accepted is not
+     * sent at all: it is on the card, which is the whole of the news.
+     *
+     * Shown to the author and to whoever answers these. Nobody else is told
+     * that a colleague has asked for their passport number to be corrected.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function filedSheet(User $viewer, User $employee): ?array
+    {
+        if (! $viewer->is($employee) && ! Access::everything($viewer)) {
+            return null;
+        }
+
+        $filed = SheetChangeRequest::query()->where('user_id', $employee->id)->latest('id')->first();
+
+        if ($filed === null || $filed->status === SheetChangeRequest::ACCEPTED) {
+            return null;
+        }
+
+        return [
+            'id' => $filed->id,
+            'status' => $filed->status,
+            'comment' => $filed->comment,
+            // Sent when the row was filed: a request is written once and never
+            // rewritten, so «created_at» is the sending.
+            'submitted_at' => $filed->created_at?->toIso8601String(),
+            'reviewed_at' => $filed->reviewed_at?->toIso8601String(),
         ];
     }
 

@@ -576,13 +576,20 @@ final class EmployeeCard
      * The three lists asked this way — the children, the languages and the jobs
      * held before — are the same question three times, so they get one answer.
      *
+     * The «нет» is read rather than compared against false, because a form does
+     * not send a false: the moment a paper is attached anywhere on the sheet the
+     * save goes multipart, and every value in it is a string — a no arrives as
+     * «0». Taken literally that is not a no, and the answer somebody gave would
+     * quietly become «никто не спрашивал» for every list on the page, on the one
+     * kind of save where a file is involved.
+     *
      * @param  array<array-key, mixed>  $rows
      */
     public static function listFlag(mixed $said, array $rows): ?bool
     {
         return match (true) {
             $rows !== [] => true,
-            $said === false => false,
+            $said !== null && filter_var($said, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) === false => false,
             default => null,
         };
     }

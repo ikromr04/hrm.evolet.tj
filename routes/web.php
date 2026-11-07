@@ -28,6 +28,7 @@ use App\Http\Controllers\PositionController;
 use App\Http\Controllers\PositionProfileController;
 use App\Http\Controllers\PositionRegulationController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\SheetChangeRequestController;
 use App\Http\Controllers\TableViewController;
 // The reference lists themselves, under a name of their own: "Directories" here
 // already stands for the controllers that serve them.
@@ -187,9 +188,15 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('can:company.view')
         ->name('departments.show');
 
-    // Notifications are not built yet; the page says so, and the menu and the
-    // bell both lead here rather than nowhere.
+    // «Уведомления»: what the application has said to this one account. The
+    // bell and the menu both lead here.
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    // Marking them read, which is writing and so is a POST. No right and no
+    // ownership to check at the door: every one of these works off
+    // $request->user()->notifications(), so somebody else's id is not a refusal
+    // but a row the relation does not hold.
+    Route::post('notifications/read', [NotificationController::class, 'read'])->name('notifications.read');
+    Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read_all');
 });
 
 // Putting a new colleague on the books.
@@ -341,6 +348,38 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
         ->name('equipment.store');
 
     Route::put('family', [EmployeeDetailsController::class, 'family'])->middleware('can:employees.edit.block.family,employee')->name('family');
+});
+
+// «Личный листок» sent in rather than saved, and the answer to it.
+//
+// The two roles that are shown their own card may retype their own sheet, which
+// is not the same as writing it: this door files a request, and the card is
+// written when a sysadmin or somebody in HR accepts it. Which is why the
+// sending has no id in its address at all — the sheet sent is the sender's own,
+// and «employees/{employee}/sheet» above would be an invitation to put
+// somebody else's id in. SubmitSheetRequest says whose it is and refuses
+// anybody who is not one of those two.
+//
+// Behind «auth» alone, every one of them. Those two roles pass no ordinary gate
+// — Gate::before refuses them anything that is not on their own short list — so
+// «can:» on the sending would refuse the very people it is for, and reading
+// one's own request is a question about the pair of them rather than a right
+// with a name. The controller asks both questions inside.
+Route::middleware(['auth'])->name('sheet_requests.')->group(function () {
+    Route::post('profile/sheet/request', [SheetChangeRequestController::class, 'store'])->name('store');
+
+    Route::prefix('sheet-requests/{sheet_request}')->group(function () {
+        // The sheet beside the card, line by line: read by the office, and by
+        // the person whose sheet it is.
+        Route::get('/', [SheetChangeRequestController::class, 'show'])->name('show');
+        Route::post('accept', [SheetChangeRequestController::class, 'accept'])->name('accept');
+        Route::post('reject', [SheetChangeRequestController::class, 'reject'])->name('reject');
+        // The papers the request brought with it, which are on the disk from
+        // the moment they were uploaded and belong to no card yet. Named by a
+        // fingerprint of the path and looked up in this request's own payload,
+        // so there is no folder to walk and no name to guess.
+        Route::get('papers/{paper}', [SheetChangeRequestController::class, 'paper'])->name('paper');
+    });
 });
 
 // What is done to a colleague rather than to a line of their card. Moving

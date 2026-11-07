@@ -21,6 +21,12 @@ export interface Auth {
      * every other section is a page they would be refused.
      */
     ownCardOnly: boolean;
+    /**
+     * The number beside the bell; the list itself is fetched when the bell
+     * opens. Nought for a visitor who is not signed in, so the bar may read it
+     * without asking whether there is anybody there.
+     */
+    notifications: number;
 }
 
 export interface BreadcrumbItem {
@@ -75,7 +81,6 @@ export interface SharedData {
     name: string;
     quote: { message: string; author: string };
     auth: Auth;
-    /** The number beside the bell; the list itself is fetched when the bell opens. */
     /** What one step of a multi-step form hands to the next. */
     flash: {
         employee: { id: number; name: string } | null;

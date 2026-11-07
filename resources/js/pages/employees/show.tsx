@@ -49,6 +49,7 @@ import { SectionNav } from '@/components/section-nav';
 import { SectionTitle } from '@/components/section-title';
 import { Sections } from '@/components/sections';
 import { StatusBadge, statusTones, type StatusTone } from '@/components/status-badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -92,13 +93,16 @@ import {
     Camera,
     ChevronLeft,
     ChevronRight,
+    CircleAlert,
     CircleDashed,
+    Clock,
     FileText,
     LoaderCircle,
     Lock,
     Mail,
     Phone,
     Plus,
+    Send,
     Trash2,
     Upload,
     type LucideIcon,
@@ -677,6 +681,24 @@ interface SheetProgress {
 }
 
 /**
+ * The last sheet this person sent the personnel office, where it stands now.
+ *
+ * Only the two states anybody still has to be told about. A request that was
+ * accepted is the card — what it asked for is written there, and saying «принято
+ * 5 ноября» over a sheet that already reads that way is telling somebody about
+ * their own card. A refusal stands until a corrected sheet is sent, because the
+ * comment is the only place the reason for it is written down.
+ */
+interface SheetRequest {
+    id: number;
+    status: 'pending' | 'rejected';
+    /** Why the office turned it down; null while nobody has turned anything down. */
+    comment: string | null;
+    submitted_at: string | null;
+    reviewed_at: string | null;
+}
+
+/**
  * One part of the sheet as the page plans it out, before any of it is drawn:
  * what the paper form calls it and numbers it, whether this viewer may read it
  * at all, what stands in it, and whatever answers for the whole of it.
@@ -998,6 +1020,8 @@ function SheetTab({
     sheet,
     documents,
     options,
+    isSelf,
+    sheetRequest,
 }: {
     employee: Employee;
     sheet: SheetProgress;
@@ -1008,10 +1032,38 @@ function SheetTab({
      */
     documents: EmployeeDocuments | null;
     options: EditOptions | null;
+    /** Whether this card is the reader's own, which is half of what makes a sheet a request. */
+    isSelf: boolean;
+    /** Where the last request stands, or null where this person has sent none. */
+    sheetRequest: SheetRequest | null;
 }) {
     const details = employee.private;
     const shows = useShows();
     const canEdit = useCanEdit();
+
+    // A head of department and a specialist are only ever shown their own
+    // card, so the one thing to be done about a line nobody has answered —
+    // asking its owner to answer it — is not theirs to do: they would be
+    // writing to themselves.
+    const { ownCardOnly } = usePage<SharedData>().props.auth;
+
+    /**
+     * Whether this reader answers the sheet by asking for it to be changed.
+     *
+     * The third thing that can be done with a sheet, beside reading it and
+     * saving it. A head of department and a specialist are given every line of
+     * their own card to read and exactly one to write — their documents — and
+     * that is deliberate: the right to change the card is the personnel
+     * office's. But the questions on this sheet are about nobody but them, and
+     * they are the only ones who know the answers, so what they do here is send
+     * the office a filled-in sheet and wait for it to be accepted.
+     *
+     * Asked of the card as well as of the role, although today the two cannot
+     * come apart — these roles are shown no card but their own. The sheet would
+     * otherwise read a role as permission to send somebody else's answers in
+     * their name the moment that ever changes.
+     */
+    const submits = ownCardOnly && isSelf;
 
     /**
      * Says there are none, or puts the question back to unanswered. Only those
@@ -1166,9 +1218,16 @@ function SheetTab({
      * «Причина ухода» on the second job, nine screens from the button. So the
      * page goes to the first part that was complained about and the nav marks
      * it, exactly as «Новый сотрудник» does with its own refusals.
+     *
+     * Two doors, and the body is the same at both of them. One writes the card.
+     * The other leaves the sheet with the personnel office to be read and
+     * accepted, and writes nothing until they accept it — so the office checks
+     * the request by the very rules the save is checked by, and nobody accepts
+     * a sheet that then turns out not to fit on the card.
      */
     const save = () => {
-        const url = route('employees.sheet', employee.id);
+        // Which door, and nothing else about the send changes with it.
+        const url = submits ? route('sheet_requests.store') : route('employees.sheet', employee.id);
         const options = {
             preserveScroll: true,
             preserveState: true,
@@ -1184,13 +1243,27 @@ function SheetTab({
         };
 
         if (carriesFile(form.data)) {
-            form.transform((card) => ({ ...card, ...sheetToSend(card), _method: 'put' }));
+            // The spoofing belongs to the save alone: a request is taken by a
+            // POST, and a body telling that door it is really a PUT would be
+            // knocking at a door that is not there.
+            form.transform((card) => ({ ...card, ...sheetToSend(card), ...(submits ? {} : { _method: 'put' }) }));
             form.post(url, { ...options, forceFormData: true });
 
             return;
         }
 
         form.transform((card) => ({ ...card, ...sheetToSend(card) }));
+
+        // And without a paper to carry, a request goes as the plain POST it is
+        // — for the reason written above, which holds for it word for word: a
+        // request with no children in it has to be able to say so, and a
+        // multipart body cannot.
+        if (submits) {
+            form.post(url, options);
+
+            return;
+        }
+
         form.put(url, options);
     };
 
@@ -1201,8 +1274,17 @@ function SheetTab({
      * only the lines somebody may read, so a box opened over a line they may
      * not read would stand empty over a value that is on file — and saving the
      * sheet would write the emptiness back over it.
+     *
+     * Somebody sending a request answers every line they may read, and that is
+     * not a right the server gave them: on the card they may write their
+     * documents and nothing else. It is the same question asked of a different
+     * door — what the sheet may carry to the personnel office — and the door
+     * behind it checks it again for itself. Granting them the card's own rights
+     * instead would have opened the eleven dialogs of the blocks above and the
+     * direct save along with them, which is the one thing this is here to
+     * prevent.
      */
-    const answers = (field: string) => shows(field) && canEdit(field);
+    const answers = (field: string) => shows(field) && (canEdit(field) || submits);
 
     /** Whether any line of this part is theirs to answer. */
     const editable = (...fields: string[]) => fields.some(answers);
@@ -1896,29 +1978,54 @@ function SheetTab({
                                         className="text-brand-strong h-auto gap-1.5 p-0 text-xs font-normal dark:text-[#C5E27A]"
                                     >
                                         {form.processing && <LoaderCircle className="size-3.5 animate-spin" />}
-                                        Сохранить
+                                        {/* What the button does, said in the word
+                                            for it: pressed here the sheet goes to
+                                            the personnel office and the card stays
+                                            as it is, and «Сохранить» over that
+                                            would be a promise to the one person on
+                                            this page who cannot save anything. */}
+                                        {submits ? 'Отправить' : 'Сохранить'}
                                     </Button>
                                 </>
                             ) : (
                                 <>
                                     {/* Taking a copy away is not changing anything, so
                                         the two read in the colour of the page and only
-                                        «Изменить» is written in the brand's. */}
-                                    <Button
-                                        type="button"
-                                        variant="link"
-                                        onClick={() => window.print()}
-                                        className="text-foreground h-auto p-0 text-xs font-normal"
-                                    >
-                                        Печать
-                                    </Button>
-                                    <Button type="button" variant="link" className="text-foreground h-auto p-0 text-xs font-normal">
-                                        Скачать
-                                    </Button>
+                                        «Изменить» is written in the brand's.
+
+                                        Neither is offered to somebody who is here to
+                                        answer their own sheet: a signed copy of the
+                                        listok is a document the personnel office
+                                        draws, files and keeps, and the errand that
+                                        brought this person to the page is sending
+                                        their answers rather than taking a form away.
+                                        A strip of three where one of them is the
+                                        point buries the point. */}
+                                    {!submits && (
+                                        <>
+                                            <Button
+                                                type="button"
+                                                variant="link"
+                                                onClick={() => window.print()}
+                                                className="text-foreground h-auto p-0 text-xs font-normal"
+                                            >
+                                                Печать
+                                            </Button>
+                                            <Button type="button" variant="link" className="text-foreground h-auto p-0 text-xs font-normal">
+                                                Скачать
+                                            </Button>
+                                        </>
+                                    )}
                                     {/* Offered only to somebody who may answer
                                         something on it: a sheet that opened into
                                         eleven parts of plain text would be a
-                                        promise the save could not keep. */}
+                                        promise the save could not keep.
+
+                                        «Редактировать» and not «Изменить» for the
+                                        one who sends it: the pressing opens the
+                                        same boxes, but what comes of it is a sheet
+                                        laid before the office, and nothing is
+                                        changed by this person at all. */}
                                     {answerable && (
                                         <Button
                                             type="button"
@@ -1926,7 +2033,7 @@ function SheetTab({
                                             onClick={() => answer(true)}
                                             className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]"
                                         >
-                                            Изменить
+                                            {submits ? 'Редактировать' : 'Изменить'}
                                         </Button>
                                     )}
                                 </>
@@ -2022,12 +2129,14 @@ function SheetTab({
                                                 the one thing to be done about a list of lines nobody
                                                 has answered — and the reason the list is here rather
                                                 than only in the parts themselves. */}
-                                                <Button
-                                                    variant="link"
-                                                    className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
-                                                >
-                                                    Запросить
-                                                </Button>
+                                                {!ownCardOnly && (
+                                                    <Button
+                                                        variant="link"
+                                                        className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
+                                                    >
+                                                        Запросить
+                                                    </Button>
+                                                )}
                                             </div>
 
                                             {/* Read as the papers of the card are read, because
@@ -2110,7 +2219,108 @@ function SheetTab({
                                     )}
                                 </div>
                             }
-                            sections={drawn.map(draw)}
+                            sections={
+                                <>
+                                    {/* Where the last sheet this person sent has
+                                        got to, said over the whole of it rather
+                                        than inside any part: a sheet is sent,
+                                        accepted and refused entire, so there is
+                                        no one part for this to stand beside.
+
+                                        It stands at the head of the parts and not
+                                        across the panel, because it is about the
+                                        sheet one is reading rather than about the
+                                        card — so it begins where «01 ФИО» begins
+                                        and is spaced from it by the gap every
+                                        part of this column keeps.
+
+                                        Not printed: the card on paper is the
+                                        card, and an errand still going on between
+                                        two people is not part of the document. */}
+                                    {submits
+                                        ? (editing || sheetRequest !== null) && (
+                                              <div className="flex flex-col gap-3 print:hidden">
+                                                  {/* Said over the boxes and not beside the
+                                                button, because it is what somebody has to
+                                                know before they start typing rather than
+                                                after: nothing they do here writes anything,
+                                                and the sheet they are filling in is going to
+                                                be read by a person. */}
+                                                  {editing && (
+                                                      <Alert variant="warning">
+                                                          <Send />
+                                                          <AlertTitle>Изменения уходят на проверку</AlertTitle>
+                                                          <AlertDescription>
+                                                              Заполненный листок отправляется в отдел кадров. Карточка изменится только после того,
+                                                              как кадровик примет изменения.
+                                                          </AlertDescription>
+                                                      </Alert>
+                                                  )}
+
+                                                  {sheetRequest?.status === 'pending' && (
+                                                      <Alert variant="info">
+                                                          <Clock />
+                                                          <AlertTitle>Изменения на проверке</AlertTitle>
+                                                          <AlertDescription>
+                                                              {/* Since when, because the one
+                                                            question somebody waiting asks is how
+                                                            long they have been waiting — and
+                                                            whether sending again would leave two
+                                                            requests behind, which it does not. */}
+                                                              {formatDate(sheetRequest.submitted_at) === null
+                                                                  ? 'Листок отправлен в отдел кадров и ещё не разобран.'
+                                                                  : `Листок отправлен в отдел кадров ${formatDate(sheetRequest.submitted_at)} и ещё не разобран.`}{' '}
+                                                              Повторная отправка заменит эту заявку.
+                                                          </AlertDescription>
+                                                      </Alert>
+                                                  )}
+
+                                                  {/* The comment and not only the refusal: a
+                                                sheet sent back without the reason written
+                                                beside it is sent back twice, and this is the
+                                                only place the office's words are read. It
+                                                stands until a corrected sheet goes out, which
+                                                is the thing to be done about it. */}
+                                                  {sheetRequest?.status === 'rejected' && (
+                                                      <Alert variant="destructive">
+                                                          <CircleAlert />
+                                                          <AlertTitle>Отдел кадров не принял изменения</AlertTitle>
+                                                          <AlertDescription className="break-words">
+                                                              {sheetRequest.comment ?? 'Причина не указана.'}
+                                                              <p>
+                                                                  {formatDate(sheetRequest.reviewed_at) === null
+                                                                      ? 'Исправьте листок и отправьте его снова.'
+                                                                      : `Отклонено ${formatDate(sheetRequest.reviewed_at)}. Исправьте листок и отправьте его снова.`}
+                                                              </p>
+                                                          </AlertDescription>
+                                                      </Alert>
+                                                  )}
+                                              </div>
+                                          )
+                                        : // And for whoever reads somebody else's card: one
+                                          // line. The request itself is a page of its own,
+                                          // where every line of the sheet is laid beside what
+                                          // the card says now and the two buttons that settle
+                                          // it are — none of which belongs in a block that
+                                          // exists to show the card as it stands.
+                                          sheetRequest && (
+                                              <p className="text-muted-foreground text-[13px] print:hidden">
+                                                  {sheetRequest.status === 'pending'
+                                                      ? 'Сотрудник отправил изменения листка на проверку'
+                                                      : 'Изменения листка отклонены и ждут исправления'}
+                                                  {' — '}
+                                                  <Link
+                                                      href={route('sheet_requests.show', sheetRequest.id)}
+                                                      className="text-brand-strong hover:underline dark:text-[#C5E27A]"
+                                                  >
+                                                      открыть заявку
+                                                  </Link>
+                                              </p>
+                                          )}
+
+                                    {drawn.map(draw)}
+                                </>
+                            }
                         />
                     </div>
 
@@ -2130,7 +2340,9 @@ function SheetTab({
                                 sheet can be turned down over a line in a part
                                 nobody touched. */}
                             {form.hasErrors && (
-                                <p className="text-destructive min-w-0 flex-1 text-[13px]">Листок не сохранён: части, где нужен ответ, отмечены.</p>
+                                <p className="text-destructive min-w-0 flex-1 text-[13px]">
+                                    {submits ? 'Листок не отправлен' : 'Листок не сохранён'}: части, где нужен ответ, отмечены.
+                                </p>
                             )}
 
                             <div className="flex flex-col-reverse gap-2 md:flex-row">
@@ -2145,7 +2357,13 @@ function SheetTab({
                                 </Button>
                                 <Button type="button" className="max-md:h-11" disabled={form.processing} onClick={save}>
                                     {form.processing && <LoaderCircle className="animate-spin" />}
-                                    Сохранить
+                                    {/* The same word as in the strip above: the two
+                                        buttons are one button in two places, and
+                                        reading «Сохранить» at the foot of a sheet
+                                        whose header says «Отправить» would read as
+                                        a second, quieter way out that writes the
+                                        card. There is none. */}
+                                    {submits ? 'Отправить' : 'Сохранить'}
                                 </Button>
                             </div>
                         </div>
@@ -4011,6 +4229,7 @@ export default function EmployeeProfile({
     options,
     assigned,
     sheet,
+    sheetRequest,
     documents,
     visibleFields,
     editableFields,
@@ -4044,6 +4263,13 @@ export default function EmployeeProfile({
     assigned: Assigned | null;
     /** How far «Личный листок» has got, over the lines this viewer may read. */
     sheet: SheetProgress;
+    /**
+     * The last sheet this person laid before the personnel office, while it is
+     * still waiting or has been sent back. Null where there is none, and sent
+     * to the two who have anything to do with it: the person themselves and
+     * whoever reads the card to settle it.
+     */
+    sheetRequest: SheetRequest | null;
     /**
      * The papers the company asks everybody for, with this person's answers
      * against them, and whether they are this viewer's to attach and to pass.
@@ -4227,7 +4453,16 @@ export default function EmployeeProfile({
                     {/* One card per tab. */}
                     {tab !== 'profile' && (
                         <div className="flex flex-col gap-4">
-                            {tab === 'sheet' && <SheetTab employee={employee} sheet={sheet} documents={documents} options={options} />}
+                            {tab === 'sheet' && (
+                                <SheetTab
+                                    employee={employee}
+                                    sheet={sheet}
+                                    documents={documents}
+                                    options={options}
+                                    isSelf={isSelf}
+                                    sheetRequest={sheetRequest}
+                                />
+                            )}
 
                             {tab === 'equipment' && details && (
                                 // What they hold now on the left, what has been

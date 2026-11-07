@@ -10,7 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useClearingForm } from '@/hooks/use-clearing-form';
 import { fileSize } from '@/lib/documents';
 import { formatDate } from '@/lib/employee';
-import { router } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+import { router, usePage } from '@inertiajs/react';
 import { FileText, LoaderCircle, Upload, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -112,6 +113,10 @@ export function requiredAccepted(items: DocumentRow[]): { done: number; total: n
 }
 
 export function EmployeeDocumentsList({ employee, documents }: { employee: number; documents: EmployeeDocuments }) {
+    // Whoever is shown their own card and nothing else is the person the
+    // papers are wanted from, so there is nobody for them to ask.
+    const { ownCardOnly } = usePage<SharedData>().props.auth;
+
     /** The paper being read and answered, and the one being sent back. */
     const [opened, setOpened] = useState<DocumentRow | null>(null);
     const [rejecting, setRejecting] = useState<DocumentRow | null>(null);
@@ -145,7 +150,7 @@ export function EmployeeDocumentsList({ employee, documents }: { employee: numbe
                                 {group.key === 'missing' && <span className="tabular-nums">{group.rows.length}</span>}
                             </h3>
 
-                            {group.key === 'missing' && (
+                            {group.key === 'missing' && !ownCardOnly && (
                                 <Button variant="link" className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]">
                                     Запросить
                                 </Button>

@@ -71,11 +71,10 @@ export const navGroups = (
         items: [
             // The company at a glance belongs to whoever answers for the company
             // as a whole, and it is nobody else's first stop: everybody else
-            // starts at their own card. No address for the first of them either:
-            // what a main page should hold has not been decided, so it names
-            // itself and waits.
+            // starts at their own card. No address for it: what a main page
+            // should hold has not been decided, so it names itself and waits.
             everything ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
-            { title: 'Уведомления', icon: Bell },
+            { title: 'Уведомления', url: '/notifications', icon: Bell },
         ],
     },
     // Below this line is the company, which is not everybody's to read.

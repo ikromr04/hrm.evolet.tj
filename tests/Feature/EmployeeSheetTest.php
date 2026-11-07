@@ -1545,6 +1545,47 @@ class EmployeeSheetTest extends TestCase
     }
 
     /**
+     * And a «нет» survives the same journey.
+     *
+     * The test above sends its answers as this suite writes them — a PHP false
+     * — which no browser can do. A multipart body is strings and nothing else,
+     * so a browser sends a no as «0», and read literally that is not a no at
+     * all: every list answered «нет» would come back «никто не спрашивал», on
+     * exactly the saves that carry a paper.
+     */
+    public function test_a_no_arrives_as_a_no_even_when_a_form_spells_it_nought()
+    {
+        $employee = $this->blankCard();
+
+        $this->actingAs($this->sysadmin())
+            ->put("/employees/{$employee->id}/sheet", $this->sheet([
+                'has_children' => '0',
+                'children' => [],
+                'has_educations' => '0',
+                'educations' => [],
+                'has_experience' => '0',
+                'experiences' => [],
+                'has_degrees' => '0',
+                'degrees' => [],
+                'has_awards' => '0',
+                'awards' => [],
+                'has_military_records' => '0',
+                'military_records' => [],
+            ]))
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $details = $employee->refresh()->details;
+
+        $this->assertFalse($details->has_children);
+        $this->assertFalse($details->has_educations);
+        $this->assertFalse($details->has_experience);
+        $this->assertFalse($details->has_degrees);
+        $this->assertFalse($details->has_awards);
+        $this->assertFalse($details->has_military_records);
+    }
+
+    /**
      * The sheet's four free lines are offered what the other cards say on them.
      *
      * A diploma may name something no list has heard of, and a line somebody

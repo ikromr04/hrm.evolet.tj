@@ -65,7 +65,7 @@ class UpdateSheetRequest extends FormRequest
      *
      * @var array<string, list<string>>
      */
-    private const LINES = [
+    protected const LINES = [
         // Always readable, which is not the same as always theirs to retype.
         'surname' => ['surname'],
         'name' => ['name'],
@@ -116,6 +116,28 @@ class UpdateSheetRequest extends FormRequest
     public function authorize(): bool
     {
         return $this->editableLines() !== [];
+    }
+
+    /**
+     * Whose sheet is being retyped.
+     *
+     * Asked rather than read off the route, because the sheet now arrives at
+     * two different doors. Saved, it comes to «employees/{employee}/sheet» and
+     * the card is in the address. Sent in for the office to accept, it comes to
+     * one address with no id in it at all — the two roles that may do that send
+     * their own sheet and nobody else's, so the card is the sender, and a
+     * request that took it from the URL would be inviting somebody to type
+     * another id in. SubmitSheetRequest says so by answering this.
+     *
+     * Everything below reads the owner through here: the rules that ask which
+     * card a row of a list belongs to, and the rights weighed line by line.
+     */
+    protected function sheetOwner(): User
+    {
+        /** @var User $employee */
+        $employee = $this->route('employee');
+
+        return $employee;
     }
 
     /**
@@ -170,8 +192,7 @@ class UpdateSheetRequest extends FormRequest
         // file yet and a list left out has nothing to wipe.
         $rows = ['present', 'array', 'max:'.EmployeeCard::MAX_ROWS];
 
-        /** @var User $employee */
-        $employee = $this->route('employee');
+        $employee = $this->sheetOwner();
 
         return $this->ofEditableLines([
             /* Основное */
@@ -294,8 +315,7 @@ class UpdateSheetRequest extends FormRequest
      */
     private function papersOf(string $list, string $required, array $rows): array
     {
-        /** @var User $employee */
-        $employee = $this->route('employee');
+        $employee = $this->sheetOwner();
 
         return [
             "has_{$list}" => ['nullable', 'boolean'],
@@ -353,14 +373,11 @@ class UpdateSheetRequest extends FormRequest
      *
      * @return list<string>
      */
-    private function editableLines(): array
+    protected function editableLines(): array
     {
-        /** @var User $employee */
-        $employee = $this->route('employee');
-
         return array_values(array_intersect(
             array_keys(self::LINES),
-            EmployeeFields::editableBy($this->user(), $employee),
+            EmployeeFields::editableBy($this->user(), $this->sheetOwner()),
         ));
     }
 

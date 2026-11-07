@@ -58,14 +58,15 @@ class HandleInertiaRequests extends Middleware
                 // not hidden one by one — there is one group and that is the
                 // whole of it.
                 'ownCardOnly' => $request->user() !== null && Access::ownCardOnly($request->user()),
+                // The number beside the bell, and nothing more: the list itself is
+                // fetched when the bell is pressed. Counted on every visit, so the
+                // badge is as fresh as the page under it.
+                'notifications' => fn () => $request->user()?->unreadNotifications()->count() ?? 0,
             ],
             // How the tables of the app open for whoever has not arranged them
             // themselves: one arrangement per table, set by that one account.
             // A handful of small rows, read once per visit.
             'tableViews' => fn () => $request->user() === null ? (object) [] : TableView::query()->pluck('view', 'key'),
-            // The number beside the bell, and nothing more: the list itself is
-            // fetched when the bell is pressed. Counted on every visit, so the
-            // badge is as fresh as the page under it.
             // What a form hands back to itself: the colleague the "new
             // employee" wizard has just created, or the unit of equipment the
             // add form filed while staying open for the next one.
