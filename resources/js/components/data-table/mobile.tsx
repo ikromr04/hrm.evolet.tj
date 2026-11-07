@@ -125,7 +125,7 @@ export function MobileListTools({
                     </div>
                     <SheetDescription className="sr-only">Порядок строк и условия отбора</SheetDescription>
 
-                    <div className="scroll-soft scroll-stable flex-1 overflow-y-auto px-4 pb-4">
+                    <div className="scroll-stable flex-1 overflow-y-auto px-4 pb-4">
                         {sortColumns.length > 0 && (
                             // One row, not a line per column: a long list of columns would
                             // push the filters, which are what people come here for, off screen.

@@ -127,7 +127,7 @@ export function EquipmentMoveDialog({
 
     return (
         <Dialog open onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="scroll-soft scroll-stable max-h-[85vh] overflow-y-auto sm:max-w-md">
+            <DialogContent className="scroll-stable max-h-[85vh] overflow-y-auto sm:max-w-md">
                 {/* noValidate: the server's rules are the real ones. */}
                 <form onSubmit={submit} noValidate className="flex flex-col gap-5">
                     <DialogHeader>

@@ -198,8 +198,8 @@
     }
 
     ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
     }
 
     ::-webkit-scrollbar-track {
@@ -217,7 +217,7 @@
     }
 
     /*
-     * The thumb fills the bar: square corners, no inset, the whole 8px of it.
+     * The thumb fills the bar: square corners, no inset, the whole 6px of it.
      * It used to float in the middle of the track behind a transparent border,
      * which at this width left a thread of colour with air on either side —
      * read as padding somebody had forgotten to take off rather than as a
@@ -252,31 +252,6 @@
     }
 
     /*
-     * And the bar itself kept quiet until the pointer is over the pane or
-     * something in it has focus: a page carrying four of them at once is a page
-     * with four grey rules down it, none of which is being used.
-     *
-     * The thumb fades rather than appears, so a bar that was not there a moment
-     * ago is still read as the same object. Through the WebKit thumb and not
-     * through `scrollbar-color`, which Chromium takes as a sign to draw the
-     * system bar and ignore every rule here; Firefox, which has no thumb to
-     * paint, is answered in the query below.
-     */
-    .scroll-soft::-webkit-scrollbar-thumb {
-        background-color: transparent;
-        transition: background-color 150ms ease;
-    }
-
-    .scroll-soft:hover::-webkit-scrollbar-thumb,
-    .scroll-soft:focus-within::-webkit-scrollbar-thumb {
-        background-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent);
-    }
-
-    .scroll-soft:hover::-webkit-scrollbar-thumb:hover {
-        background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
-    }
-
-    /*
      * A bar that runs along the inside of a frame — a table's, between its head
      * and its foot — takes their ground for its track rather than leaving a
      * pale channel down the edge of the card. The three then read as one band
@@ -295,26 +270,6 @@
 
     @supports not selector(::-webkit-scrollbar) {
         .scroll-framed {
-            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) var(--sidebar-background);
-        }
-
-        /* The same two states, in the one property Firefox has for both. */
-        .scroll-soft {
-            scrollbar-color: transparent transparent;
-            transition: scrollbar-color 150ms ease;
-        }
-
-        .scroll-soft:hover,
-        .scroll-soft:focus-within {
-            scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
-        }
-
-        .scroll-soft.scroll-framed {
-            scrollbar-color: transparent var(--sidebar-background);
-        }
-
-        .scroll-soft.scroll-framed:hover,
-        .scroll-soft.scroll-framed:focus-within {
             scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) var(--sidebar-background);
         }
     }
