@@ -1344,16 +1344,6 @@ function SheetTab({
     /** «Есть», «Нет», or nothing where nobody has been asked. */
     const hasChildren = details?.has_children === null || details?.has_children === undefined ? null : details.has_children ? 'Есть' : 'Нет';
 
-    // Every paper the card holds, in the order the sheet asks for the lines
-    // behind them. A line this viewer may not read sends no paper either, so
-    // there is nothing to keep out here.
-    const papers = [
-        ...(details?.educations ?? []).map((education) => education.document),
-        ...(details?.degrees ?? []).map((record) => record.document),
-        ...(details?.awards ?? []).map((record) => record.document),
-        ...(details?.military_records ?? []).map((record) => record.document),
-    ].flatMap((paper) => (paper ? [paper] : []));
-
     /**
      * The sheet part by part, in the order the paper form asks them: every part
      * the form has, the ones this viewer may not read among them, marked as
@@ -2160,16 +2150,11 @@ function SheetTab({
 
             <aside className={sidePane}>
                 {/* The papers the company asks everybody for, with this person's
-                    answers against them — and, at the foot of the same block,
-                    the ones the sheet itself carries: the diplomas, and the one
-                    document each of the three lines of the card that keeps one
-                    holds. Two different things that are both documents on this
-                    card, which is why they are read in one place and kept
-                    apart inside it.
-
-                    A viewer who may not read the documents at all is shown the
-                    sheet's papers alone, under the same heading: the block is
-                    about what is on file either way. */}
+                    answers against them. The papers the sheet itself carries —
+                    the diplomas, the decree behind an award — are not among
+                    them: they are read beside the lines they belong to, where
+                    they mean something, rather than as a second list under a
+                    heading about the checklist. */}
                 <Panel
                     title="Документы (Чек-лист)"
                     // How far the papers the company insists on have got, read
@@ -2198,14 +2183,10 @@ function SheetTab({
                         )
                     }
                 >
-                    {documents === null && papers.length === 0 ? (
+                    {documents === null ? (
                         <p className={emptyNote}>Документы не приложены</p>
                     ) : (
-                        <EmployeeDocumentsList
-                            employee={employee.id}
-                            documents={documents ?? { canEdit: false, canReview: false, items: [] }}
-                            papers={papers}
-                        />
+                        <EmployeeDocumentsList employee={employee.id} documents={documents} />
                     )}
                 </Panel>
             </aside>

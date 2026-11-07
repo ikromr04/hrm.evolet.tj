@@ -69,12 +69,6 @@ export interface EmployeeDocuments {
     items: DocumentRow[];
 }
 
-/** A paper already on the card from elsewhere: the sheet's own diplomas and decrees. */
-export interface CardPaper {
-    name: string | null;
-    url: string;
-}
-
 /**
  * The groups, in the order the card reads them, and what each is called.
  *
@@ -117,7 +111,7 @@ export function requiredAccepted(items: DocumentRow[]): { done: number; total: n
     return { done, total: required.length, percent: Math.round((done / required.length) * 100) };
 }
 
-export function EmployeeDocumentsList({ employee, documents, papers }: { employee: number; documents: EmployeeDocuments; papers: CardPaper[] }) {
+export function EmployeeDocumentsList({ employee, documents }: { employee: number; documents: EmployeeDocuments }) {
     /** The paper being read and answered, and the one being sent back. */
     const [opened, setOpened] = useState<DocumentRow | null>(null);
     const [rejecting, setRejecting] = useState<DocumentRow | null>(null);
@@ -127,7 +121,7 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
         rows: documents.items.filter((row) => (row.status ?? 'missing') === group.key),
     })).filter((group) => group.rows.length > 0);
 
-    if (documents.items.length === 0 && papers.length === 0) {
+    if (documents.items.length === 0) {
         return <p className="text-muted-foreground text-sm max-md:py-3.5 max-md:text-[15px]">Документы не приложены</p>;
     }
 
@@ -168,34 +162,6 @@ export function EmployeeDocumentsList({ employee, documents, papers }: { employe
                     </ul>
                 </section>
             ))}
-
-            {/* The papers the sheet itself carries: a diploma clipped to a place
-                of study, the decree behind an award. They are not asked for in
-                this list and are not passed or sent back — they live by the
-                sheet's own rules — but they are documents on this card, and a
-                block called «Документы» that left them out would be sending
-                somebody back to the sheet to look for them. */}
-            {papers.length > 0 && (
-                <section className="flex flex-col gap-2">
-                    <h3 className="text-muted-foreground text-xs font-semibold">Из личного листка</h3>
-
-                    <ul className="flex flex-col gap-2">
-                        {papers.map((paper) => (
-                            <li key={paper.url}>
-                                <a
-                                    href={paper.url}
-                                    target="_blank"
-                                    rel="noopener"
-                                    className="bg-muted/40 hover:bg-muted flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors"
-                                >
-                                    <FileText className="text-muted-foreground size-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-sm">{paper.name ?? 'Документ'}</span>
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
-                </section>
-            )}
 
             {opened && (
                 <DocumentDialog
