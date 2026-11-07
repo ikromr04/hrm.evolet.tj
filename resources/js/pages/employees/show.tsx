@@ -364,8 +364,13 @@ const pane = 'flex min-w-0 flex-col gap-4 max-md:gap-4';
  * `self-start` because a grid stretches its items to the height of the row, and
  * a box already as tall as the row has nowhere to stick to. It scrolls within
  * itself where it is taller than the window, or its foot would be unreachable.
+ *
+ * The ceiling is the window less twice the 24px it is held off the top by, so
+ * that a column as tall as the window stands off its foot by the same 24px it
+ * stands off its head: an even margin reads as a margin, an uneven one reads
+ * as something having gone wrong.
  */
-const sidePane = `${pane} lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:self-start lg:overflow-y-auto lg:pb-2`;
+const sidePane = `${pane} lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:self-start lg:overflow-y-auto`;
 
 /**
  * Contacts are dialled and written to, so they carry the brand colour and an
@@ -1983,7 +1988,7 @@ function SheetTab({
                                 // Not printed: a way about the page is of no use
                                 // on paper, and neither is a list of what the
                                 // office still has to ask for.
-                                <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-4.5rem)] lg:overflow-y-auto lg:pb-2 print:hidden">
+                                <div className="flex flex-col gap-5 lg:sticky lg:top-6 lg:max-h-[calc(100dvh-3rem)] lg:overflow-y-auto print:hidden">
                                     {/* Numbered from the paper and not from the
                                         list: a part this reader may not open
                                         leaves a gap in the sequence, and a column
