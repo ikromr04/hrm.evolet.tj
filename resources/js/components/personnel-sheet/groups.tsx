@@ -13,6 +13,7 @@ import {
     fromMonth,
     named,
     offered,
+    RecordCard,
     Records,
     relations,
     thisMonth,
@@ -22,22 +23,24 @@ import {
     blankChild,
     blankEducation,
     blankJob,
+    blankPaper,
     blankRelative,
+    blankSpoken,
     type ChildRow,
     type EducationRow,
     type JobRow,
+    type PaperRow,
     type RelativeRow,
     type Said,
     type SheetOptions,
     type SheetValues,
+    type SpokenRow,
 } from '@/components/personnel-sheet/values';
 import { SearchableSelect } from '@/components/searchable-select';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { languageLevelLabels, languageLevels, sexLabels, type LanguageLevel, type Sex } from '@/lib/employee';
-import { Plus, Trash2 } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 /**
@@ -86,9 +89,17 @@ export interface GroupProps {
     can?: (line: string) => boolean;
 }
 
-/** Everything in a part stands twenty-four points under what is above it. */
+/**
+ * Everything in a part stands sixteen points under what is above it — the
+ * answer that opens a list, the records under it, the fields beside them.
+ *
+ * The same sixteen the records keep between themselves, and the same the
+ * fields of a record keep: a part used to put twenty-four between its blocks
+ * and sixteen inside them, which read as a gap that meant something where
+ * nothing was meant by it.
+ */
 function Group({ children }: { children: ReactNode }) {
-    return <div className="flex min-w-0 flex-col gap-6 max-md:gap-4">{children}</div>;
+    return <div className="flex min-w-0 flex-col gap-4">{children}</div>;
 }
 
 /** Nothing is closed unless somebody says it is. */
@@ -101,7 +112,7 @@ export function NameGroup({ data, errors, setData, can = anything }: Omit<GroupP
         <Group>
             <FormGrid>
                 {can('surname') && (
-                    <Field label="Фамилия" error={errors.surname} required>
+                    <Field label="Фамилия" name="surname" error={errors.surname} required>
                         <Input
                             value={data.surname}
                             onChange={(event) => setData('surname', event.target.value)}
@@ -111,7 +122,7 @@ export function NameGroup({ data, errors, setData, can = anything }: Omit<GroupP
                     </Field>
                 )}
                 {can('name') && (
-                    <Field label="Имя" error={errors.name} required>
+                    <Field label="Имя" name="name" error={errors.name} required>
                         <Input
                             value={data.name}
                             onChange={(event) => setData('name', event.target.value)}
@@ -121,7 +132,7 @@ export function NameGroup({ data, errors, setData, can = anything }: Omit<GroupP
                     </Field>
                 )}
                 {can('patronymic') && (
-                    <Field label="Отчество" error={errors.patronymic}>
+                    <Field label="Отчество" name="patronymic" error={errors.patronymic}>
                         <Input
                             value={data.patronymic}
                             onChange={(event) => setData('patronymic', event.target.value)}
@@ -141,7 +152,7 @@ export function GeneralGroup({ data, errors, setData, options, can = anything }:
         <Group>
             <FormGrid>
                 {can('sex') && (
-                    <Field label="Пол" error={errors.sex}>
+                    <Field label="Пол" name="sex" error={errors.sex}>
                         {/* A closed box says what is true of the field, not what to do
                             about it: the shape of the control already invites a choice,
                             and what a reader of a half-filled page is looking for is
@@ -162,7 +173,7 @@ export function GeneralGroup({ data, errors, setData, options, can = anything }:
                     </Field>
                 )}
                 {can('birth_date') && (
-                    <Field label="Дата рождения" error={errors.birth_date}>
+                    <Field label="Дата рождения" name="birth_date" error={errors.birth_date}>
                         <DatePicker
                             value={data.birth_date}
                             onChange={(value) => setData('birth_date', value)}
@@ -172,7 +183,7 @@ export function GeneralGroup({ data, errors, setData, options, can = anything }:
                     </Field>
                 )}
                 {can('birth_place') && (
-                    <Field label="Место рождения" error={errors.birth_place}>
+                    <Field label="Место рождения" name="birth_place" error={errors.birth_place}>
                         <Input
                             value={data.birth_place}
                             onChange={(event) => setData('birth_place', event.target.value)}
@@ -182,7 +193,7 @@ export function GeneralGroup({ data, errors, setData, options, can = anything }:
                     </Field>
                 )}
                 {can('nationality') && (
-                    <Field label="Национальность" error={errors.nationality}>
+                    <Field label="Национальность" name="nationality" error={errors.nationality}>
                         {/* Offered rather than imposed, like the kind of work above:
                             what is already on the cards, so that «Таджичка» is not
                             spelled two ways across a hundred of them, and whatever
@@ -202,6 +213,7 @@ export function GeneralGroup({ data, errors, setData, options, can = anything }:
                 {can('citizenship') && (
                     <Field
                         label="Гражданство"
+                        name="citizenship"
                         // A wrong country is reported on its own line ("citizenship.1").
                         error={at(errors, 'citizenship')}
                     >
@@ -246,8 +258,16 @@ export function EducationGroup({ data, errors, setData, options, can = anything 
      */
     const setEducations = (said: Said) => {
         setData('has_educations', said);
-
-        if (said === 'yes' && data.educations.length === 0) setData('educations', [{ ...blankEducation }]);
+        // The answer and the rows are one question, so the complaint about the
+        // list goes when the answer is given again: «Добавьте хотя бы одно
+        // учебное заведение» stops being true the moment somebody says there
+        // are none. The list is written even where its rows are untouched —
+        // that write is what tells the form this part has been answered, and
+        // without it the red sentence sat under a box that had just been put
+        // right. The rows themselves are kept: a row typed behind «Нет» is not
+        // thrown away over a misread of the answer, and the save files the
+        // list only under «Есть».
+        setData('educations', said === 'yes' && data.educations.length === 0 ? [{ ...blankEducation }] : [...data.educations]);
     };
 
     return (
@@ -258,7 +278,7 @@ export function EducationGroup({ data, errors, setData, options, can = anything 
                     and «nobody asked», and the sheet printed the two alike.
                     Only this part's own refusal is said here — what is
                     wrong inside a record is said in the record. */}
-                <Field label="Образование" error={errors.educations}>
+                <Field label="Образование" name="educations" error={errors.educations}>
                     <SearchableSelect
                         invalid={!!errors.has_educations || !!errors.educations}
                         value={data.has_educations}
@@ -354,7 +374,7 @@ export function EducationGroup({ data, errors, setData, options, can = anything 
                                             // paper on file to go goes with it too: an
                                             // instruction nobody can see any more is not
                                             // one the save should be carrying out.
-                                            ...(value === '' ? { document: null, document_name: '', document_remove: false } : {}),
+                                            ...(value === '' ? { document: null, document_remove: false } : {}),
                                         })
                                     }
                                     options={[
@@ -377,64 +397,48 @@ export function EducationGroup({ data, errors, setData, options, can = anything 
                                 form would be refused without ever having been
                                 shown. */}
                             {record.graduated_year !== '' && (
-                                <>
-                                    <Field
-                                        label="Название документа"
-                                        error={at(errors, `educations.${index}.document_name`)}
-                                        required={record.document !== null}
-                                    >
-                                        <Input
-                                            value={record.document_name}
-                                            onChange={(event) => setEducation(index, { document_name: event.target.value })}
-                                            placeholder="Диплом бакалавра"
-                                            aria-invalid={!!at(errors, `educations.${index}.document_name`)}
-                                        />
-                                    </Field>
-
-                                    <Field label="Документ" error={at(errors, `educations.${index}.document`)} hint="PDF или снимок, до 10 МБ.">
-                                        <DocumentInput
-                                            value={record.document}
-                                            current={record.attached ?? null}
-                                            onChange={(file) =>
-                                                setEducation(index, {
-                                                    document: file,
-                                                    // A name to start from, so the common case is
-                                                    // typed once rather than twice — the file's own
-                                                    // name without the extension, which is a worse
-                                                    // title than a person would write and a better
-                                                    // one than an empty box. Only where nothing has
-                                                    // been written: a title already there is the
-                                                    // answer, and replacing the file is not a reason
-                                                    // to throw it away.
-                                                    ...(file !== null && record.document_name.trim() === ''
-                                                        ? { document_name: file.name.replace(/\.[^.]+$/, '') }
-                                                        : {}),
-                                                    // And a paper chosen takes back the
-                                                    // asking for the old one to go:
-                                                    // somebody who attached one plainly
-                                                    // wants it, which is the way round
-                                                    // the save reads it too. Written into
-                                                    // this patch rather than beside it,
-                                                    // because the whole record is one
-                                                    // answer and a second write of it
-                                                    // would be made from the row as it
-                                                    // was before this one.
-                                                    ...(file !== null ? { document_remove: false } : {}),
-                                                })
-                                            }
-                                            // The diploma on file asked to go, and the
-                                            // asking taken back. It waits for «Сохранить»
-                                            // like every other answer on the sheet, which
-                                            // is the whole reason it is a flag on the row
-                                            // and not a request of its own: a paper gone
-                                            // the moment a button was pressed would be
-                                            // the one thing «Отмена» could not put back.
-                                            removing={record.document_remove ?? false}
-                                            onRemoving={(asked) => setEducation(index, { document_remove: asked })}
-                                            invalid={!!at(errors, `educations.${index}.document`)}
-                                        />
-                                    </Field>
-                                </>
+                                <Field
+                                    label="Документ"
+                                    name={`educations.${index}.document`}
+                                    error={at(errors, `educations.${index}.document`)}
+                                    hint="PDF, до 10 МБ."
+                                >
+                                    <DocumentInput
+                                        value={record.document}
+                                        current={record.attached ?? null}
+                                        onChange={(file) =>
+                                            setEducation(index, {
+                                                // The diploma and nothing beside it. What
+                                                // it is called is the name of the file,
+                                                // typed into the box the file is chosen in
+                                                // — a field of its own asked the same
+                                                // thing twice, and the two could disagree.
+                                                document: file,
+                                                // And a paper chosen takes back the
+                                                // asking for the old one to go:
+                                                // somebody who attached one plainly
+                                                // wants it, which is the way round
+                                                // the save reads it too. Written into
+                                                // this patch rather than beside it,
+                                                // because the whole record is one
+                                                // answer and a second write of it
+                                                // would be made from the row as it
+                                                // was before this one.
+                                                ...(file !== null ? { document_remove: false } : {}),
+                                            })
+                                        }
+                                        // The diploma on file asked to go, and the
+                                        // asking taken back. It waits for «Сохранить»
+                                        // like every other answer on the sheet, which
+                                        // is the whole reason it is a flag on the row
+                                        // and not a request of its own: a paper gone
+                                        // the moment a button was pressed would be
+                                        // the one thing «Отмена» could not put back.
+                                        removing={record.document_remove ?? false}
+                                        onRemoving={(asked) => setEducation(index, { document_remove: asked })}
+                                        invalid={!!at(errors, `educations.${index}.document`)}
+                                    />
+                                </Field>
                             )}
                         </FormGrid>
                     )}
@@ -446,111 +450,214 @@ export function EducationGroup({ data, errors, setData, options, can = anything 
 
 /* ------------------------------------------- 04. Учёная степень, звание */
 
-/** A line that may carry one paper, and the paper the card already holds for it. */
-interface PaperGroupProps extends GroupProps {
-    /** What is attached to this line on the card; nothing on a new colleague. */
-    attached?: string | null;
-}
+/** The flag one of the three paper lists is answered by, before its rows. */
+type PaperFlag = 'has_degrees' | 'has_awards' | 'has_military_records';
 
-export function DegreeGroup({ data, errors, setData, options, can = anything, attached }: PaperGroupProps) {
-    if (!can('degree')) return null;
+/** And the list itself, under the name its rows travel in. */
+type PaperList = 'degrees' | 'awards' | 'military_records';
+
+/**
+ * The three parts that keep a list of records of a line of text and a paper
+ * apiece: the degrees and titles, the state awards, the military record.
+ *
+ * One component for all three, because they are one question asked three
+ * times — «Есть / Нет / Не выбрано», and under «Есть» as many records as there
+ * are, each a line copied off a document and the document itself. Written out
+ * three times they would drift, which is not a guess: the three single lines
+ * these replaced had drifted already, down to the wording of the hint beside
+ * the paper.
+ *
+ * Only the Russian differs between them, so only the Russian is passed in. The
+ * shape — the answer first, the first record opened by «Есть», a record
+ * answered in full — is «Образование»'s, and deliberately the same: a reader
+ * who has filled that part in knows how to fill these.
+ */
+function PaperListGroup({
+    data,
+    errors,
+    setData,
+    can,
+    line,
+    flag,
+    list,
+    label,
+    addLabel,
+    searchPlaceholder,
+    suggestions,
+}: Omit<GroupProps, 'options' | 'can'> & {
+    /** Which lines this reader may answer, as every part is told. */
+    can: (line: string) => boolean;
+    /**
+     * The line's own key, as App\Support\EmployeeFields names the right over
+     * it. It stayed `degree`, `award`, `military` when the data under it became
+     * a list: what a person may read is the same question it always was.
+     */
+    line: string;
+    flag: PaperFlag;
+    list: PaperList;
+    /** What the part is called — over its answer, and over each record's line. */
+    label: string;
+    addLabel: string;
+    searchPlaceholder: string;
+    /** What other cards say on this line, offered and in no way binding. */
+    suggestions: string[];
+}) {
+    if (!can(line)) return null;
+
+    const rows = data[list];
+
+    /** A row of the list, edited a field at a time. */
+    const setRow = (index: number, patch: Partial<PaperRow>) =>
+        setData(
+            list,
+            rows.map((row, position) => (position === index ? { ...row, ...patch } : row)),
+        );
 
     /**
-     * Whether the line names something to show a paper for.
+     * The answer that opens the list, on «Образование»'s terms down to why:
+     * whoever says there is something is about to name it, so «Есть» opens the
+     * first record rather than making them press «Добавить» first.
      *
-     * «Нет» is an answer and an empty line is the absence of one, and neither
-     * of them has a diploma behind it: the document is asked for only once
-     * there is a degree for it to be the proof of.
+     * «Нет» and «не выбрано» leave the rows alone — a paper attached to one of
+     * them is not thrown away over a misread of the answer. What the card is
+     * filed with is settled on the way out instead, where the rows travel only
+     * under «Есть».
      */
-    const degreeNamed = data.degree !== '' && data.degree !== 'Нет';
-
-    /**
-     * And the answer taken back takes the document with it. A scan left in the
-     * form under «Нет» would travel with the card unseen and be refused on a
-     * field nobody can see any more.
-     *
-     * The asking for the paper on file to go is dropped at the same time, and
-     * not because the paper survives: «Нет» takes it anyway, which is what the
-     * save has always done with an answer of none. It is dropped because the
-     * control that said it is no longer on the page — and a line answered «Нет»
-     * by mistake and typed back in should find its paper where it left it.
-     */
-    const setDegree = (value: string) => {
-        setData('degree', value);
-
-        if (value === '' || value === 'Нет') {
-            setData('degree_document', null);
-            setData('degree_document_remove', false);
-        }
+    const setSaid = (said: Said) => {
+        setData(flag, said);
+        // And the list with it, for the reason «Образование» writes its own:
+        // the answer and the rows are one question, so answering it again
+        // takes away the complaint about the list. Written even where the rows
+        // do not change — that write is the answer being given, and without it
+        // «Добавьте хотя бы одну степень или звание» stayed under a box that
+        // had just said there are none.
+        setData(list, said === 'yes' && rows.length === 0 ? [{ ...blankPaper }] : [...rows]);
     };
 
     return (
         <Group>
             <FormGrid>
-                {/* Written out in one line, because that is the question the
-                    sheet asks and the answer a person gives: «кандидат
-                    экономических наук, доцент» is one thing to know about one
-                    colleague. Left empty on most cards, which is why nothing
-                    here is insisted on. */}
-                <Field label="Учёная степень, звание" error={errors.degree}>
+                {/* Asked before the records are, as the schooling is: one line
+                    of text used to stand here, and a card with nothing on it
+                    meant «none» and «nobody asked» at once. Only this part's
+                    own refusal is said here — what is wrong inside a record is
+                    said in the record. */}
+                <Field label={label} name={line} error={errors[list]}>
                     <SearchableSelect
+                        invalid={!!errors[flag] || !!errors[list]}
+                        value={data[flag]}
+                        onChange={(value) => setSaid(value as Said)}
                         options={[
                             { value: '', label: 'Не выбрано' },
-                            // Said rather than left empty. An empty line means
-                            // nobody has asked yet; this means somebody asked
-                            // and the answer was none, and a card that cannot
-                            // tell the two apart sends HR to ask again.
-                            { value: 'Нет', label: 'Нет' },
-                            ...offered(options.degrees, data.degree).filter(({ value }) => value !== 'Нет'),
+                            { value: 'yes', label: 'Есть' },
+                            { value: 'no', label: 'Нет' },
                         ]}
-                        value={data.degree}
-                        onChange={setDegree}
-                        onCreate={setDegree}
-                        placeholder="Выберите или впишите"
-                        searchPlaceholder="Степень или звание"
-                        invalid={!!errors.degree}
                     />
                 </Field>
-
-                {/* One paper, and no name asked for it: the line beside it has
-                    already said what it is about, which is the one thing a
-                    diploma of a place of study needs a name of its own for.
-                    It stands here only while that line names a degree — and
-                    an empty column stands in its place, so the row keeps its
-                    three and the line does not stretch across half the page
-                    the moment the answer is «Нет». */}
-                {degreeNamed ? (
-                    <Field label="Документ" error={errors.degree_document}>
-                        <DocumentInput
-                            value={data.degree_document}
-                            current={attached ?? null}
-                            onChange={(file) => {
-                                setData('degree_document', file);
-
-                                // A paper chosen takes back the asking for the
-                                // old one to go: somebody who attached one
-                                // plainly wants it, and the save reads the two
-                                // the same way round.
-                                if (file !== null) setData('degree_document_remove', false);
-                            }}
-                            // The paper asked to go, and the asking taken back.
-                            // It waits for «Сохранить» with the rest of the
-                            // sheet — the card's own window deletes a document
-                            // outright, and a removal that happened at once
-                            // would be the one thing here «Отмена» could not
-                            // put back. Where there is nothing on file the
-                            // control is never drawn, which is «Новый
-                            // сотрудник» throughout.
-                            removing={data.degree_document_remove}
-                            onRemoving={(asked) => setData('degree_document_remove', asked)}
-                            invalid={!!errors.degree_document}
-                        />
-                    </Field>
-                ) : (
-                    <div />
-                )}
             </FormGrid>
+
+            {data[flag] === 'yes' && (
+                <Records
+                    items={rows}
+                    addLabel={addLabel}
+                    onAdd={() => setData(list, [...rows, { ...blankPaper }])}
+                    onRemove={(index) =>
+                        setData(
+                            list,
+                            rows.filter((_, position) => position !== index),
+                        )
+                    }
+                >
+                    {(record, index) => (
+                        /* A record added to the list is answered in full: the
+                           line itself is asked for, the paper behind it is not
+                           — a degree conferred last week is a fact before the
+                           scan of the diploma reaches the office. */
+                        <FormGrid>
+                            <Field label={label} error={at(errors, `${list}.${index}.name`)} required>
+                                {/* Offered rather than imposed, as the
+                                    qualification of a diploma is: «кандидат
+                                    экономических наук, доцент» is one phrase
+                                    copied off a document, and a directory of
+                                    the ways to hold a degree is not one a
+                                    company keeps. */}
+                                <SearchableSelect
+                                    options={offered(suggestions, record.name)}
+                                    value={record.name}
+                                    onChange={(value) => setRow(index, { name: value })}
+                                    onCreate={(value) => setRow(index, { name: value })}
+                                    placeholder="Выберите или впишите"
+                                    searchPlaceholder={searchPlaceholder}
+                                    invalid={!!at(errors, `${list}.${index}.name`)}
+                                    required
+                                />
+                            </Field>
+
+                            <Field
+                                label="Документ"
+                                name={`${list}.${index}.document`}
+                                error={at(errors, `${list}.${index}.document`)}
+                                hint="PDF, до 10 МБ."
+                            >
+                                <DocumentInput
+                                    value={record.document}
+                                    current={record.attached ?? null}
+                                    onChange={(file) =>
+                                        setRow(index, {
+                                            // The paper and nothing beside it:
+                                            // what it is called is the name of
+                                            // the file, typed into the box the
+                                            // file is chosen in.
+                                            document: file,
+                                            // And a paper chosen takes back the
+                                            // asking for the old one to go:
+                                            // somebody who attached one plainly
+                                            // wants it, which is the way round
+                                            // the save reads it too. Written
+                                            // into this patch rather than beside
+                                            // it, because the whole record is
+                                            // one answer and a second write of
+                                            // it would be made from the row as
+                                            // it was before this one.
+                                            ...(file !== null ? { document_remove: false } : {}),
+                                        })
+                                    }
+                                    // The paper on file asked to go, and the
+                                    // asking taken back. It waits for
+                                    // «Сохранить» like every other answer on
+                                    // the sheet, which is the whole reason it is
+                                    // a flag on the row and not a request of its
+                                    // own: a paper gone the moment a button was
+                                    // pressed would be the one thing «Отмена»
+                                    // could not put back.
+                                    removing={record.document_remove ?? false}
+                                    onRemoving={(asked) => setRow(index, { document_remove: asked })}
+                                    invalid={!!at(errors, `${list}.${index}.document`)}
+                                />
+                            </Field>
+                        </FormGrid>
+                    )}
+                </Records>
+            )}
         </Group>
+    );
+}
+
+export function DegreeGroup({ data, errors, setData, options, can = anything }: GroupProps) {
+    return (
+        <PaperListGroup
+            data={data}
+            errors={errors}
+            setData={setData}
+            can={can}
+            line="degree"
+            flag="has_degrees"
+            list="degrees"
+            label="Учёная степень, звание"
+            addLabel="Добавить степень"
+            searchPlaceholder="Степень или звание"
+            suggestions={options.degrees}
+        />
     );
 }
 
@@ -571,58 +678,62 @@ export function LanguagesGroup({
 }) {
     if (!can('languages')) return null;
 
-    /** One row's language, by name: the rows are replaced whole on every edit. */
-    const setLanguage = (index: number, name: string) =>
+    /** A row of the list, edited a field at a time, as every other list is. */
+    const setSpoken = (index: number, patch: Partial<SpokenRow>) =>
         setData(
             'languages',
-            data.languages.map((item, position) => (position === index ? { ...item, name } : item)),
+            data.languages.map((row, position) => (position === index ? { ...row, ...patch } : row)),
         );
 
     return (
         <Group>
-            {/* Spaced as the lists of records are, so a page of five
-                parts is not spaced unlike the four around it. */}
-            <div className="flex flex-col gap-4">
-                <InputError message={at(errors, 'languages')} />
+            {/* What is wrong with the list rather than with a row of it: that
+                there is not one language in it. Said over the records, where
+                the «есть или нет» of the other lists says its own refusal. */}
+            <InputError message={errors.languages} />
 
-                {/* A language and its level are two fields like any other
-                    two, so they stand in the same columns: a row of its own
-                    arithmetic would line up with nothing above it. */}
-                {data.languages.map((spoken, index) => (
-                    <FormGrid key={index}>
-                        <SearchableSelect
-                            className="min-w-0"
-                            invalid={!!at(errors, `languages.${index}.name`)}
-                            value={spoken.name}
-                            onChange={(value) => setLanguage(index, value)}
-                            // What other cards already say, and whatever is
-                            // typed here instead — taken as it is typed, since
-                            // there is no list of languages to add it to.
-                            options={offered(options.languages, spoken.name)}
-                            onCreate={(name) => setLanguage(index, name)}
-                            placeholder="Язык"
-                            searchPlaceholder="Поиск языка"
-                            empty="Язык не найден"
-                        />
-                        {/* The level and the button that drops the row share the
-                            second column: a column of its own for a 36px button
-                            would leave a third of the row empty. */}
-                        <div className="flex min-w-0 items-center gap-2">
+            {/* Records, like the places of study and the degrees beside them.
+                A language used to be a line of two boxes with a bin at the end
+                — which read as a row of a table while every list around it read
+                as «Запись 1», «Запись 2». Nothing about a language made it the
+                exception; it was simply written first. */}
+            <Records
+                items={data.languages}
+                addLabel="Добавить язык"
+                onAdd={() => setData('languages', [...data.languages, { ...blankSpoken }])}
+                onRemove={(index) =>
+                    setData(
+                        'languages',
+                        data.languages.filter((_, position) => position !== index),
+                    )
+                }
+            >
+                {(spoken, index) => (
+                    <FormGrid>
+                        <Field label="Язык" error={at(errors, `languages.${index}.name`)} required>
+                            {/* What other cards already say, and whatever is
+                                typed here instead — taken as it is typed, since
+                                there is no list of languages to add it to. */}
+                            <SearchableSelect
+                                className="min-w-0"
+                                invalid={!!at(errors, `languages.${index}.name`)}
+                                value={spoken.name}
+                                onChange={(value) => setSpoken(index, { name: value })}
+                                options={offered(options.languages, spoken.name)}
+                                onCreate={(name) => setSpoken(index, { name })}
+                                placeholder="Выберите или впишите"
+                                searchPlaceholder="Поиск языка"
+                                empty="Язык не найден"
+                                required
+                            />
+                        </Field>
+
+                        <Field label="Уровень" error={at(errors, `languages.${index}.level`)} required>
                             {/* Four answers, every one of them in view at once: a
                                 box with a search in it would be asking somebody
                                 to look for what they are already looking at. */}
-                            <Select
-                                value={spoken.level}
-                                onValueChange={(value) =>
-                                    setData(
-                                        'languages',
-                                        data.languages.map((item, position) =>
-                                            position === index ? { ...item, level: value as LanguageLevel } : item,
-                                        ),
-                                    )
-                                }
-                            >
-                                <SelectTrigger className="min-w-0 flex-1" aria-invalid={!!at(errors, `languages.${index}.level`)}>
+                            <Select value={spoken.level} onValueChange={(value) => setSpoken(index, { level: value as LanguageLevel })}>
+                                <SelectTrigger className="w-full min-w-0" aria-invalid={!!at(errors, `languages.${index}.level`)}>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -633,36 +744,10 @@ export function LanguagesGroup({
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="text-muted-foreground size-9 shrink-0"
-                                aria-label={`Убрать язык ${index + 1}`}
-                                onClick={() =>
-                                    setData(
-                                        'languages',
-                                        data.languages.filter((_, position) => position !== index),
-                                    )
-                                }
-                            >
-                                <Trash2 className="size-4" />
-                            </Button>
-                        </div>
+                        </Field>
                     </FormGrid>
-                ))}
-
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => setData('languages', [...data.languages, { name: '', level: 'intermediate' }])}
-                >
-                    <Plus />
-                    Добавить язык
-                </Button>
-            </div>
+                )}
+            </Records>
         </Group>
     );
 }
@@ -681,8 +766,10 @@ export function ExperienceGroup({ data, errors, setData, options, can = anything
     /** The jobs held before this one, asked and opened exactly as the schools above. */
     const setExperience = (said: Said) => {
         setData('has_experience', said);
-
-        if (said === 'yes' && data.experiences.length === 0) setData('experiences', [{ ...blankJob }]);
+        // The list is written with the answer, as the schooling's is: the two
+        // are one question, and the complaint about the list cannot outlive
+        // the answer being given again.
+        setData('experiences', said === 'yes' && data.experiences.length === 0 ? [{ ...blankJob }] : [...data.experiences]);
     };
 
     return (
@@ -692,7 +779,7 @@ export function ExperienceGroup({ data, errors, setData, options, can = anything
                     first job and a job nobody asked about are not the
                     same card. Only this part's own refusal is said here —
                     what is wrong inside a record is said in the record. */}
-                <Field label="Трудовая деятельность" error={errors.experiences}>
+                <Field label="Трудовая деятельность" name="work_experiences" error={errors.experiences}>
                     <SearchableSelect
                         invalid={!!errors.has_experience || !!errors.experiences}
                         value={data.has_experience}
@@ -802,71 +889,21 @@ export function ExperienceGroup({ data, errors, setData, options, can = anything
 
 /* ------------------------------ 07. Государственные награды, поощрения */
 
-export function AwardGroup({ data, errors, setData, options, can = anything, attached }: PaperGroupProps) {
-    if (!can('award')) return null;
-
-    /** The awards are read and taken back exactly as the degree above. */
-    const awardNamed = data.award !== '' && data.award !== 'Нет';
-
-    const setAward = (value: string) => {
-        setData('award', value);
-
-        if (value === '' || value === 'Нет') {
-            setData('award_document', null);
-            setData('award_document_remove', false);
-        }
-    };
-
+export function AwardGroup({ data, errors, setData, options, can = anything }: GroupProps) {
     return (
-        <Group>
-            <FormGrid>
-                {/* One line, as the degree is: «Медаль „Хизмати шоиста“,
-                    благодарность Правительства» is one answer about one
-                    person, and a list of the kinds of award would be a
-                    directory nobody keeps. Empty on most cards. */}
-                <Field label="Государственные награды, поощрения" error={errors.award}>
-                    <SearchableSelect
-                        options={[
-                            { value: '', label: 'Не выбрано' },
-                            // «Нет» is an answer and an empty line is the
-                            // absence of one, exactly as above.
-                            { value: 'Нет', label: 'Нет' },
-                            ...offered(options.awards, data.award).filter(({ value }) => value !== 'Нет'),
-                        ]}
-                        value={data.award}
-                        onChange={setAward}
-                        onCreate={setAward}
-                        placeholder="Выберите или впишите"
-                        searchPlaceholder="Награда или поощрение"
-                        invalid={!!errors.award}
-                    />
-                </Field>
-
-                {/* The decree, the certificate, the letter — one paper, and
-                    here only while the line names something to show it for.
-                    An empty column stands in its place for the reason the
-                    degree's does: the row keeps its three. */}
-                {awardNamed ? (
-                    <Field label="Документ" error={errors.award_document}>
-                        <DocumentInput
-                            value={data.award_document}
-                            current={attached ?? null}
-                            onChange={(file) => {
-                                setData('award_document', file);
-
-                                if (file !== null) setData('award_document_remove', false);
-                            }}
-                            // Asked to go and put back on the degree's terms.
-                            removing={data.award_document_remove}
-                            onRemoving={(asked) => setData('award_document_remove', asked)}
-                            invalid={!!errors.award_document}
-                        />
-                    </Field>
-                ) : (
-                    <div />
-                )}
-            </FormGrid>
-        </Group>
+        <PaperListGroup
+            data={data}
+            errors={errors}
+            setData={setData}
+            can={can}
+            line="award"
+            flag="has_awards"
+            list="awards"
+            label="Государственные награды, поощрения"
+            addLabel="Добавить награду"
+            searchPlaceholder="Награда или поощрение"
+            suggestions={options.awards}
+        />
     );
 }
 
@@ -882,10 +919,10 @@ export function FamilyGroup({ data, errors, setData, can = anything }: Omit<Grou
      */
     const setChildren = (said: Said) => {
         setData('has_children', said);
-
-        if (said === 'yes' && data.children.length === 0) {
-            setData('children', [{ ...blankChild }]);
-        }
+        // And the list beside it, on the terms the other three lists are
+        // answered: one question, one write, so «Добавьте хотя бы одного
+        // ребёнка» does not stand under an answer that has just been changed.
+        setData('children', said === 'yes' && data.children.length === 0 ? [{ ...blankChild }] : [...data.children]);
     };
 
     /**
@@ -913,7 +950,7 @@ export function FamilyGroup({ data, errors, setData, can = anything }: Omit<Grou
                 after both. Two questions on one line would read as one. */}
             {can('marital_status') && (
                 <FormGrid>
-                    <Field label="Семейное положение" error={errors.marital_status}>
+                    <Field label="Семейное положение" name="marital_status" error={errors.marital_status}>
                         <SearchableSelect
                             value={data.marital_status}
                             onChange={(value) => setData('marital_status', value)}
@@ -931,41 +968,49 @@ export function FamilyGroup({ data, errors, setData, can = anything }: Omit<Grou
             )}
 
             {can('spouse') && data.marital_status === 'married' && (
-                <FormGrid>
-                    {/* The same three questions the rest of the family is
+                // In the frame a record of the sheet is read in, because that
+                // is what it is: a person named under a heading, with the same
+                // three questions about them as everybody else in the block.
+                // There is nothing to press in the corner — a spouse is not one
+                // of a list, and the way to say there is none is «Не женат / не
+                // замужем» above, which takes these fields off the page.
+                <RecordCard title="Супруг(а)">
+                    <FormGrid>
+                        {/* The same three questions the rest of the family is
                         asked, in the same order and under the same labels, less
                         the one a spouse has no need of: what they are to this
                         person is what «Семейное положение» has just said.
 
                         The first two are asked for: «женат» with nobody named
                         is half an answer, and the server says the same. */}
-                    <Field label="ФИО супруга" error={errors.spouse_name} required>
-                        <Input
-                            aria-required
-                            value={data.spouse_name}
-                            onChange={(event) => setData('spouse_name', event.target.value)}
-                            aria-invalid={!!errors.spouse_name}
-                        />
-                    </Field>
-                    <Field label="Дата рождения" error={errors.spouse_birth_date} required>
-                        <MonthPicker
-                            required
-                            value={data.spouse_birth_date}
-                            onChange={(value) => setData('spouse_birth_date', value)}
-                            min={firstFamilyMonth}
-                            max={thisMonth}
-                            invalid={!!errors.spouse_birth_date}
-                        />
-                    </Field>
-                    <Field label="Работа или учёба" error={errors.spouse_occupation}>
-                        <Input
-                            value={data.spouse_occupation}
-                            onChange={(event) => setData('spouse_occupation', event.target.value)}
-                            placeholder="Студент, ТТУ им. Осими"
-                            aria-invalid={!!errors.spouse_occupation}
-                        />
-                    </Field>
-                </FormGrid>
+                        <Field label="ФИО супруга" error={errors.spouse_name} required>
+                            <Input
+                                aria-required
+                                value={data.spouse_name}
+                                onChange={(event) => setData('spouse_name', event.target.value)}
+                                aria-invalid={!!errors.spouse_name}
+                            />
+                        </Field>
+                        <Field label="Дата рождения" error={errors.spouse_birth_date} required>
+                            <MonthPicker
+                                required
+                                value={data.spouse_birth_date}
+                                onChange={(value) => setData('spouse_birth_date', value)}
+                                min={firstFamilyMonth}
+                                max={thisMonth}
+                                invalid={!!errors.spouse_birth_date}
+                            />
+                        </Field>
+                        <Field label="Работа или учёба" error={errors.spouse_occupation}>
+                            <Input
+                                value={data.spouse_occupation}
+                                onChange={(event) => setData('spouse_occupation', event.target.value)}
+                                placeholder="Студент, ТТУ им. Осими"
+                                aria-invalid={!!errors.spouse_occupation}
+                            />
+                        </Field>
+                    </FormGrid>
+                </RecordCard>
             )}
 
             {can('children') && (
@@ -973,7 +1018,7 @@ export function FamilyGroup({ data, errors, setData, can = anything }: Omit<Grou
                     {/* The refusal over an empty list is said here, where the
                         answer that asked for the list was given: «Есть» and no
                         rows is what the server will not take. */}
-                    <Field label="Дети" error={errors.children}>
+                    <Field label="Дети" name="children" error={errors.children}>
                         <SearchableSelect
                             invalid={!!errors.has_children || !!errors.children}
                             value={data.has_children}
@@ -1137,7 +1182,7 @@ export function PassportGroup({ data, errors, setData, can = anything }: Omit<Gr
                     Whichever of the two is refused is said under both, because
                     the line they stand on is one. */}
                 {can('passport_number') && (
-                    <Field label="Серия и номер" error={errors.passport_series ?? errors.passport_number}>
+                    <Field label="Серия и номер" name="passport_number" error={errors.passport_series ?? errors.passport_number}>
                         <div className="flex min-w-0 items-center gap-2">
                             <Input
                                 className="w-16 shrink-0"
@@ -1159,7 +1204,7 @@ export function PassportGroup({ data, errors, setData, can = anything }: Omit<Gr
                     </Field>
                 )}
                 {can('passport_issued_at') && (
-                    <Field label="Дата выдачи" error={errors.passport_issued_at}>
+                    <Field label="Дата выдачи" name="passport_issued_at" error={errors.passport_issued_at}>
                         <DatePicker
                             value={data.passport_issued_at}
                             onChange={(value) => setData('passport_issued_at', value)}
@@ -1169,7 +1214,7 @@ export function PassportGroup({ data, errors, setData, can = anything }: Omit<Gr
                     </Field>
                 )}
                 {can('passport_issued_by') && (
-                    <Field label="Кем выдан" error={errors.passport_issued_by}>
+                    <Field label="Кем выдан" name="passport_issued_by" error={errors.passport_issued_by}>
                         <Input
                             value={data.passport_issued_by}
                             onChange={(event) => setData('passport_issued_by', event.target.value)}
@@ -1182,7 +1227,7 @@ export function PassportGroup({ data, errors, setData, can = anything }: Omit<Gr
                     people who read the passport and for the same errands, so
                     it stands with it rather than in a part of its own. */}
                 {can('tax_number') && (
-                    <Field label="ИНН" error={errors.tax_number}>
+                    <Field label="ИНН" name="tax_number" error={errors.tax_number}>
                         <Input
                             value={data.tax_number}
                             onChange={(event) => setData('tax_number', event.target.value)}
@@ -1203,7 +1248,7 @@ export function ContactsGroup({ data, errors, setData, can = anything }: Omit<Gr
         <Group>
             <FormGrid>
                 {can('home_address') && (
-                    <Field label="Домашний адрес" error={errors.home_address}>
+                    <Field label="Домашний адрес" name="home_address" error={errors.home_address}>
                         <Input
                             value={data.home_address}
                             onChange={(event) => setData('home_address', event.target.value)}
@@ -1214,7 +1259,7 @@ export function ContactsGroup({ data, errors, setData, can = anything }: Omit<Gr
                 )}
 
                 {can('phone') && (
-                    <Field label="Телефон" error={errors.phone}>
+                    <Field label="Телефон" name="phone" error={errors.phone}>
                         <Input
                             value={data.phone}
                             onChange={(event) => setData('phone', event.target.value)}
@@ -1224,7 +1269,7 @@ export function ContactsGroup({ data, errors, setData, can = anything }: Omit<Gr
                     </Field>
                 )}
                 {can('sos_phone') && (
-                    <Field label="Экстренный контакт" error={errors.sos_phone}>
+                    <Field label="Экстренный контакт" name="sos_phone" error={errors.sos_phone}>
                         <Input
                             value={data.sos_phone}
                             onChange={(event) => setData('sos_phone', event.target.value)}
@@ -1252,69 +1297,20 @@ export function ContactsGroup({ data, errors, setData, can = anything }: Omit<Gr
 
 /* -------------------------- 11. Отношение к воинской обязанности */
 
-export function MilitaryGroup({ data, errors, setData, options, can = anything, attached }: PaperGroupProps) {
-    if (!can('military')) return null;
-
-    /** And the military line, which is the third of exactly the same thing. */
-    const militaryNamed = data.military !== '' && data.military !== 'Нет';
-
-    const setMilitary = (value: string) => {
-        setData('military', value);
-
-        if (value === '' || value === 'Нет') {
-            setData('military_document', null);
-            setData('military_document_remove', false);
-        }
-    };
-
+export function MilitaryGroup({ data, errors, setData, options, can = anything }: GroupProps) {
     return (
-        <Group>
-            <FormGrid>
-                {/* One line, as the two above are: «военнообязанный, старший
-                    лейтенант запаса» is one answer copied off a document, and
-                    a list of the ways to stand with the army is not a list a
-                    company keeps. */}
-                <Field label="Отношение к воинской обязанности" error={errors.military}>
-                    <SearchableSelect
-                        options={[
-                            { value: '', label: 'Не выбрано' },
-                            // Said rather than left empty, exactly as above.
-                            { value: 'Нет', label: 'Нет' },
-                            ...offered(options.militaries, data.military).filter(({ value }) => value !== 'Нет'),
-                        ]}
-                        value={data.military}
-                        onChange={setMilitary}
-                        onCreate={setMilitary}
-                        placeholder="Выберите или впишите"
-                        searchPlaceholder="Отношение к воинской обязанности"
-                        invalid={!!errors.military}
-                    />
-                </Field>
-
-                {/* The военный билет, or the page of it that says this —
-                    here only while the line names something to show it for,
-                    and an empty column in its place so the row keeps its
-                    three. */}
-                {militaryNamed ? (
-                    <Field label="Документ" error={errors.military_document}>
-                        <DocumentInput
-                            value={data.military_document}
-                            current={attached ?? null}
-                            onChange={(file) => {
-                                setData('military_document', file);
-
-                                if (file !== null) setData('military_document_remove', false);
-                            }}
-                            // And the third of the same, asked to go and put back.
-                            removing={data.military_document_remove}
-                            onRemoving={(asked) => setData('military_document_remove', asked)}
-                            invalid={!!errors.military_document}
-                        />
-                    </Field>
-                ) : (
-                    <div />
-                )}
-            </FormGrid>
-        </Group>
+        <PaperListGroup
+            data={data}
+            errors={errors}
+            setData={setData}
+            can={can}
+            line="military"
+            flag="has_military_records"
+            list="military_records"
+            label="Отношение к воинской обязанности"
+            addLabel="Добавить запись"
+            searchPlaceholder="Отношение к воинской обязанности"
+            suggestions={options.militaries}
+        />
     );
 }

@@ -67,17 +67,33 @@ final class DocumentStore
     /**
      * Hand the file over, under the name somebody gave it.
      *
-     * As an attachment rather than inline: a browser asked to display a PDF
-     * from an address like this one will, and a document shown in a tab is a
-     * document the next person at that desk can read. The caching is private
-     * for the reason the photographs' is — a shared proxy keeping a copy would
-     * reopen the hole from the other end — and there is no max-age at all,
-     * because a diploma is read once in a while rather than a hundred times a
-     * page, and nothing is gained by letting a copy sit in a cache.
+     * Shown rather than downloaded. It used to arrive as an attachment, on the
+     * grounds that a document left open in a tab is a document the next person
+     * at that desk can read — but a paper on a card is looked at far oftener
+     * than it is kept, and downloading it to look at it leaves the same page
+     * lying in the downloads folder of every machine in the office. So the
+     * browser opens it, the reader shuts the tab, and nothing is written to
+     * disk unless they ask for it themselves.
+     *
+     * Every paper this application keeps is a PDF, which is what makes that
+     * safe to do: the browser hands it to its own reader rather than running
+     * it as a page of this site. `nosniff` says so outright, so a file that
+     * somehow is not one is not guessed at either.
+     *
+     * The caching is private for the reason the photographs' is — a shared
+     * proxy keeping a copy would reopen the hole from the other end — and
+     * there is no max-age at all, because a diploma is read once in a while
+     * rather than a hundred times a page, and nothing is gained by letting a
+     * copy sit in a cache.
      */
     public static function answer(Request $request, string $path, ?string $name): BinaryFileResponse
     {
-        $response = response()->download(self::disk()->path($path), self::saveAs($path, $name));
+        $response = response()->download(self::disk()->path($path), self::saveAs($path, $name), ['X-Content-Type-Options' => 'nosniff']);
+
+        // Named all the same: «Сохранить как» in the reader's own menu offers
+        // what the card calls the paper, and not the name the disk filed it
+        // under.
+        $response->setContentDisposition('inline', self::saveAs($path, $name));
 
         $response->setPrivate();
         $response->setMaxAge(0);

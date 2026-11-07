@@ -55,7 +55,14 @@ export function RecordTable({
                 <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
                         {head.map((cell) => (
-                            <TableHead key={cell} className="text-muted-foreground h-auto px-3 py-2 text-xs font-normal">
+                            // Wrapping, because the column is as wide as the
+                            // caller said and the question is as long as it is:
+                            // a head held to one line in a column narrower than
+                            // itself does not widen the column — it runs out of
+                            // it and over the head of the next one, which is
+                            // what «Дата рождения» and «Работа, учёба» did in
+                            // the family's tables beside a sheet.
+                            <TableHead key={cell} className="text-muted-foreground h-auto px-3 py-2 text-xs font-normal whitespace-normal">
                                 {cell}
                             </TableHead>
                         ))}

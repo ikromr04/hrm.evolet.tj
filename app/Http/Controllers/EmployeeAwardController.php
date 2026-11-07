@@ -2,29 +2,38 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\EmployeeCard;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * «Государственные награды, поощрения»: one line, and the one document behind
- * it — a decree, a certificate, a letter of thanks. The terms are the degree's,
- * which is to say EmployeeCardLineController's.
+ * «Государственные награды, поощрения»: a list of them, each one line and the
+ * paper behind it — a decree, a certificate, a letter of thanks. The terms are
+ * the degrees', which is to say EmployeePaperListController's.
  */
-class EmployeeAwardController extends EmployeeCardLineController
+class EmployeeAwardController extends EmployeePaperListController
 {
-    protected function line(): string
+    protected function records(User $employee): HasMany
+    {
+        return $employee->awards();
+    }
+
+    protected function flag(): string
+    {
+        return 'has_awards';
+    }
+
+    protected function right(): string
     {
         return 'award';
     }
 
-    /** @return array<string, mixed> */
-    protected function rules(): array
+    protected function named(): string
     {
-        return EmployeeCard::awardRules();
+        return 'награда или поощрение';
     }
 
-    /** @return array<string, string> */
-    protected function attributes(): array
+    protected function routes(): string
     {
-        return EmployeeCard::awardAttributes();
+        return 'awards';
     }
 }

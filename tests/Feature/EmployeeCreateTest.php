@@ -14,6 +14,7 @@ use App\Models\UserLanguage;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
+use App\Support\EmployeeFields;
 use App\Support\Placements;
 use Database\Seeders\EquipmentTypeSeeder;
 use Database\Seeders\PositionSeeder;
@@ -134,19 +135,28 @@ class EmployeeCreateTest extends TestCase
             ],
 
             /* Учёная степень, звание */
-            // One line, holding both of the things the heading names. The
-            // document behind it is a file, so it is filed with the card too —
-            // see EmployeeDegreeTest, which sends one.
-            'degree' => 'кандидат экономических наук, доцент',
+            // A list, like the places of study above: a degree and a title are
+            // two answers, and until November 2026 the block was one line of
+            // text that had to hold both of them with one scan to prove the
+            // pair. So the page answers «есть» and then names them one by one.
+            // The paper behind a record is a file, which only the card's own
+            // door sends — see EmployeeDegreeTest.
+            'has_degrees' => true,
+            'degrees' => [
+                ['name' => 'кандидат экономических наук'],
+                ['name' => 'доцент'],
+            ],
 
             /* Государственные награды, поощрения */
-            // Kept on the degree's terms, down to the one line and the one
-            // document — see EmployeeAwardTest, which sends one.
-            'award' => 'Медаль „Хизмати шоиста“',
+            // Kept on the degrees' terms, down to the record and its one
+            // paper — see EmployeeAwardTest.
+            'has_awards' => true,
+            'awards' => [['name' => 'Медаль „Хизмати шоиста“']],
 
             /* Отношение к воинской обязанности */
-            // The third line kept on those terms — see EmployeeMilitaryTest.
-            'military' => 'Военнообязанный, старший лейтенант запаса',
+            // The third list kept on those terms — see EmployeeMilitaryTest.
+            'has_military_records' => true,
+            'military_records' => [['name' => 'Военнообязанный, старший лейтенант запаса']],
 
             /* Трудовая деятельность */
             'experiences' => [
@@ -362,13 +372,14 @@ class EmployeeCreateTest extends TestCase
     }
 
     /**
-     * The degree is filed with the card rather than afterwards, and as one line.
+     * The degrees are filed with the card rather than afterwards, and as a list.
      *
      * Two things under one heading, and somebody arrives holding both: a page
      * that asked for the whole card and then came back for the доцент would be
-     * a page that asked twice.
+     * a page that asked twice. Each is a record of its own, so the second one is
+     * not a comma inside the first and has its own diploma to point at.
      */
-    public function test_a_degree_is_saved_with_the_card()
+    public function test_the_degrees_the_awards_and_the_military_records_are_saved_with_the_card()
     {
         Notification::fake();
 
@@ -377,25 +388,90 @@ class EmployeeCreateTest extends TestCase
 
         $employee = User::firstWhere('email', 'nilufar@evolet.tj');
 
-        $this->assertSame('кандидат экономических наук, доцент', $employee->details->degree);
-        // And the awards beside it, filed in the same breath and on the same terms.
-        $this->assertSame('Медаль „Хизмати шоиста“', $employee->details->award);
-        // And what the military papers say, the third line of that kind.
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $employee->details->military);
+        $this->assertSame(
+            ['кандидат экономических наук', 'доцент'],
+            $employee->degrees->pluck('name')->all(),
+        );
+        // And the awards beside them, filed in the same breath and on the same terms.
+        $this->assertSame(['Медаль „Хизмати шоиста“'], $employee->awards->pluck('name')->all());
+        // And what the military papers say, the third list of that kind.
+        $this->assertSame(
+            ['Военнообязанный, старший лейтенант запаса'],
+            $employee->militaryRecords->pluck('name')->all(),
+        );
+
+        // Rows on file say «есть» whatever the page sent, as every other list
+        // answered before it is filled does.
+        $this->assertTrue($employee->details->has_degrees);
+        $this->assertTrue($employee->details->has_awards);
+        $this->assertTrue($employee->details->has_military_records);
+
+        // Nothing was handed in to prove any of it: the papers are files, and a
+        // record arrives without one until somebody has the scan.
+        $this->assertSame([null], $employee->awards->pluck('document_path')->all());
     }
 
     /**
-     * And left unanswered on the cards of everybody who holds neither, which is
-     * most of them.
+     * And left unanswered on the cards of everybody who holds none of it, which
+     * is most of them — or answered «нет», which is a different thing.
      */
     public function test_a_card_may_name_no_degree()
     {
         Notification::fake();
+        $admin = $this->sysadmin();
 
-        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard(['degree' => null]))
+        $nobody = [
+            'has_degrees' => null, 'degrees' => [],
+            'has_awards' => null, 'awards' => [],
+            'has_military_records' => null, 'military_records' => [],
+        ];
+
+        $this->actingAs($admin)->post('/employees', $this->wholeCard($nobody))
             ->assertSessionHasNoErrors();
 
-        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj')->details->degree);
+        $details = User::firstWhere('email', 'nilufar@evolet.tj')->details;
+
+        $this->assertNull($details->has_degrees);
+        $this->assertNull($details->has_awards);
+        $this->assertNull($details->has_military_records);
+
+        // «Нет» is the other answer, and it is written down: an empty list
+        // cannot say it, which is the whole reason the flag is beside it.
+        $this->actingAs($admin)->post('/employees', $this->wholeCard([
+            ...$nobody,
+            'email' => 'rustam@evolet.tj',
+            'has_degrees' => false,
+            'has_awards' => false,
+            'has_military_records' => false,
+        ]))->assertSessionHasNoErrors();
+
+        $said = User::firstWhere('email', 'rustam@evolet.tj');
+
+        $this->assertFalse($said->details->has_degrees);
+        $this->assertFalse($said->details->has_awards);
+        $this->assertFalse($said->details->has_military_records);
+        $this->assertCount(0, $said->degrees);
+    }
+
+    /**
+     * A record of one of the three lists says what it is, and the page is told
+     * on the row it was typed in.
+     *
+     * The line used to be allowed to stand empty, because an empty line was how
+     * a card said nobody had been asked; the flag beside the list says that now,
+     * so a record naming nothing is a row somebody opened and left.
+     */
+    public function test_a_record_of_the_three_lists_names_what_it_is()
+    {
+        $this->actingAs($this->sysadmin())->post('/employees', $this->wholeCard([
+            'degrees' => [['name' => 'доцент'], ['name' => '']],
+            'awards' => [['name' => '']],
+        ]))
+            ->assertSessionHasErrors(['degrees.1.name', 'awards.0.name'])
+            // And says nothing about the rows that were filled in.
+            ->assertSessionDoesntHaveErrors(['degrees.0.name', 'military_records.0.name']);
+
+        $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
     }
 
     public function test_a_refusal_in_a_late_section_leaves_no_colleague_behind()
@@ -469,13 +545,15 @@ class EmployeeCreateTest extends TestCase
     }
 
     /**
-     * «Есть» is an answer that needs a row behind it, on each of the three
-     * lists that are answered before they are filled.
+     * «Есть» is an answer that needs a row behind it, on each of the six lists
+     * that are answered before they are filled.
      *
      * A card that says somebody studied somewhere and names no university is a
      * card somebody has to go back and ask about, which is the whole thing the
      * three-way answer was there to avoid. Each refusal lands on the list it is
-     * about, because that is the box the page has to show it under.
+     * about, because that is the box the page has to show it under — the three
+     * blocks that became lists in November 2026 included: they are asked the
+     * same question now, so they are refused the same way.
      */
     public function test_a_list_said_to_have_rows_and_given_none_is_refused_on_its_own_key()
     {
@@ -486,10 +564,19 @@ class EmployeeCreateTest extends TestCase
             'experiences' => [],
             'has_children' => true,
             'children' => [],
+            'has_degrees' => true,
+            'degrees' => [],
+            'has_awards' => true,
+            'awards' => [],
+            'has_military_records' => true,
+            'military_records' => [],
         ]))->assertSessionHasErrors([
             'educations' => 'Добавьте хотя бы одно учебное заведение или ответьте «Нет».',
             'experiences' => 'Добавьте хотя бы одно место работы или ответьте «Нет».',
             'children' => 'Добавьте хотя бы одного ребёнка или ответьте «Нет».',
+            'degrees' => 'Добавьте хотя бы одну степень или звание, или ответьте «Нет».',
+            'awards' => 'Добавьте хотя бы одну награду или поощрение, или ответьте «Нет».',
+            'military_records' => 'Добавьте хотя бы одну запись или ответьте «Нет».',
         ]);
 
         $this->assertNull(User::firstWhere('email', 'nilufar@evolet.tj'));
@@ -1109,5 +1196,49 @@ class EmployeeCreateTest extends TestCase
 
         $other = User::firstWhere('email', 'second@evolet.tj');
         $this->assertSame($other->id, $laptop->refresh()->holder_user_id);
+    }
+
+    /**
+     * What the three lists offer is read off the cards already on file — and
+     * only to somebody who may read that block on a card.
+     *
+     * The three were columns of free text until November 2026 and the page read
+     * the suggestions out of them; they are records now, so the suggestions are
+     * the names already written down in the three tables. A list that quietly
+     * stopped being filled would never fail anything — the box takes whatever
+     * is typed either way — and the same word would be spelled three ways
+     * across a hundred cards before anybody noticed.
+     *
+     * The gate is the one the page has always applied here: a degree is a
+     * private line of somebody's card, so a reader of nobody's degrees is
+     * offered nothing and still types whatever they like.
+     */
+    public function test_the_three_lists_offer_what_other_cards_say_to_whoever_may_read_them()
+    {
+        $colleague = User::factory()->create();
+        $colleague->degrees()->create(['name' => 'кандидат экономических наук']);
+        $colleague->awards()->create(['name' => 'Медаль «Хизмати шоиста»']);
+        $colleague->militaryRecords()->create(['name' => 'военнообязанный']);
+
+        $reader = $this->withRights(
+            'employees.create',
+            EmployeeFields::permission('degree'),
+            EmployeeFields::permission('award'),
+            EmployeeFields::permission('military'),
+        );
+
+        $this->actingAs($reader)->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('options.degrees', ['кандидат экономических наук'])
+            ->where('options.awards', ['Медаль «Хизмати шоиста»'])
+            ->where('options.militaries', ['военнообязанный'])
+        );
+
+        // And nothing at all to somebody who may add a colleague without being
+        // able to read those lines on anybody.
+        $this->actingAs($this->withRights('employees.create'))->get('/employees/create')->assertInertia(fn (AssertableInertia $page) => $page
+            ->where('options.degrees', [])
+            ->where('options.awards', [])
+            ->where('options.militaries', [])
+        );
     }
 }

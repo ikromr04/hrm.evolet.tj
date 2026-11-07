@@ -7,7 +7,6 @@ use App\Models\UserChild;
 use App\Models\UserEducation;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
-use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use App\Support\PersonnelSheet;
 use Database\Seeders\RoleSeeder;
@@ -85,11 +84,14 @@ class PersonnelSheetTest extends TestCase
             'birth_date' => '1990-04-17',
             'birth_place' => 'г. Худжанд',
             'nationality' => 'таджик',
-            'degree' => 'кандидат экономических наук, доцент',
-            'award' => 'Медаль „Хизмати шоиста“',
-            'military' => 'Военнообязанный, старший лейтенант запаса',
             'has_educations' => true,
             'has_experience' => true,
+            // The three blocks that became lists in November 2026 are answered
+            // by their flag, exactly as the two above are: a card is as far
+            // along for having been asked as it is for the rows that followed.
+            'has_degrees' => true,
+            'has_awards' => true,
+            'has_military_records' => true,
             'marital_status' => 'married',
             'has_children' => true,
             'passport_series' => 'А',
@@ -184,14 +186,21 @@ class PersonnelSheetTest extends TestCase
     }
 
     /**
-     * «Нет» is an answer, and an empty line is the absence of one.
+     * «Нет» is an answer, and an unanswered line is the absence of one.
      *
-     * The three lines a card keeps as free text — the degree, the awards, the
-     * military papers — are each one line of the sheet, and most people have
-     * nothing to put in any of them. Somebody has to be able to say so, or those
-     * cards would never finish and the department would go on asking.
+     * The degree, the awards and the military papers are three lines of the
+     * sheet, and most people have nothing to put in any of them. Somebody has to
+     * be able to say so, or those cards would never finish and the department
+     * would go on asking.
+     *
+     * Said in a flag beside each list since November 2026. Until then the three
+     * were a line of free text apiece, and «нет» was the word «Нет» typed into
+     * the line — which is how a card told that answer from a line nobody had
+     * filled in. The lists have no line to type it into, so the answer moved to
+     * a flag of its own; what a card can say is unchanged, which is the whole
+     * point of this test.
      */
-    public function test_no_counts_as_an_answer_on_a_line_while_an_empty_line_does_not()
+    public function test_no_counts_as_an_answer_on_a_line_while_an_unanswered_one_does_not()
     {
         $admin = $this->sysadmin();
         $employee = $this->blankCard();
@@ -200,9 +209,9 @@ class PersonnelSheetTest extends TestCase
         $this->assertContains('Учёная степень, звание', PersonnelSheet::missing($employee, $admin));
 
         $employee->details()->update([
-            'degree' => EmployeeCard::NONE,
-            'award' => EmployeeCard::NONE,
-            'military' => EmployeeCard::NONE,
+            'has_degrees' => false,
+            'has_awards' => false,
+            'has_military_records' => false,
         ]);
 
         // Five of the twenty-two now, and the department has nothing to ask
@@ -216,41 +225,59 @@ class PersonnelSheetTest extends TestCase
     }
 
     /**
-     * The three lists are answered by their flag and not by their rows.
+     * The six lists are answered by their flag and not by their rows.
      *
      * Rows arrive without anybody having been asked — a card filled in before
      * the question existed carries them — so the rows alone cannot be the
      * answer; and «нет» has no row to arrive as, so the flag alone can.
+     *
+     * Which is the whole of what changed for the degree, the awards and the
+     * military papers in November 2026: they were one line of text each, read as
+     * answered the moment anything stood in the line, and they are lists with a
+     * flag beside them now, read exactly as the three older lists are.
      */
-    public function test_the_three_lists_are_answered_by_their_flag_and_not_by_their_rows()
+    public function test_the_six_lists_are_answered_by_their_flag_and_not_by_their_rows()
     {
         $admin = $this->sysadmin();
+        $lists = [
+            'Образование',
+            'Учёная степень, звание',
+            'Трудовая деятельность',
+            'Государственные награды, поощрения',
+            'Дети',
+            'Отношение к воинской обязанности',
+        ];
 
-        // Rows on file and nobody asked: the three lines are still wanted.
+        // Rows on file and nobody asked: the six lines are still wanted.
         $unasked = $this->blankCard();
         UserEducation::factory(2)->for($unasked)->create();
         UserWorkExperience::factory(2)->for($unasked)->create();
         UserChild::factory(2)->for($unasked)->create();
+        $unasked->degrees()->create(['name' => 'доцент']);
+        $unasked->awards()->create(['name' => 'Медаль „Хизмати шоиста“']);
+        $unasked->militaryRecords()->create(['name' => 'Военнообязанный']);
 
         $this->assertSame(9, PersonnelSheet::filled($unasked, $admin));
         $this->assertSame(
-            ['Образование', 'Трудовая деятельность', 'Дети'],
-            array_values(array_intersect(
-                PersonnelSheet::missing($unasked, $admin),
-                ['Образование', 'Трудовая деятельность', 'Дети'],
-            )),
+            $lists,
+            array_values(array_intersect(PersonnelSheet::missing($unasked, $admin), $lists)),
         );
 
-        // Asked and answered «нет», with no row anywhere: all three are done.
+        // Asked and answered «нет», with no row anywhere: all six are done.
         $asked = $this->blankCard();
-        $asked->details()->update(['has_educations' => false, 'has_experience' => false, 'has_children' => false]);
+        $asked->details()->update([
+            'has_educations' => false,
+            'has_experience' => false,
+            'has_children' => false,
+            'has_degrees' => false,
+            'has_awards' => false,
+            'has_military_records' => false,
+        ]);
 
+        // Eight of the twenty-two: the two lines of the name and these six.
         $asked = $asked->fresh();
-        $this->assertSame(23, PersonnelSheet::filled($asked, $admin));
-        $this->assertSame([], array_intersect(
-            ['Образование', 'Трудовая деятельность', 'Дети'],
-            PersonnelSheet::missing($asked, $admin),
-        ));
+        $this->assertSame(36, PersonnelSheet::filled($asked, $admin));
+        $this->assertSame([], array_intersect($lists, PersonnelSheet::missing($asked, $admin)));
     }
 
     /**
@@ -453,29 +480,42 @@ class PersonnelSheetTest extends TestCase
     }
 
     /**
-     * A line that says there is something and shows nothing is short of its
-     * paper — and is answered all the same.
+     * A record that says there is something and shows nothing is short of its
+     * paper — and its line is answered all the same.
      *
      * The two lists are two errands. «Не заполнено» sends somebody to ask what
      * the degree is; this sends somebody to ask for the diploma, and a card that
      * mixed them would ask a question it already has the answer to.
+     *
+     * Each record is named, and not the line it stands in: a card holding two
+     * medals is two papers to collect, and «Государственные награды, поощрения»
+     * said twice would say how many are missing without saying which. The line
+     * was named once until November 2026 because it held one answer and one
+     * paper; it holds a list of both now.
      */
-    public function test_a_line_that_claims_something_and_shows_nothing_is_short_of_its_paper()
+    public function test_a_record_that_claims_something_and_shows_nothing_is_short_of_its_paper()
     {
         $admin = $this->sysadmin();
 
         $employee = $this->blankCard();
         $employee->details()->update([
-            'degree' => 'кандидат экономических наук',
-            'award' => 'Медаль „Хизмати шоиста“',
-            'military' => 'Военнообязанный',
+            'has_degrees' => true,
+            'has_awards' => true,
+            'has_military_records' => true,
         ]);
+        $employee->degrees()->create(['name' => 'кандидат экономических наук']);
+        $employee->awards()->create(['name' => 'Медаль „Хизмати шоиста“']);
+        $employee->awards()->create(['name' => 'Благодарность Министерства']);
+        $employee->militaryRecords()->create(['name' => 'Военнообязанный']);
 
-        $this->assertSame([
-            'Учёная степень, звание',
-            'Государственные награды, поощрения',
-            'Отношение к воинской обязанности',
-        ], PersonnelSheet::papers($employee->fresh(), $admin));
+        $wanted = [
+            'Учёная степень, звание — кандидат экономических наук',
+            'Государственные награды, поощрения — Медаль „Хизмати шоиста“',
+            'Государственные награды, поощрения — Благодарность Министерства',
+            'Отношение к воинской обязанности — Военнообязанный',
+        ];
+
+        $this->assertSame($wanted, PersonnelSheet::papers($employee->fresh(), $admin));
 
         $this->assertNotContains('Учёная степень, звание', PersonnelSheet::missing($employee->fresh(), $admin));
 
@@ -484,16 +524,15 @@ class PersonnelSheetTest extends TestCase
         $this->actingAs($admin)
             ->get("/employees/{$employee->id}")
             ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('sheet.papers', [
-                'Учёная степень, звание',
-                'Государственные награды, поощрения',
-                'Отношение к воинской обязанности',
-            ]));
+            ->assertInertia(fn (Assert $page) => $page->where('sheet.papers', $wanted));
     }
 
     /**
      * Nothing is asked for where there is nothing to prove: «Нет» has no paper,
      * and a line nobody has answered has nothing to ask about yet.
+     *
+     * Both are an empty list, which is why neither needs a reading of its own:
+     * no record, nothing to prove.
      */
     public function test_nothing_is_asked_for_where_there_is_nothing_to_prove()
     {
@@ -503,25 +542,35 @@ class PersonnelSheetTest extends TestCase
 
         $none = $this->blankCard();
         $none->details()->update([
-            'degree' => EmployeeCard::NONE,
-            'award' => EmployeeCard::NONE,
-            'military' => EmployeeCard::NONE,
+            'has_degrees' => false,
+            'has_awards' => false,
+            'has_military_records' => false,
         ]);
 
         $this->assertSame([], PersonnelSheet::papers($none->fresh(), $admin));
     }
 
     /** A paper on file is a paper handed in, and is asked for no more. */
-    public function test_a_line_with_its_paper_on_file_is_asked_for_nothing()
+    public function test_a_record_with_its_paper_on_file_is_asked_for_nothing()
     {
         $employee = $this->blankCard();
-        $employee->details()->update([
-            'degree' => 'кандидат экономических наук',
-            'degree_document_path' => 'documents/7/degree.pdf',
-            'degree_document_name' => 'Диплом.pdf',
+        $employee->details()->update(['has_degrees' => true]);
+        $employee->degrees()->create([
+            'name' => 'кандидат экономических наук',
+            'document_path' => 'documents/7/degree.pdf',
+            'document_name' => 'Диплом.pdf',
         ]);
 
         $this->assertSame([], PersonnelSheet::papers($employee->fresh(), $this->sysadmin()));
+
+        // And the record beside it that has none is the only one asked about:
+        // one list, two records, one errand.
+        $employee->degrees()->create(['name' => 'доцент']);
+
+        $this->assertSame(
+            ['Учёная степень, звание — доцент'],
+            PersonnelSheet::papers($employee->fresh(), $this->sysadmin()),
+        );
     }
 
     /**
@@ -557,15 +606,22 @@ class PersonnelSheetTest extends TestCase
     public function test_a_paper_is_named_only_to_a_reader_of_its_line()
     {
         $employee = $this->blankCard();
-        $employee->details()->update(['has_educations' => true, 'degree' => 'кандидат экономических наук']);
+        $employee->details()->update(['has_educations' => true, 'has_degrees' => true]);
         UserEducation::factory()->for($employee)->create(['institution' => 'ТНУ', 'graduated_year' => 2019]);
+        $employee->degrees()->create(['name' => 'кандидат экономических наук']);
 
         $this->assertSame(
-            ['Образование — ТНУ', 'Учёная степень, звание'],
+            ['Образование — ТНУ', 'Учёная степень, звание — кандидат экономических наук'],
             PersonnelSheet::papers($employee->fresh(), $this->reader('educations', 'degree')),
         );
 
-        $this->assertSame(['Учёная степень, звание'], PersonnelSheet::papers($employee->fresh(), $this->reader('degree')));
+        $this->assertSame(
+            ['Учёная степень, звание — кандидат экономических наук'],
+            PersonnelSheet::papers($employee->fresh(), $this->reader('degree')),
+        );
+
+        // And a reader of neither is told nothing about either: the name of a
+        // record is what is on a card this reader may not open.
         $this->assertSame([], PersonnelSheet::papers($employee->fresh(), $this->reader('phone')));
     }
 }

@@ -211,8 +211,7 @@ class EmployeeEducationTest extends TestCase
 
         $this->actingAs($this->sysadmin())
             ->post("/employees/{$employee->id}/educations", $this->payload([
-                'document' => UploadedFile::fake()->create('scan_0007.pdf', 120, 'application/pdf'),
-                'document_name' => 'Диплом бакалавра',
+                'document' => UploadedFile::fake()->create('Диплом бакалавра.pdf', 120, 'application/pdf'),
             ]))
             ->assertSessionHasNoErrors();
 
@@ -223,9 +222,9 @@ class EmployeeEducationTest extends TestCase
         $this->assertStringStartsWith("employees/{$employee->id}/", $education->document_path);
         Storage::disk('documents')->assertExists($education->document_path);
 
-        // The name is the one somebody typed, not the one the scanner gave the
-        // file: the card shows this, and it is what one presses to open it.
-        $this->assertSame('Диплом бакалавра', $education->document_name);
+        // The card shows the name the file arrived under, which is what one
+        // presses to open it.
+        $this->assertSame('Диплом бакалавра.pdf', $education->document_name);
 
         // Nothing of it is reachable without being asked: the page hands over an
         // address, and the address weighs the viewer against the card.
@@ -233,15 +232,18 @@ class EmployeeEducationTest extends TestCase
 
         $handed = $this->actingAs($this->sysadmin())->get($url)->assertOk();
 
-        // Handed over rather than displayed: a diploma opened in a tab is a
-        // diploma the next person at that desk can read. And under the name it
-        // arrived with — asked of the UTF-8 parameter, because the plain one
-        // beside it can only carry ASCII and a Cyrillic name is not that.
+        // Shown rather than downloaded: a diploma is looked at far oftener
+        // than it is kept, and every paper here is a PDF, which the browser
+        // hands to its own reader. And under the name it arrived with — asked
+        // of the UTF-8 parameter, because the plain one beside it can only
+        // carry ASCII and a Cyrillic name is not that.
         $disposition = (string) $handed->headers->get('content-disposition');
-        $this->assertStringStartsWith('attachment;', $disposition);
-        // Under that name, with the extension of the file itself: «Диплом
-        // бакалавра» is a document and «Диплом бакалавра.pdf» is a file.
+        $this->assertStringStartsWith('inline;', $disposition);
+        // Under that name once, not «Диплом бакалавра.pdf.pdf»: the name kept
+        // on the row is a file name now, and it already ends in the extension
+        // the saved file carries.
         $this->assertStringContainsString(rawurlencode('Диплом бакалавра.pdf'), $disposition);
+        $this->assertStringNotContainsString(rawurlencode('.pdf.pdf'), $disposition);
 
         // A colleague who may not read this card's records is refused — the same
         // answer that kept the records off the page in the first place.
@@ -270,7 +272,6 @@ class EmployeeEducationTest extends TestCase
             ->post("/employees/{$employee->id}/educations", $this->payload([
                 'graduated_year' => '',
                 'document' => UploadedFile::fake()->create('diploma.pdf', 10, 'application/pdf'),
-                'document_name' => 'Диплом',
             ]))
             ->assertSessionHasErrors('graduated_year');
 
@@ -279,48 +280,81 @@ class EmployeeEducationTest extends TestCase
     }
 
     /**
-     * A document arrives with a name for it.
+     * The name on the row is the name the file arrived under.
      *
-     * The card shows that name as the thing one presses to open the file, so a
-     * document without one would be a row with nothing to show — and the name a
-     * scanner gives a file («scan_0007.pdf») is not a name anybody would press.
+     * There used to be a box of its own beside the file, «Название документа»,
+     * which had HR typing «Диплом бакалавра» next to a file already called
+     * that. The form lets the name of the file itself be edited before it is
+     * sent, so one name travels and it is the one the card shows — and a form
+     * still sending the old field says nothing about it.
      */
-    public function test_a_document_without_a_name_is_refused()
+    public function test_the_name_kept_is_the_name_the_file_arrived_under()
     {
         Storage::fake('documents');
         $employee = $this->colleague();
 
         $this->actingAs($this->sysadmin())
             ->post("/employees/{$employee->id}/educations", $this->payload([
-                'document' => UploadedFile::fake()->create('scan_0007.pdf', 10, 'application/pdf'),
+                'document' => UploadedFile::fake()->create('Диплом магистра 2015.pdf', 10, 'application/pdf'),
+                'document_name' => 'Что-то совсем другое',
             ]))
-            ->assertSessionHasErrors('document_name');
+            ->assertSessionHasNoErrors();
 
-        $this->assertCount(0, $employee->refresh()->educations);
-        $this->assertCount(0, Storage::disk('documents')->allFiles());
+        $this->assertSame('Диплом магистра 2015.pdf', $employee->refresh()->educations->first()->document_name);
     }
 
-    /** Nothing but a document: a spreadsheet is not a diploma, and ten megabytes is the most of one. */
+    /**
+     * Nothing but a PDF, and ten megabytes is the most of one.
+     *
+     * A photograph of a diploma used to be taken as well as a scan of it, and
+     * it is refused now: every document this application keeps is a PDF, so
+     * that a reader opens them all the same way and nobody is handed a page
+     * photographed at an angle which cannot be printed back out at the size it
+     * was.
+     */
     public function test_only_a_document_of_the_right_kind_and_size_is_taken()
     {
         Storage::fake('documents');
         $employee = $this->colleague();
+        $admin = $this->sysadmin();
 
-        $this->actingAs($this->sysadmin())
+        $this->actingAs($admin)
             ->post("/employees/{$employee->id}/educations", $this->payload([
                 'document' => UploadedFile::fake()->create('диплом.xlsx', 10, 'application/vnd.ms-excel'),
-                'document_name' => 'Диплом',
             ]))
             ->assertSessionHasErrors('document');
 
-        $this->actingAs($this->sysadmin())
+        // The two that were taken until November 2026.
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/educations", $this->payload([
+                'document' => UploadedFile::fake()->image('диплом.jpg', 1200, 900),
+            ]))
+            ->assertSessionHasErrors('document');
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/educations", $this->payload([
+                'document' => UploadedFile::fake()->image('диплом.png', 1200, 900),
+            ]))
+            ->assertSessionHasErrors('document');
+
+        $this->actingAs($admin)
             ->post("/employees/{$employee->id}/educations", $this->payload([
                 'document' => UploadedFile::fake()->create('diploma.pdf', 11 * 1024, 'application/pdf'),
-                'document_name' => 'Диплом',
             ]))
             ->assertSessionHasErrors('document');
 
+        // Nothing of the four reached the disk, and no record was written.
+        $this->assertCount(0, $employee->refresh()->educations);
         $this->assertCount(0, Storage::disk('documents')->allFiles());
+
+        // And the scan of the same diploma is taken.
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/educations", $this->payload([
+                'document' => UploadedFile::fake()->create('диплом.pdf', 120, 'application/pdf'),
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $this->assertNotNull($employee->refresh()->educations->first()->document_path);
     }
 
     /**
@@ -338,8 +372,7 @@ class EmployeeEducationTest extends TestCase
         $admin = $this->sysadmin();
 
         $this->actingAs($admin)->post("/employees/{$employee->id}/educations", $this->payload([
-            'document' => UploadedFile::fake()->create('first.pdf', 10, 'application/pdf'),
-            'document_name' => 'Первый',
+            'document' => UploadedFile::fake()->create('Первый.pdf', 10, 'application/pdf'),
         ]))->assertSessionHasNoErrors();
 
         $education = $employee->refresh()->educations->first();
@@ -347,12 +380,13 @@ class EmployeeEducationTest extends TestCase
 
         // Replaced: the new one is kept and the old one is not.
         $this->actingAs($admin)->put("/employees/{$employee->id}/educations/{$education->id}", $this->payload([
-            'document' => UploadedFile::fake()->create('second.pdf', 10, 'application/pdf'),
-            'document_name' => 'Второй',
+            'document' => UploadedFile::fake()->create('Второй.pdf', 10, 'application/pdf'),
         ]))->assertSessionHasNoErrors();
 
         $education->refresh();
         $this->assertNotSame($was, $education->document_path);
+        // The row took the new file's name with the new file.
+        $this->assertSame('Второй.pdf', $education->document_name);
         Storage::disk('documents')->assertMissing($was);
         Storage::disk('documents')->assertExists($education->document_path);
 

@@ -64,7 +64,7 @@ class StoreEmployeeRequest extends FormRequest
      * The citizenships arrive as a list to be tidied; the telephones arrive as
      * typed and are stored in E.164, the same way the card's own form stores them.
      *
-     * And the three lists that are answered before they are filled arrive as
+     * And the six lists that are answered before they are filled arrive as
      * empty where they did not arrive at all. On a card being written there is
      * nothing for a missing list to mean but "none of them": nothing is on file
      * to be left alone. Said here because «sometimes» drops every rule for a key
@@ -78,7 +78,7 @@ class StoreEmployeeRequest extends FormRequest
 
         $this->merge(EmployeeCard::normalizedPhones($this->all()));
 
-        foreach (['educations', 'experiences', 'children'] as $list) {
+        foreach (['educations', 'experiences', 'children', 'degrees', 'awards', 'military_records'] as $list) {
             $this->merge([$list => $this->input($list, [])]);
         }
     }
@@ -143,7 +143,18 @@ class StoreEmployeeRequest extends FormRequest
             ...EmployeeCard::educationRules('educations.*.'),
 
             /* Учёная степень, звание */
-            ...EmployeeCard::degreeRules(),
+            // A list answered before it is filled, as the education above is.
+            // The three blocks that follow this pattern were one line of text
+            // apiece until November 2026, and each was being asked to hold more
+            // than one answer — a degree and a title, two medals, the standing
+            // and the rank in the reserve — with one scan to prove all of it.
+            //
+            // No row says which record on file it is, as the places of study do
+            // on the card: nothing is on file for a colleague who does not
+            // exist yet, so every row here is a new one.
+            'has_degrees' => ['nullable', 'boolean'],
+            'degrees' => [...$rows, EmployeeCard::DEGREES_REQUIRED],
+            ...EmployeeCard::paperRules('degrees.*.'),
 
             /* Трудовая деятельность */
             'has_experience' => ['nullable', 'boolean'],
@@ -151,10 +162,14 @@ class StoreEmployeeRequest extends FormRequest
             ...EmployeeCard::experienceRules('experiences.*.'),
 
             /* Государственные награды, поощрения */
-            ...EmployeeCard::awardRules(),
+            'has_awards' => ['nullable', 'boolean'],
+            'awards' => [...$rows, EmployeeCard::AWARDS_REQUIRED],
+            ...EmployeeCard::paperRules('awards.*.'),
 
             /* Отношение к воинской обязанности */
-            ...EmployeeCard::militaryRules(),
+            'has_military_records' => ['nullable', 'boolean'],
+            'military_records' => [...$rows, EmployeeCard::MILITARY_RECORDS_REQUIRED],
+            ...EmployeeCard::paperRules('military_records.*.'),
 
             /* Оборудование */
             'equipment' => $rows,
@@ -207,9 +222,12 @@ class StoreEmployeeRequest extends FormRequest
             ...EmployeeCard::passportAttributes(),
             ...EmployeeCard::familyAttributes(),
             ...EmployeeCard::educationAttributes('educations.*.'),
-            ...EmployeeCard::degreeAttributes(),
-            ...EmployeeCard::awardAttributes(),
-            ...EmployeeCard::militaryAttributes(),
+            // Each record of the three lists is named by the block it stands
+            // in: a refusal reading «Поле название обязательно» says nothing
+            // about which part of the page was being filled in.
+            ...EmployeeCard::paperAttributes('degrees.*.', 'учёная степень, звание'),
+            ...EmployeeCard::paperAttributes('awards.*.', 'награда или поощрение'),
+            ...EmployeeCard::paperAttributes('military_records.*.', 'отношение к воинской обязанности'),
             ...EmployeeCard::experienceAttributes('experiences.*.'),
             ...EmployeeCard::equipmentAttributes(),
         ];

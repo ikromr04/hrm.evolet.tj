@@ -129,7 +129,7 @@ class EmployeeDirectoryTest extends TestCase
                 ])->all() === [['Переводчик', 'НО', 'Научный отдел']])
                 ->where('employees.data.0.private', null)
                 ->has('employees.data.0', fn (Assert $row) => $row
-                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'role', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private'])
+                    ->hasAll(['id', 'name', 'surname', 'patronymic', 'avatar', 'avatar_original', 'sex', 'email', 'role', 'positions', 'departments', 'languages', 'status', 'status_changed_at', 'status_note', 'private', 'sheet', 'documents'])
                     ->missing('details')
                     ->missing('children')
                 )
@@ -558,7 +558,10 @@ class EmployeeDirectoryTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('employees.data.0.id', $oldest->id)
                 ->where('employees.data.2.id', $youngest->id)
-                ->has('sortable', 15)
+                // Seven public and ten private, the last two of them counted
+                // rather than read off a column: how far the sheet has got and
+                // how far the checklist has.
+                ->has('sortable', 17)
             );
 
         $this->get('/employees?sort=children&direction=desc')

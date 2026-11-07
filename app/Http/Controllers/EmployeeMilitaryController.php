@@ -2,29 +2,38 @@
 
 namespace App\Http\Controllers;
 
-use App\Support\EmployeeCard;
+use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * «Отношение к воинской обязанности»: one line, and the one document behind it
- * — the военный билет, or the page of it that says this. The terms are the
- * degree's, which is to say EmployeeCardLineController's.
+ * «Отношение к воинской обязанности»: a list of them, each one line and the
+ * page of the военный билет that says it. The terms are the degrees', which is
+ * to say EmployeePaperListController's.
  */
-class EmployeeMilitaryController extends EmployeeCardLineController
+class EmployeeMilitaryController extends EmployeePaperListController
 {
-    protected function line(): string
+    protected function records(User $employee): HasMany
+    {
+        return $employee->militaryRecords();
+    }
+
+    protected function flag(): string
+    {
+        return 'has_military_records';
+    }
+
+    protected function right(): string
     {
         return 'military';
     }
 
-    /** @return array<string, mixed> */
-    protected function rules(): array
+    protected function named(): string
     {
-        return EmployeeCard::militaryRules();
+        return 'отношение к воинской обязанности';
     }
 
-    /** @return array<string, string> */
-    protected function attributes(): array
+    protected function routes(): string
     {
-        return EmployeeCard::militaryAttributes();
+        return 'military_records';
     }
 }

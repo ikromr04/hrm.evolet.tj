@@ -5,8 +5,9 @@ namespace App\Support;
 use App\Models\Equipment;
 use App\Models\User;
 use App\Models\UserLanguage;
+use App\Models\UserPaperRecord;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -48,17 +49,6 @@ final class EmployeeCard
      */
     public const MAX_ROWS = 20;
 
-    /**
-     * The answer that says there is none of something, on the lines a card
-     * keeps as free text: the degree, the awards.
-     *
-     * An empty column means nobody has asked yet, so «нет» has to be written
-     * down to be told from it — and written the same way every time, or a card
-     * will read «нет», another «Нет» and a third «—», and none of the three
-     * will be the answer the page is looking for.
-     */
-    public const NONE = 'Нет';
-
     /** The three lines the «Семья» block is given out in, each with a right of its own. */
     public const FAMILY_LINES = ['marital_status', 'spouse', 'children', 'relatives'];
 
@@ -90,6 +80,22 @@ final class EmployeeCard
     public const EDUCATIONS_REQUIRED = 'required_if:has_educations,true,1';
 
     public const EXPERIENCE_REQUIRED = 'required_if:has_experience,true,1';
+
+    /**
+     * And the same again for the three blocks that were one line of text apiece
+     * until November 2026: a degree, an award, a standing with the army.
+     *
+     * Each of them used to carry the word «Нет» in the line itself to be told
+     * from a line nobody had filled in. They are lists now — a person has two
+     * medals as readily as one, and each medal has a paper of its own — so the
+     * «нет» moved to a flag beside the list, which is where the children's has
+     * always been.
+     */
+    public const DEGREES_REQUIRED = 'required_if:has_degrees,true,1';
+
+    public const AWARDS_REQUIRED = 'required_if:has_awards,true,1';
+
+    public const MILITARY_RECORDS_REQUIRED = 'required_if:has_military_records,true,1';
 
     /* ------------------------------------------------------------ основное */
 
@@ -546,6 +552,12 @@ final class EmployeeCard
         return [
             'educations.required_if' => 'Добавьте хотя бы одно учебное заведение или ответьте «Нет».',
             'experiences.required_if' => 'Добавьте хотя бы одно место работы или ответьте «Нет».',
+            // And the three blocks that are lists as of November 2026, each
+            // asked the same way: «есть» with nothing under it is the answer
+            // the flag was added to do away with.
+            'degrees.required_if' => 'Добавьте хотя бы одну степень или звание, или ответьте «Нет».',
+            'awards.required_if' => 'Добавьте хотя бы одну награду или поощрение, или ответьте «Нет».',
+            'military_records.required_if' => 'Добавьте хотя бы одну запись или ответьте «Нет».',
             // The languages are not asked «есть или нет» — one of them there has
             // to be — so the sentence says what to do rather than offering a way
             // out of it.
@@ -656,13 +668,17 @@ final class EmployeeCard
                 // has not finished leaves it empty, which is what empty means.
                 'max:'.date('Y'),
             ],
-            // The diploma itself. Ten megabytes is a scanned page with room to
-            // spare; the formats are the three a scanner or a telephone gives.
-            "{$prefix}document" => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
-            // And what to call it. Asked for rather than read off the file,
-            // because «scan_0007.pdf» is what a scanner called it and the card
-            // shows this name as the thing one presses to open the document.
-            "{$prefix}document_name" => ['nullable', "required_with:{$prefix}document", 'string', 'max:255'],
+            // The diploma itself, as a PDF: every document this application
+            // keeps is one, so that a reader opens them all the same way and
+            // nobody is handed a photograph of a diploma taken at an angle. Ten
+            // megabytes is a scanned page with room to spare.
+            //
+            // What to call it is not asked for. It used to be a box of its own
+            // beside this one, which had HR typing «Диплом бакалавра» next to a
+            // file already called that; the name of the file is now edited in
+            // the form before it is sent, so the one name that arrives is the
+            // name the card shows.
+            "{$prefix}document" => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
         ];
     }
 
@@ -679,7 +695,6 @@ final class EmployeeCard
             "{$prefix}started_year" => 'год поступления',
             "{$prefix}graduated_year" => 'год окончания',
             "{$prefix}document" => 'документ',
-            "{$prefix}document_name" => 'название документа',
         ];
     }
 
@@ -692,8 +707,10 @@ final class EmployeeCard
      * added to a card, a record corrected — all come through here rather than
      * writing the columns themselves.
      *
-     * What the document is called is not here: it is a column, typed like any
-     * other, and goes in with the rest of the record.
+     * What the document is called comes with it: the name the file arrived
+     * under is the name the card shows, and that name is the one somebody typed
+     * over it in the form before saving. It used to be a box of its own, which
+     * had the same title typed twice on most records.
      *
      * @param  array<string, mixed>  $record  as validated, the file included
      * @return array<string, mixed> the columns to write
@@ -705,6 +722,7 @@ final class EmployeeCard
 
         if ($file instanceof UploadedFile) {
             $record['document_path'] = DocumentStore::keep($file, $employee->id);
+            $record['document_name'] = $file->getClientOriginalName();
         }
 
         return $record;
@@ -725,133 +743,109 @@ final class EmployeeCard
     /* ------ учёная степень, награды и отношение к воинской обязанности */
 
     /**
-     * Two blocks of the card kept on the same terms: «Учёная степень, звание»
-     * and «Государственные награды, поощрения». One line of text apiece, and
-     * one document behind it.
+     * One record of a list that is a line of text and the one paper behind it.
      *
-     * Both lines are optional on their own: most cards have nothing to put in
-     * either, and a form that insisted would have HR typing «нет» eighty times
-     * over. Each is one line because that is the question — see the migrations
-     * for why a degree and a title are not filed apart, and a medal and a
-     * commendation neither.
+     * Three blocks of the card are kept on exactly these terms: «Учёная
+     * степень, звание», «Государственные награды, поощрения» and «Отношение к
+     * воинской обязанности». Each of them was one line with one document until
+     * November 2026, and each of them was being asked to hold more than one
+     * answer — a degree and a title, two medals and a letter of thanks, the
+     * standing and the rank in the reserve. Crammed into a single line they
+     * came out as one string with one scan to prove all of it.
      *
-     * A document without the line, though, is a scan of something nobody has
-     * said the name of: the card would show a paper and answer nothing. So the
-     * line is asked for the moment a document is attached, and not before.
+     * So they are lists now, answered «есть или нет» first like the places of
+     * study, and this is one record of any of the three: nothing tells them
+     * apart but what the block is called, which is why the rules are written
+     * once. The prefix is the list the record stands in — «degrees.*.» — or
+     * nothing at all, for the doors that take one record on its own.
      *
-     * One document, kept on the terms a diploma is kept on. No name is asked
-     * for it, unlike the diploma of a place of study: there the name is the one
-     * thing that says which of several papers a record is about, and here the
-     * line above has already said it. So it keeps the name it arrived under.
+     * The line is insisted on, which is the one thing a list changes about the
+     * question: an empty line used to mean «nobody has asked», and the flag
+     * beside the list says that now. A record that names nothing is a record
+     * somebody opened and did not fill in.
+     *
+     * One paper, and a PDF: every document this application keeps is one, so
+     * that a reader opens them all the same way and nobody is handed a
+     * photograph of a diploma taken at an angle. Ten megabytes is a scanned
+     * page with room to spare. No name is asked for the paper — the file
+     * arrives under the name it is to be kept under, which is the name somebody
+     * typed over it in the form before saving.
      *
      * @return array<string, mixed>
      */
-    private static function lineRules(string $line): array
+    public static function paperRules(string $prefix = ''): array
     {
         return [
-            $line => ['nullable', "required_with:{$line}_document", 'string', 'max:200'],
-            // And no document under «Нет», which is the same tie read the other
-            // way round: a card that said there is none and showed a scan of it
-            // would be two answers contradicting each other.
-            "{$line}_document" => ['nullable', 'prohibited_if:'.$line.','.self::NONE, 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            "{$prefix}name" => ['required', 'string', 'max:200'],
+            "{$prefix}document" => ['nullable', 'file', 'mimes:pdf', 'max:10240'],
         ];
     }
 
     /**
-     * The block as columns of the details row, with the document put away.
+     * What the refusals call a record of one of the three lists.
      *
-     * The file is the one part of the block that is not a column: it goes to
-     * the private disk and the row keeps where it went, the way a diploma does.
-     * A save that brings none leaves whatever is on file alone — not every save
-     * is about the document, and absent is not «take it away».
+     * The line is named by the block it stands in — a refusal reading «Поле
+     * название обязательно» says nothing about which part of the sheet was
+     * being filled in — and the paper is «документ» in all three, because that
+     * is what it is called on the page.
      *
-     * There are three ways for a paper to go, then, and the third is the one
-     * somebody has to ask for in so many words. Until it existed, a scan
-     * attached by mistake could only be got rid of by answering the line «Нет»,
-     * which threw the answer away along with it: a badly scanned аттестат cost
-     * the card the degree it was proof of. The flag says the paper is to go and
-     * says nothing about the line, so the degree stays where it is.
+     * @param  string  $named  what one record of this list is, in the sheet's own words
+     * @return array<string, string>
+     */
+    public static function paperAttributes(string $prefix = '', string $named = 'название'): array
+    {
+        return [
+            "{$prefix}name" => $named,
+            "{$prefix}document" => 'документ',
+        ];
+    }
+
+    /**
+     * One such record as the columns to write, with the paper put away.
      *
-     * A file beats a removal asked for in the same request. Somebody who
-     * attached one plainly wants it, whatever they pressed before reaching for
-     * it, and a save that honoured the removal instead would be throwing away
-     * the one thing in the request nobody can doubt was meant.
+     * The file is the one part of a record that is not a column: it goes to the
+     * private disk and the row keeps where it went and what it is called. A
+     * record that brings no file leaves whatever is on file alone — not every
+     * save is about the paper, and absent is not «take it away», here as
+     * everywhere else on this card.
      *
-     * Only the callers that asked about the flag are answered on it: this reads
-     * validated data, so a form that sent one to a door whose rules do not name
-     * it — the block's own window, which has a request of its own for taking a
-     * paper off — is not sending anything at all.
+     * The name is the file's own. It used to be asked for in a box of its own
+     * on the places of study, which had HR typing «Диплом бакалавра» beside a
+     * file already called that; the form now lets the name of the file be
+     * edited before it is sent, so the one name that arrives is the one name
+     * the card shows.
      *
-     * @param  array<string, mixed>  $data  as validated, the file and the flag included
+     * @param  array<string, mixed>  $record  as validated, the file included
      * @return array<string, mixed> the columns to write
      */
-    public static function lineColumns(User $employee, array $data, string $line): array
+    public static function paperRow(User $employee, array $record): array
     {
-        $columns = Arr::only($data, [$line]);
-        $file = $data["{$line}_document"] ?? null;
-        $said = $columns[$line] ?? null;
-        $asked = (bool) ($data["{$line}_document_remove"] ?? false);
+        $file = $record['document'] ?? null;
+        unset($record['document']);
 
         if ($file instanceof UploadedFile) {
-            $columns["{$line}_document_path"] = DocumentStore::keep($file, $employee->id);
-            $columns["{$line}_document_name"] = $file->getClientOriginalName();
-        } elseif ($asked || (array_key_exists($line, $columns) && ($said === null || $said === self::NONE))) {
-            // Asked for outright; or an answer taken back, or one that says
-            // there is none, which take the paper with them. The rules refuse a
-            // document sent under «Нет», and those two are the same thing a
-            // save later: a card that said «нет» and showed a scan of it would
-            // be two answers contradicting each other, reached by two saves
-            // instead of one.
-            $columns["{$line}_document_path"] = null;
-            $columns["{$line}_document_name"] = null;
+            $record['document_path'] = DocumentStore::keep($file, $employee->id);
+            $record['document_name'] = $file->getClientOriginalName();
         }
 
-        return $columns;
+        return $record;
     }
 
-    /** @return array<string, mixed> */
-    public static function degreeRules(): array
+    /**
+     * A list of them filed in one go, as «Новый сотрудник» files one.
+     *
+     * The relation is handed over rather than named, because the three lists
+     * are three relations of the same shape and the caller is the one that
+     * knows which of them it is filling.
+     *
+     * @param  HasMany<UserPaperRecord, User>  $records
+     * @param  list<array<string, mixed>>  $rows
+     */
+    public static function savePapers(User $employee, HasMany $records, array $rows): void
     {
-        return self::lineRules('degree');
-    }
-
-    /** @return array<string, string> */
-    public static function degreeAttributes(): array
-    {
-        return [
-            'degree' => 'учёная степень, звание',
-            'degree_document' => 'документ',
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    public static function awardRules(): array
-    {
-        return self::lineRules('award');
-    }
-
-    /** @return array<string, mixed> */
-    public static function militaryRules(): array
-    {
-        return self::lineRules('military');
-    }
-
-    /** @return array<string, string> */
-    public static function militaryAttributes(): array
-    {
-        return [
-            'military' => 'отношение к воинской обязанности',
-            'military_document' => 'документ',
-        ];
-    }
-
-    /** @return array<string, string> */
-    public static function awardAttributes(): array
-    {
-        return [
-            'award' => 'государственные награды, поощрения',
-            'award_document' => 'документ',
-        ];
+        foreach ($rows as $row) {
+            $records->create(self::paperRow($employee, $row));
+        }
     }
 
     /* ------------------------------------------------- трудовая деятельность */

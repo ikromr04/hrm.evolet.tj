@@ -3,15 +3,19 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Models\UserAward;
 use App\Models\UserChild;
+use App\Models\UserDegree;
 use App\Models\UserEducation;
 use App\Models\UserLanguage;
+use App\Models\UserMilitaryRecord;
+use App\Models\UserPaperRecord;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
-use App\Support\EmployeeCard;
 use App\Support\EmployeeFields;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -141,19 +145,84 @@ class EmployeeSheetTest extends TestCase
     }
 
     /**
-     * And a paper already on one of the three lines that keep one, filed the
-     * same way: the column says where it went and what it is called.
+     * One record already on one of the three lists that are a line of text and
+     * one paper apiece, with its paper filed the way a save files one.
      *
-     * @return string where it went, which is what a save that takes it off must
-     *                leave nothing behind of
+     * @param  HasMany<UserPaperRecord, User>  $records  which of the three lists it stands in
      */
-    private function attach(User $employee, string $line, string $document): string
+    private function record(User $employee, HasMany $records, string $name, string $document): UserPaperRecord
     {
-        $path = Storage::disk('documents')->putFile("employees/{$employee->id}", $this->paper('scan.pdf'));
+        return $records->create([
+            'name' => $name,
+            // The name on the disk is the disk's own; what the paper is called
+            // is the column beside it.
+            'document_path' => Storage::disk('documents')->putFile(
+                "employees/{$employee->id}",
+                $this->paper('scan.pdf'),
+            ),
+            'document_name' => $document,
+        ]);
+    }
 
-        $employee->details()->update(["{$line}_document_path" => $path, "{$line}_document_name" => $document]);
+    /**
+     * One such record on each of the three lists at once.
+     *
+     * Every test below that is about the papers of those lists is about all
+     * three of them, because they are one behaviour three times over: the save
+     * reconciles «Учёная степень, звание», «Государственные награды,
+     * поощрения» and «Отношение к воинской обязанности» through the same walk,
+     * and a question answered for one of them is answered for the other two by
+     * the same code or not at all.
+     *
+     * @param  string|null  $named  what all three records say, for a test that
+     *                              has to tell two records of one list apart; by
+     *                              default each says what the sheet below sends
+     * @return array<string, UserPaperRecord> keyed by the name the sheet sends the list under
+     */
+    private function recorded(User $employee, ?string $named = null): array
+    {
+        return [
+            'degrees' => $this->record(
+                $employee,
+                $employee->degrees(),
+                $named ?? 'кандидат экономических наук, доцент',
+                'Аттестат доцента.pdf',
+            ),
+            'awards' => $this->record(
+                $employee,
+                $employee->awards(),
+                $named ?? 'Медаль „Хизмати шоиста“',
+                'Указ.pdf',
+            ),
+            'military_records' => $this->record(
+                $employee,
+                $employee->militaryRecords(),
+                $named ?? 'Военнообязанный, старший лейтенант запаса',
+                'Военный билет.pdf',
+            ),
+        ];
+    }
 
-        return $path;
+    /**
+     * And the three lists as the sheet sends them back: one row each, the
+     * record it is, said again, with whatever is to happen to its paper.
+     *
+     * Written out here for the reason the places of study are: the sheet edits
+     * every list whole, so a record has to come back complete — and by its id,
+     * or it is a row somebody took off the card and filed anew — even when the
+     * only thing being said about it is what is to become of its document.
+     *
+     * @param  array<string, UserPaperRecord>  $rows  as recorded() filed them
+     * @param  array<string, mixed>  $about  a correction, or the asking for the paper to go
+     * @return array<string, list<array<string, mixed>>> the three lists, ready to override the sheet's own
+     */
+    private function papers(array $rows, array $about = []): array
+    {
+        return array_map(fn (UserPaperRecord $row) => [[
+            'id' => $row->id,
+            'name' => $row->name,
+            ...$about,
+        ]], $rows);
     }
 
     /**
@@ -177,7 +246,6 @@ class EmployeeSheetTest extends TestCase
             'qualification' => 'бакалавр',
             'started_year' => 2008,
             'graduated_year' => 2012,
-            'document_name' => $row->document_name,
             ...$about,
         ]];
     }
@@ -207,7 +275,11 @@ class EmployeeSheetTest extends TestCase
             'citizenship' => ['Таджикистан'],
 
             /* Учёная степень, звание */
-            'degree' => 'кандидат экономических наук, доцент',
+            // A list answered before it is filled, as the three blocks that
+            // keep a paper apiece have been since November 2026: the answer is
+            // the flag, and what there is of it is the rows.
+            'has_degrees' => true,
+            'degrees' => [['name' => 'кандидат экономических наук, доцент']],
 
             /* Образование */
             'has_educations' => true,
@@ -243,10 +315,12 @@ class EmployeeSheetTest extends TestCase
             ],
 
             /* Государственные награды, поощрения */
-            'award' => 'Медаль „Хизмати шоиста“',
+            'has_awards' => true,
+            'awards' => [['name' => 'Медаль „Хизмати шоиста“']],
 
             /* Отношение к воинской обязанности */
-            'military' => 'Военнообязанный, старший лейтенант запаса',
+            'has_military_records' => true,
+            'military_records' => [['name' => 'Военнообязанный, старший лейтенант запаса']],
 
             /* Семейное положение и состав семьи */
             'marital_status' => 'married',
@@ -309,10 +383,17 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame('таджичка', $details->nationality);
         $this->assertSame(['Таджикистан'], $employee->citizenships->pluck('name')->all());
 
-        // The three lines that each hold one answer and one paper.
-        $this->assertSame('кандидат экономических наук, доцент', $details->degree);
-        $this->assertSame('Медаль „Хизмати шоиста“', $details->award);
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
+        // The three lists that are a line of text and one paper apiece, each
+        // with the answer that says there are any.
+        $this->assertTrue($details->has_degrees);
+        $this->assertSame(['кандидат экономических наук, доцент'], $employee->degrees->pluck('name')->all());
+        $this->assertTrue($details->has_awards);
+        $this->assertSame(['Медаль „Хизмати шоиста“'], $employee->awards->pluck('name')->all());
+        $this->assertTrue($details->has_military_records);
+        $this->assertSame(
+            ['Военнообязанный, старший лейтенант запаса'],
+            $employee->militaryRecords->pluck('name')->all(),
+        );
 
         // Образование, with the answer that says there are any.
         $this->assertTrue($details->has_educations);
@@ -386,6 +467,9 @@ class EmployeeSheetTest extends TestCase
                     'graduated_year' => 2015,
                 ]],
                 'languages' => [['name' => 'Русский', 'level' => UserLanguage::LEVELS[0]]],
+                'degrees' => [['name' => 'доктор экономических наук']],
+                'awards' => [['name' => 'Орден „Шараф“']],
+                'military_records' => [['name' => 'Снят с воинского учёта']],
                 'children' => [],
                 'has_children' => false,
                 'relatives' => [],
@@ -398,6 +482,11 @@ class EmployeeSheetTest extends TestCase
 
         $this->assertSame(['РТСУ'], $employee->educations->pluck('institution')->all());
         $this->assertSame(['Русский'], $employee->languages->pluck('name')->all());
+        // The three lists are replaced the same way, now that they are lists:
+        // a row sent without an id is a row nothing on the card answers for.
+        $this->assertSame(['доктор экономических наук'], $employee->degrees->pluck('name')->all());
+        $this->assertSame(['Орден „Шараф“'], $employee->awards->pluck('name')->all());
+        $this->assertSame(['Снят с воинского учёта'], $employee->militaryRecords->pluck('name')->all());
         $this->assertSame(0, $employee->children()->count());
         $this->assertSame(0, $employee->relatives()->count());
         $this->assertSame(0, $employee->workExperiences()->count());
@@ -407,6 +496,9 @@ class EmployeeSheetTest extends TestCase
         // card rather than a line pointed at in a list of everybody's.
         $this->assertSame(1, UserEducation::count());
         $this->assertSame(1, UserLanguage::count());
+        $this->assertSame(1, UserDegree::count());
+        $this->assertSame(1, UserAward::count());
+        $this->assertSame(1, UserMilitaryRecord::count());
         $this->assertSame(0, UserChild::count());
         $this->assertSame(0, UserRelative::count());
         $this->assertSame(0, UserWorkExperience::count());
@@ -427,13 +519,17 @@ class EmployeeSheetTest extends TestCase
         $employee->details()->update([
             'birth_place' => 'г. Куляб',
             'passport_number' => '7654321',
-            'degree' => EmployeeCard::NONE,
+            // «Нет» on a line that is a list now: the answer is the flag beside
+            // it, and a save that may not touch the block must not turn it into
+            // «есть» by carrying rows the viewer was never shown.
+            'has_degrees' => false,
             'sos_phone' => '+992905554433',
             'sos_contact' => 'Брат',
         ]);
         $employee->update(['patronymic' => 'Саидовна']);
         UserEducation::factory()->for($employee)->create(['institution' => 'ТГМУ']);
         UserRelative::factory()->for($employee)->create(['relation' => 'Отец']);
+        $employee->awards()->create(['name' => 'Медаль „Хизмати шоиста“']);
 
         // Three lines of the sheet out of twenty-five.
         $this->actingAs($this->editor('surname', 'phone', 'children'))
@@ -460,9 +556,6 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame('г. Куляб', $details->birth_place);
         $this->assertNull($details->nationality);
         $this->assertSame([], $employee->citizenships->pluck('name')->all());
-        $this->assertSame(EmployeeCard::NONE, $details->degree);
-        $this->assertNull($details->award);
-        $this->assertNull($details->military);
         $this->assertNull($details->marital_status);
         $this->assertNull($details->spouse_name);
         $this->assertNull($details->passport_series);
@@ -472,14 +565,21 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame('+992905554433', $details->sos_phone);
         $this->assertSame('Брат', $details->sos_contact);
 
-        // The lists of blocks that are not theirs keep their rows, and the two
-        // answers behind them stay unasked.
+        // The lists of blocks that are not theirs keep their rows, and the
+        // answers behind them stay as they stand — «нет» where it was given,
+        // unasked where it was not.
         $this->assertSame(['ТГМУ'], $employee->educations->pluck('institution')->all());
         $this->assertSame(['Отец'], $employee->relatives->pluck('relation')->all());
+        $this->assertSame(['Медаль „Хизмати шоиста“'], $employee->awards->pluck('name')->all());
         $this->assertSame(0, $employee->languages()->count());
         $this->assertSame(0, $employee->workExperiences()->count());
+        $this->assertSame(0, $employee->degrees()->count());
+        $this->assertSame(0, $employee->militaryRecords()->count());
         $this->assertNull($details->has_educations);
         $this->assertNull($details->has_experience);
+        $this->assertFalse($details->has_degrees);
+        $this->assertNull($details->has_awards);
+        $this->assertNull($details->has_military_records);
     }
 
     /**
@@ -512,12 +612,15 @@ class EmployeeSheetTest extends TestCase
         $employee->refresh();
 
         // Not the name in the first block, not a column of the row beside it,
-        // and not a row of any of the five lists.
+        // and not a row of any of the eight lists.
         $this->assertSame('Рахимова', $employee->surname);
         $this->assertNull($employee->details->birth_date);
-        $this->assertNull($employee->details->degree);
+        $this->assertNull($employee->details->has_degrees);
         $this->assertNull($employee->details->passport_number);
         $this->assertSame([], $employee->citizenships->pluck('name')->all());
+        $this->assertSame(0, UserDegree::count());
+        $this->assertSame(0, UserAward::count());
+        $this->assertSame(0, UserMilitaryRecord::count());
         $this->assertSame(0, UserEducation::count());
         $this->assertSame(0, UserWorkExperience::count());
         $this->assertSame(0, UserChild::count());
@@ -554,6 +657,10 @@ class EmployeeSheetTest extends TestCase
                     // A diploma cannot predate enrolment.
                     'graduated_year' => 2012,
                 ]],
+                // A record of one of the three lists that says nothing at all:
+                // the row is the answer, so an empty one is a row somebody
+                // opened and did not fill in.
+                'degrees' => [['name' => '']],
             ]))
             ->assertSessionHasErrors([
                 'surname',
@@ -565,15 +672,22 @@ class EmployeeSheetTest extends TestCase
                 'relatives.0.relation',
                 'languages.0.level',
                 'educations.0.graduated_year',
+                'degrees.0.name',
             ]);
     }
 
     /**
-     * The three lines that keep a document, and a diploma on a place of study,
-     * all filed by the one save.
+     * A paper on a record of each of the three lists that keep one, and a
+     * diploma on a place of study, all filed by the one save.
      *
      * A file is the one part of the sheet that is not a column: it goes to the
-     * private disk and the row keeps where it went.
+     * private disk and the row keeps where it went and what it is called.
+     *
+     * The name is the file's own, and nothing else is asked for it. There used
+     * to be a box of its own beside each document, which had HR typing «Диплом
+     * бакалавра» next to a file already called that; the name is now edited on
+     * the file in the form before it is sent, so the one name that arrives is
+     * the name the card shows.
      */
     public function test_the_documents_of_the_sheet_are_filed_by_the_one_save()
     {
@@ -583,9 +697,18 @@ class EmployeeSheetTest extends TestCase
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
-                'degree_document' => $this->paper('diplom.pdf'),
-                'award_document' => $this->paper('ukaz.pdf'),
-                'military_document' => $this->paper('bilet.pdf'),
+                'degrees' => [[
+                    'name' => 'кандидат экономических наук, доцент',
+                    'document' => $this->paper('Аттестат доцента.pdf'),
+                ]],
+                'awards' => [[
+                    'name' => 'Медаль „Хизмати шоиста“',
+                    'document' => $this->paper('Указ.pdf'),
+                ]],
+                'military_records' => [[
+                    'name' => 'Военнообязанный, старший лейтенант запаса',
+                    'document' => $this->paper('Военный билет.pdf'),
+                ]],
                 'educations' => [[
                     'institution' => 'ТНУ',
                     'faculty' => 'Экономический',
@@ -593,25 +716,26 @@ class EmployeeSheetTest extends TestCase
                     'qualification' => 'бакалавр',
                     'started_year' => 2008,
                     'graduated_year' => 2012,
-                    'document' => $this->paper('scan_0007.pdf'),
-                    // What to call it, which is what the card shows as the thing
-                    // one presses: a scanner's name for a file is not the name
-                    // of the paper.
-                    'document_name' => 'Диплом бакалавра',
+                    'document' => $this->paper('Диплом бакалавра.pdf'),
                 ]],
             ]))
             ->assertSessionHasNoErrors();
 
-        $details = $employee->refresh()->details;
+        $employee->refresh();
 
-        foreach (['degree' => 'diplom.pdf', 'award' => 'ukaz.pdf', 'military' => 'bilet.pdf'] as $line => $name) {
-            $this->assertNotNull($details->{"{$line}_document_path"});
-            $this->assertSame($name, $details->{"{$line}_document_name"});
-            Storage::disk('documents')->assertExists($details->{"{$line}_document_path"});
+        foreach ([
+            'degrees' => 'Аттестат доцента.pdf',
+            'awards' => 'Указ.pdf',
+            'militaryRecords' => 'Военный билет.pdf',
+        ] as $list => $name) {
+            $record = $employee->{$list}->sole();
+            $this->assertNotNull($record->document_path);
+            $this->assertSame($name, $record->document_name);
+            Storage::disk('documents')->assertExists($record->document_path);
         }
 
         $education = $employee->educations->first();
-        $this->assertSame('Диплом бакалавра', $education->document_name);
+        $this->assertSame('Диплом бакалавра.pdf', $education->document_name);
         Storage::disk('documents')->assertExists($education->document_path);
 
         // Four papers, each under the colleague they belong to, so everything
@@ -621,22 +745,50 @@ class EmployeeSheetTest extends TestCase
     }
 
     /**
-     * A document sent under «Нет» is refused, as it is everywhere else: a card
-     * that said there is none and showed a scan of it would be two answers
-     * contradicting each other.
+     * «Нет» on one of the three lists is the flag, and it takes the rows and
+     * their papers with it.
+     *
+     * The answer used to be the word «Нет» typed into the line itself — the one
+     * way a line of free text had of telling «нет» from «никто не спрашивал» —
+     * and a document sent beside it was refused as a card contradicting
+     * itself. The line is a list now, so the answer sits beside it the way the
+     * children's always has, and the contradiction cannot be sent at all: a
+     * paper only arrives on a record, and a record is «есть» whatever the flag
+     * says. What «Нет» means here is therefore the stronger thing — the list is
+     * emptied, and no paper of it is left lying on the disk.
      */
-    public function test_a_document_is_refused_under_an_answer_of_none()
+    public function test_a_list_answered_no_is_written_as_the_flag_and_keeps_nothing()
     {
         Storage::fake('documents');
 
         $employee = $this->blankCard();
+        $papers = $this->recorded($employee);
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
-                'degree' => EmployeeCard::NONE,
-                'degree_document' => $this->paper('diplom.pdf'),
+                'has_degrees' => false,
+                'degrees' => [],
+                'has_awards' => false,
+                'awards' => [],
+                'has_military_records' => false,
+                'military_records' => [],
             ]))
-            ->assertSessionHasErrors('degree_document');
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $details = $employee->refresh()->details;
+
+        $this->assertFalse($details->has_degrees);
+        $this->assertFalse($details->has_awards);
+        $this->assertFalse($details->has_military_records);
+        $this->assertSame(0, $employee->degrees()->count());
+        $this->assertSame(0, $employee->awards()->count());
+        $this->assertSame(0, $employee->militaryRecords()->count());
+
+        foreach ($papers as $row) {
+            $this->assertNull($row->fresh());
+            Storage::disk('documents')->assertMissing($row->document_path);
+        }
 
         $this->assertCount(0, Storage::disk('documents')->allFiles());
     }
@@ -654,26 +806,21 @@ class EmployeeSheetTest extends TestCase
      * «Отмена» could not put back.
      *
      * All four papers at once, because they are one behaviour four times over:
-     * the three lines that keep a document apiece, and the diploma of a place
-     * of study, which is asked for on the row it hangs off.
+     * one record of each of the three lists that keep a document, and the
+     * diploma of a place of study. Each is asked for on the row it hangs off,
+     * which is where a paper lives now that the three lines are lists.
      */
     public function test_a_paper_the_sheet_is_asked_to_take_off_goes_and_the_answer_stays()
     {
         Storage::fake('documents');
 
         $employee = $this->blankCard();
-        $papers = [
-            'degree' => $this->attach($employee, 'degree', 'Аттестат доцента.pdf'),
-            'award' => $this->attach($employee, 'award', 'Указ.pdf'),
-            'military' => $this->attach($employee, 'military', 'Военный билет.pdf'),
-        ];
+        $papers = $this->recorded($employee);
         $row = $this->studied($employee, 'ТНУ', 'Диплом бакалавра');
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
-                'degree_document_remove' => true,
-                'award_document_remove' => true,
-                'military_document_remove' => true,
+                ...$this->papers($papers, ['document_remove' => true]),
                 'educations' => $this->studies($row, ['document_remove' => true]),
             ]))
             ->assertSessionHasNoErrors()
@@ -681,19 +828,25 @@ class EmployeeSheetTest extends TestCase
 
         $details = $employee->refresh()->details;
 
-        foreach ($papers as $line => $was) {
-            $this->assertNull($details->{"{$line}_document_path"});
+        foreach ($papers as $was) {
+            $record = $was->fresh();
+
+            // The record is the row it was, and now holds no paper.
+            $this->assertSame($was->id, $record->id);
+            $this->assertSame($was->name, $record->name);
+            $this->assertNull($record->document_path);
             // The name goes with the paper: a name with nothing behind it is a
             // label the card would offer to open and have nothing to hand over.
-            $this->assertNull($details->{"{$line}_document_name"});
-            Storage::disk('documents')->assertMissing($was);
+            $this->assertNull($record->document_name);
+            Storage::disk('documents')->assertMissing($was->document_path);
         }
 
-        // And every one of the three lines still says what it said. That is the
-        // whole of why the asking is a thing of its own rather than «Нет».
-        $this->assertSame('кандидат экономических наук, доцент', $details->degree);
-        $this->assertSame('Медаль „Хизмати шоиста“', $details->award);
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
+        // And every one of the three lists still says what it said, under the
+        // answer it said it under. That is the whole of why the asking is a
+        // thing of its own rather than «Нет».
+        $this->assertTrue($details->has_degrees);
+        $this->assertTrue($details->has_awards);
+        $this->assertTrue($details->has_military_records);
 
         // The record of study is the row it was, and now holds no diploma.
         $this->assertSame($row->id, $employee->educations->sole()->id);
@@ -720,24 +873,22 @@ class EmployeeSheetTest extends TestCase
         Storage::fake('documents');
 
         $employee = $this->blankCard();
-        $papers = [
-            'degree' => $this->attach($employee, 'degree', 'Аттестат доцента.pdf'),
-            'award' => $this->attach($employee, 'award', 'Указ.pdf'),
-            'military' => $this->attach($employee, 'military', 'Военный билет.pdf'),
-        ];
+        $papers = $this->recorded($employee);
         $row = $this->studied($employee, 'ТНУ', 'Диплом бакалавра');
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
+                ...$this->papers($papers),
                 'educations' => $this->studies($row),
             ]))
             ->assertSessionHasNoErrors();
 
-        $details = $employee->refresh()->details;
+        $employee->refresh();
 
-        foreach ($papers as $line => $kept) {
-            $this->assertSame($kept, $details->{"{$line}_document_path"});
-            Storage::disk('documents')->assertExists($kept);
+        foreach ($papers as $kept) {
+            $this->assertSame($kept->document_path, $kept->fresh()->document_path);
+            $this->assertSame($kept->document_name, $kept->fresh()->document_name);
+            Storage::disk('documents')->assertExists($kept->document_path);
         }
 
         $this->assertSame($row->document_path, $row->fresh()->document_path);
@@ -761,32 +912,40 @@ class EmployeeSheetTest extends TestCase
         Storage::fake('documents');
 
         $employee = $this->blankCard();
-        $was = $this->attach($employee, 'degree', 'Аттестат доцента.pdf');
+        $degree = $this->record(
+            $employee,
+            $employee->degrees(),
+            'кандидат экономических наук, доцент',
+            'Аттестат доцента.pdf',
+        );
         $row = $this->studied($employee, 'ТНУ', 'Диплом бакалавра');
         $hung = $row->document_path;
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
-                'degree_document' => $this->paper('Аттестат доцента, пересканированный.pdf'),
-                'degree_document_remove' => true,
+                'degrees' => [[
+                    'id' => $degree->id,
+                    'name' => $degree->name,
+                    'document' => $this->paper('Аттестат доцента, пересканированный.pdf'),
+                    'document_remove' => true,
+                ]],
                 'educations' => $this->studies($row, [
-                    'document' => $this->paper('scan_0008.pdf'),
-                    'document_name' => 'Диплом бакалавра, пересканированный',
+                    'document' => $this->paper('Диплом бакалавра, пересканированный.pdf'),
                     'document_remove' => true,
                 ]),
             ]))
             ->assertSessionHasNoErrors();
 
-        $details = $employee->refresh()->details;
+        $kept = $degree->fresh();
 
-        $this->assertNotNull($details->degree_document_path);
-        $this->assertNotSame($was, $details->degree_document_path);
-        $this->assertSame('Аттестат доцента, пересканированный.pdf', $details->degree_document_name);
-        Storage::disk('documents')->assertExists($details->degree_document_path);
-        Storage::disk('documents')->assertMissing($was);
+        $this->assertNotNull($kept->document_path);
+        $this->assertNotSame($degree->document_path, $kept->document_path);
+        $this->assertSame('Аттестат доцента, пересканированный.pdf', $kept->document_name);
+        Storage::disk('documents')->assertExists($kept->document_path);
+        Storage::disk('documents')->assertMissing($degree->document_path);
 
         $this->assertNotSame($hung, $row->fresh()->document_path);
-        $this->assertSame('Диплом бакалавра, пересканированный', $row->fresh()->document_name);
+        $this->assertSame('Диплом бакалавра, пересканированный.pdf', $row->fresh()->document_name);
         Storage::disk('documents')->assertExists($row->fresh()->document_path);
         Storage::disk('documents')->assertMissing($hung);
 
@@ -810,20 +969,14 @@ class EmployeeSheetTest extends TestCase
         Storage::fake('documents');
 
         $employee = $this->blankCard();
-        $papers = [
-            'degree' => $this->attach($employee, 'degree', 'Аттестат доцента.pdf'),
-            'award' => $this->attach($employee, 'award', 'Указ.pdf'),
-            'military' => $this->attach($employee, 'military', 'Военный билет.pdf'),
-        ];
+        $papers = $this->recorded($employee);
         $row = $this->studied($employee, 'ТНУ', 'Диплом бакалавра');
 
         // Somebody whose one line of this sheet is the telephone number, with a
         // form that asks for all four papers to go.
         $this->actingAs($this->editor('phone'))
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
-                'degree_document_remove' => true,
-                'award_document_remove' => true,
-                'military_document_remove' => true,
+                ...$this->papers($papers, ['document_remove' => true]),
                 'educations' => $this->studies($row, ['document_remove' => true]),
             ]))
             ->assertSessionHasNoErrors()
@@ -831,9 +984,13 @@ class EmployeeSheetTest extends TestCase
 
         $details = $employee->refresh()->details;
 
-        foreach ($papers as $line => $kept) {
-            $this->assertSame($kept, $details->{"{$line}_document_path"});
-            Storage::disk('documents')->assertExists($kept);
+        foreach ($papers as $kept) {
+            // The record is there, and so is the paper hanging off it: a list
+            // that is not this viewer's is not reconciled at all, so not even
+            // the row is rewritten.
+            $this->assertSame($kept->document_path, $kept->fresh()->document_path);
+            $this->assertSame($kept->document_name, $kept->fresh()->document_name);
+            Storage::disk('documents')->assertExists($kept->document_path);
         }
 
         $this->assertSame($row->document_path, $row->fresh()->document_path);
@@ -848,8 +1005,10 @@ class EmployeeSheetTest extends TestCase
      * «Есть» is an answer that needs a row behind it, and the sentence says what
      * to do about it rather than reading the rule out.
      *
-     * The three lists the sheet asks before it fills: an empty one used to mean
-     * both «нет» and «nobody asked», and the sheet counted the two alike.
+     * All six lists the sheet asks before it fills: an empty one used to mean
+     * both «нет» and «nobody asked», and the sheet counted the two alike. The
+     * three that are a line of text and one paper apiece are asked the same
+     * way as of November 2026, each in its own words.
      */
     public function test_a_list_answered_yes_and_left_empty_is_refused_in_words()
     {
@@ -863,11 +1022,20 @@ class EmployeeSheetTest extends TestCase
                 'experiences' => [],
                 'has_children' => true,
                 'children' => [],
+                'has_degrees' => true,
+                'degrees' => [],
+                'has_awards' => true,
+                'awards' => [],
+                'has_military_records' => true,
+                'military_records' => [],
             ]))
             ->assertSessionHasErrors([
                 'educations' => 'Добавьте хотя бы одно учебное заведение или ответьте «Нет».',
                 'experiences' => 'Добавьте хотя бы одно место работы или ответьте «Нет».',
                 'children' => 'Добавьте хотя бы одного ребёнка или ответьте «Нет».',
+                'degrees' => 'Добавьте хотя бы одну степень или звание, или ответьте «Нет».',
+                'awards' => 'Добавьте хотя бы одну награду или поощрение, или ответьте «Нет».',
+                'military_records' => 'Добавьте хотя бы одну запись или ответьте «Нет».',
             ]);
     }
 
@@ -889,6 +1057,9 @@ class EmployeeSheetTest extends TestCase
                 'has_educations' => false,
                 'has_experience' => false,
                 'has_children' => false,
+                'has_degrees' => false,
+                'has_awards' => false,
+                'has_military_records' => false,
             ]))
             ->assertSessionHasNoErrors();
 
@@ -896,8 +1067,13 @@ class EmployeeSheetTest extends TestCase
         $this->assertTrue($details->has_educations);
         $this->assertTrue($details->has_experience);
         $this->assertTrue($details->has_children);
+        $this->assertTrue($details->has_degrees);
+        $this->assertTrue($details->has_awards);
+        $this->assertTrue($details->has_military_records);
 
         // «Нет» with nothing in the lists is the answer nothing else records.
+        // Which is what the three lines that keep a paper used to say by having
+        // the word «Нет» typed into the line itself.
         $this->actingAs($admin)
             ->put("/employees/{$employee->id}/sheet", $this->sheet([
                 'has_educations' => false,
@@ -906,6 +1082,12 @@ class EmployeeSheetTest extends TestCase
                 'experiences' => [],
                 'has_children' => false,
                 'children' => [],
+                'has_degrees' => false,
+                'degrees' => [],
+                'has_awards' => false,
+                'awards' => [],
+                'has_military_records' => false,
+                'military_records' => [],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -913,6 +1095,9 @@ class EmployeeSheetTest extends TestCase
         $this->assertFalse($details->has_educations);
         $this->assertFalse($details->has_experience);
         $this->assertFalse($details->has_children);
+        $this->assertFalse($details->has_degrees);
+        $this->assertFalse($details->has_awards);
+        $this->assertFalse($details->has_military_records);
 
         // And an empty list with no answer at all leaves the question open,
         // which is where every card starts.
@@ -924,6 +1109,12 @@ class EmployeeSheetTest extends TestCase
                 'experiences' => [],
                 'has_children' => null,
                 'children' => [],
+                'has_degrees' => null,
+                'degrees' => [],
+                'has_awards' => null,
+                'awards' => [],
+                'has_military_records' => null,
+                'military_records' => [],
             ]))
             ->assertSessionHasNoErrors();
 
@@ -931,6 +1122,9 @@ class EmployeeSheetTest extends TestCase
         $this->assertNull($details->has_educations);
         $this->assertNull($details->has_experience);
         $this->assertNull($details->has_children);
+        $this->assertNull($details->has_degrees);
+        $this->assertNull($details->has_awards);
+        $this->assertNull($details->has_military_records);
     }
 
     /**
@@ -1025,7 +1219,7 @@ class EmployeeSheetTest extends TestCase
      * No record id travels on the sheet, so no record of another card is
      * reachable through it.
      *
-     * The rows of the two lists that carry one say which record on file they
+     * The rows of the five lists that carry one say which record on file they
      * are, so the id is asked about rather than taken: it has to name a record
      * of the card in the address. The card's own windows check the same thing
      * about the one record they take, and say the same thing about it — a
@@ -1036,9 +1230,10 @@ class EmployeeSheetTest extends TestCase
     public function test_another_cards_record_is_not_reachable_through_the_sheet()
     {
         $stranger = $this->blankCard();
-        $stranger->details()->update(['has_educations' => true, 'has_experience' => true]);
+        $stranger->details()->update(['has_educations' => true, 'has_experience' => true, 'has_degrees' => true]);
         $diploma = UserEducation::factory()->for($stranger)->create(['institution' => 'ТГМУ']);
         $job = UserWorkExperience::factory()->for($stranger)->create(['organization' => 'ООО «Шифобахш»']);
+        $degree = $stranger->degrees()->create(['name' => 'кандидат медицинских наук']);
 
         $employee = $this->blankCard();
 
@@ -1064,16 +1259,23 @@ class EmployeeSheetTest extends TestCase
                     'ended_year' => 2020,
                     'reason' => 'По собственному желанию',
                 ]],
+                'degrees' => [[
+                    'id' => $degree->id,
+                    'name' => 'кандидат экономических наук, доцент',
+                ]],
             ]))
-            ->assertSessionHasErrors(['educations.0.id', 'experiences.0.id']);
+            ->assertSessionHasErrors(['educations.0.id', 'experiences.0.id', 'degrees.0.id']);
 
         // The stranger's records are untouched and still theirs, and nothing
         // was written on the card the door was opened on.
         $this->assertSame('ТГМУ', $diploma->refresh()->institution);
         $this->assertSame($stranger->id, $diploma->user_id);
         $this->assertSame('ООО «Шифобахш»', $job->refresh()->organization);
+        $this->assertSame('кандидат медицинских наук', $degree->refresh()->name);
+        $this->assertSame($stranger->id, $degree->user_id);
         $this->assertSame(0, $employee->educations()->count());
         $this->assertSame(0, $employee->workExperiences()->count());
+        $this->assertSame(0, $employee->degrees()->count());
         $this->assertSame('Рахимова', $employee->refresh()->surname);
     }
 
@@ -1108,7 +1310,6 @@ class EmployeeSheetTest extends TestCase
                         'qualification' => 'магистр',
                         'started_year' => 2008,
                         'graduated_year' => 2012,
-                        'document_name' => 'Диплом бакалавра',
                     ],
                     [
                         'institution' => 'РТСУ',
@@ -1143,6 +1344,69 @@ class EmployeeSheetTest extends TestCase
     }
 
     /**
+     * And a record of one of the three lists that keep a paper, likewise: it
+     * goes on being the row it was, corrected, with its document still hanging
+     * off it — and a record that did not come back is off the card, paper and
+     * all.
+     *
+     * The three lists were one line of free text with one document each until
+     * November 2026, so this is the question the change was made to be able to
+     * ask: a card may now say two things on such a line, each with its own
+     * proof, and correcting the wording of one must not cost it the proof.
+     * Which is what the ids are for — a list rewritten from scratch on every
+     * save would hand every row a new one and leave its paper behind.
+     */
+    public function test_a_record_of_the_three_lists_sent_back_by_its_id_keeps_its_row_and_its_paper()
+    {
+        Storage::fake('documents');
+
+        $employee = $this->blankCard();
+        $kept = $this->recorded($employee);
+        $dropped = $this->recorded($employee, 'Записано по ошибке');
+
+        // Each of the three lists comes back as two rows: the one on file by
+        // its id, corrected and carrying no file, and a second that is new. The
+        // row in between does not come back at all.
+        $this->actingAs($this->sysadmin())
+            ->put("/employees/{$employee->id}/sheet", $this->sheet(array_map(
+                fn (UserPaperRecord $row) => [
+                    ['id' => $row->id, 'name' => "{$row->name} (уточнено)"],
+                    ['name' => 'Ещё одна запись'],
+                ],
+                $kept,
+            )))
+            ->assertSessionHasNoErrors();
+
+        foreach ($kept as $row) {
+            $corrected = $row->fresh();
+
+            $this->assertSame("{$row->name} (уточнено)", $corrected->name);
+            $this->assertSame($row->document_path, $corrected->document_path);
+            $this->assertSame($row->document_name, $corrected->document_name);
+            Storage::disk('documents')->assertExists($row->document_path);
+        }
+
+        // The rows that did not come back are gone, and their papers with them:
+        // a record taken off the card leaves no file lying on the disk.
+        foreach ($dropped as $row) {
+            $this->assertNull($row->fresh());
+            Storage::disk('documents')->assertMissing($row->document_path);
+        }
+
+        // Two rows on each list, earliest first, the new one holding no paper
+        // of its own — so three papers on the disk and not six.
+        $employee->refresh();
+
+        foreach (['degrees', 'awards', 'militaryRecords'] as $list) {
+            $this->assertCount(2, $employee->{$list});
+            $this->assertSame('Ещё одна запись', $employee->{$list}->last()->name);
+            $this->assertNull($employee->{$list}->last()->document_path);
+        }
+
+        $this->assertCount(3, Storage::disk('documents')->allFiles());
+    }
+
+    /**
      * A diploma sent for a row that already had one replaces it, and only the
      * one it replaced leaves the disk.
      */
@@ -1164,15 +1428,16 @@ class EmployeeSheetTest extends TestCase
                     'qualification' => 'бакалавр',
                     'started_year' => 2008,
                     'graduated_year' => 2012,
-                    'document' => $this->paper('scan_0008.pdf'),
-                    'document_name' => 'Диплом бакалавра, пересканированный',
+                    'document' => $this->paper('Диплом бакалавра, пересканированный.pdf'),
                 ]],
             ]))
             ->assertSessionHasNoErrors();
 
         $row->refresh();
         $this->assertNotSame($was, $row->document_path);
-        $this->assertSame('Диплом бакалавра, пересканированный', $row->document_name);
+        // The name is the file's own, which is the name somebody typed over it
+        // in the form before sending it.
+        $this->assertSame('Диплом бакалавра, пересканированный.pdf', $row->document_name);
 
         // The one it replaced is off the disk and the new one is on it, so the
         // folder holds one paper rather than two.
@@ -1234,15 +1499,28 @@ class EmployeeSheetTest extends TestCase
         UserChild::factory()->for($employee)->create();
         $employee->details()->update(['has_children' => true]);
 
-        // The sheet as a browser sends it with a document attached and three of
-        // its lists empty: those three appended nothing, so their names are not
-        // in the request at all.
+        // The sheet as a browser sends it with a document attached and five of
+        // its lists empty: those five appended nothing, so their names are not
+        // in the request at all. The paper that makes it multipart hangs off a
+        // record of one of the three lists, which is where every paper of this
+        // sheet hangs now.
         $payload = $this->sheet([
-            'degree_document' => $this->paper('diplom.pdf'),
+            'degrees' => [[
+                'name' => 'кандидат экономических наук, доцент',
+                'document' => $this->paper('Аттестат доцента.pdf'),
+            ]],
             'has_children' => false,
             'has_experience' => false,
+            'has_awards' => false,
+            'has_military_records' => false,
         ]);
-        unset($payload['children'], $payload['relatives'], $payload['experiences']);
+        unset(
+            $payload['children'],
+            $payload['relatives'],
+            $payload['experiences'],
+            $payload['awards'],
+            $payload['military_records'],
+        );
 
         $this->actingAs($this->sysadmin())
             ->put("/employees/{$employee->id}/sheet", $payload)
@@ -1250,34 +1528,38 @@ class EmployeeSheetTest extends TestCase
             ->assertRedirect();
 
         // Saved — and the lists that could not be sent are written as empty
-        // rather than left as they stood, because the sheet shows all five at
+        // rather than left as they stood, because the sheet shows all eight at
         // once and this save spoke for every one of them.
         $this->assertSame(0, $employee->children()->count());
         $this->assertSame(0, $employee->relatives()->count());
         $this->assertSame(0, $employee->workExperiences()->count());
+        $this->assertSame(0, $employee->awards()->count());
+        $this->assertSame(0, $employee->militaryRecords()->count());
         $this->assertFalse($employee->refresh()->details->has_children);
         $this->assertFalse($employee->details->has_experience);
+        $this->assertFalse($employee->details->has_awards);
+        $this->assertFalse($employee->details->has_military_records);
 
         // The paper that made the save multipart in the first place is on file.
-        Storage::disk('documents')->assertExists($employee->details->degree_document_path);
+        Storage::disk('documents')->assertExists($employee->degrees->sole()->document_path);
     }
 
     /**
      * The sheet's four free lines are offered what the other cards say on them.
      *
-     * A diploma may name something no list has heard of, and a line of free text
-     * is free — so these are suggestions and not a choice: the box takes whatever
-     * is typed either way. They are read off other people's private lines,
-     * though, so a viewer who may not read the line is offered nothing.
+     * A diploma may name something no list has heard of, and a line somebody
+     * writes a degree or a medal on is free — so these are suggestions and not
+     * a choice: the box takes whatever is typed either way. Three of the four
+     * are read off the records of other people's cards, which are as private as
+     * the line they used to be, so a viewer who may not read the block is
+     * offered nothing for it.
      */
     public function test_the_card_offers_what_other_cards_say_on_the_sheets_free_lines()
     {
         $other = $this->blankCard();
-        $other->details()->update([
-            'degree' => 'кандидат экономических наук',
-            'award' => 'Медаль „Хизмати шоиста“',
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-        ]);
+        $other->degrees()->create(['name' => 'кандидат экономических наук']);
+        $other->awards()->create(['name' => 'Медаль „Хизмати шоиста“']);
+        $other->militaryRecords()->create(['name' => 'Военнообязанный, старший лейтенант запаса']);
         UserEducation::factory()->for($other)->create(['qualification' => 'провизор']);
 
         $employee = $this->blankCard();

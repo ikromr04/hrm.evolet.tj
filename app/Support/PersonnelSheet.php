@@ -15,13 +15,16 @@ use App\Models\User;
  * What is counted is answers, not rows. The languages and the relatives are not
  * counted at all: there is no number of them that is right, and a card naming
  * one language would otherwise count as finished while a card naming three
- * counted the same. «Учёная степень», «Государственные награды» and «Отношение
- * к воинской обязанности» are each one line, and «Нет» on them is an answer like
- * any other — it is the empty line that means nobody has asked yet.
+ * counted the same.
  *
- * The places of study and the jobs held before are counted the same way, though
- * they are lists: each is answered before it is filled, so what counts is that
- * somebody said whether there are any — not how many were then written down.
+ * The places of study, the jobs held before, «Учёная степень», «Государственные
+ * награды» and «Отношение к воинской обязанности» are counted the same way,
+ * though they are lists: each is answered «есть или нет» before it is filled, so
+ * what counts is that somebody said whether there are any — not how many were
+ * then written down. The last three used to be one line of free text each, where
+ * «Нет» was typed into the line itself to tell it from a line nobody had filled
+ * in; since November 2026 the answer sits beside the list in a flag of its own,
+ * and an unanswered flag is what means nobody has asked yet.
  *
  * Counted over the lines this reader may read, and no others. A figure taken
  * over the whole card would say «60%» to somebody who may see four lines of it,
@@ -139,15 +142,15 @@ final class PersonnelSheet
      *
      * Not part of filled() and not part of missing(), because a paper is not an
      * answer. The line «Учёная степень, звание» is answered the moment somebody
-     * writes what the degree is; whether the diploma has been handed in is the
+     * says whether there is one; whether the diploma has been handed in is the
      * other question, and a card that mixed the two would say «не заполнено» of
      * a line that is filled in and send somebody to ask about it.
      *
-     * Only where there is something to prove. «Нет» has no document and an
-     * unanswered line has nothing to ask for yet, so neither is short of
-     * anything. A place of study still being studied at is the same case: the
-     * diploma is wanted once the studying has ended, and not while somebody is
-     * in their second year.
+     * Only where there is something to prove, which a list says by having a
+     * record in it: «нет» and «nobody has asked» are both empty lists, so
+     * neither is short of anything. A place of study still being studied at is
+     * the one case read differently: the diploma is wanted once the studying has
+     * ended, and not while somebody is in their second year.
      *
      * Over the lines this reader may read, as everything else here is.
      *
@@ -157,16 +160,14 @@ final class PersonnelSheet
     {
         $visible = EmployeeFields::visibleTo($viewer, $employee);
 
-        // Read without being attached, as answers() reads the private row and
-        // for the same reason: on one's own profile this employee is the
-        // signed-in account, which is shared to every page with whatever hangs
-        // off it. Asking whether a diploma is on file is not the same as being
-        // allowed to read the card it is clipped to.
-        $details = $employee->relationLoaded('details') ? $employee->details : $employee->details()->first();
-
         $wanted = [];
 
         if (in_array('educations', $visible, true)) {
+            // Read without being attached, as answers() reads the private row
+            // and for the same reason: on one's own profile this employee is
+            // the signed-in account, which is shared to every page with
+            // whatever hangs off it. Asking whether a diploma is on file is not
+            // the same as being allowed to read the card it is clipped to.
             $educations = $employee->relationLoaded('educations') ? $employee->educations : $employee->educations()->get();
 
             foreach ($educations as $education) {
@@ -181,11 +182,31 @@ final class PersonnelSheet
             }
         }
 
-        foreach (['degree', 'award', 'military'] as $line) {
-            $said = trim((string) ($details?->{$line} ?? ''));
+        // The three lists that are a line of text and one paper apiece, read on
+        // the terms the places of study above are read on — relation by
+        // relation, without attaching any of them, for the reason just given.
+        //
+        // Every record of them wants its paper: a degree is a degree because
+        // there is a diploma somewhere saying so, and nothing about such a
+        // record makes it too early to ask, the way a place of study still being
+        // studied at is too early. Each is named by what it says, so a card
+        // holding two medals says which of the two the office has to go and ask
+        // for rather than saying «Государственные награды, поощрения» twice.
+        foreach (['degree' => 'degrees', 'award' => 'awards', 'military' => 'militaryRecords'] as $line => $relation) {
+            if (! in_array($line, $visible, true)) {
+                continue;
+            }
 
-            if (in_array($line, $visible, true) && $said !== '' && $said !== EmployeeCard::NONE && $details?->{$line.'_document_path'} === null) {
-                $wanted[] = self::LINES[$line];
+            $records = $employee->relationLoaded($relation) ? $employee->{$relation} : $employee->{$relation}()->get();
+
+            foreach ($records as $record) {
+                if ($record->document_path !== null) {
+                    continue;
+                }
+
+                $wanted[] = trim((string) $record->name) === ''
+                    ? self::LINES[$line]
+                    : self::LINES[$line].' — '.trim((string) $record->name);
             }
         }
 
@@ -240,15 +261,28 @@ final class PersonnelSheet
             'nationality' => $said($details?->nationality),
             // Kept as a list of countries rather than as a line, but answered
             // once like a line: a person has a citizenship or has not said.
-            'citizenship' => $employee->citizenships()->exists(),
-            'degree' => $said($details?->degree),
-            'award' => $said($details?->award),
-            'military' => $said($details?->military),
-            // Two lists, counted by their answer rather than by their length.
+            //
+            // Read off what is already loaded where it is, as the private row
+            // above is: the staff list counts this for every row on the page,
+            // and a question of its own per row is twenty-five questions the
+            // page has already answered.
+            'citizenship' => $employee->relationLoaded('citizenships')
+                ? $employee->citizenships->isNotEmpty()
+                : $employee->citizenships()->exists(),
+            // Five lists, counted by their answer rather than by their length.
             // How many universities a person went to is not a measure of how far
-            // the sheet has got; whether anybody asked them is.
+            // the sheet has got; whether anybody asked them is. Which is also
+            // what the last three say differently from how they said it until
+            // November 2026: they were a line of free text each, counted as
+            // answered the moment anything stood in the line, «Нет» included.
+            // The rows moved into lists of their own and the «нет» into a flag
+            // beside each list, so the flag is the answer now and an unanswered
+            // flag is a block nobody has been asked about.
             'educations' => $details?->has_educations !== null,
             'work_experiences' => $details?->has_experience !== null,
+            'degree' => $details?->has_degrees !== null,
+            'award' => $details?->has_awards !== null,
+            'military' => $details?->has_military_records !== null,
             'marital_status' => $said($details?->marital_status),
             'children' => $details?->has_children !== null,
             // The series and the number are one line of the sheet, as they are

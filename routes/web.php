@@ -269,35 +269,58 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     // records show at all, exactly as a photograph is.
     Route::get('educations/{education}/document', [EmployeeEducationController::class, 'document'])->name('educations.document');
 
-    // «Учёная степень, звание»: the line is saved whole like the passport, and
-    // the document behind it comes with that save — but goes on its own, since
-    // a file is not a column and taking it away is not a correction to the line.
+    // «Учёная степень, звание», kept record by record as the places of study
+    // are: one line apiece with one paper behind it, and as many of them as the
+    // person has. They were one column and one document until November 2026,
+    // which let a card name a degree or a title but never both.
+    //
+    // The record id is not bound to a model: the controller looks it up inside
+    // the employee's own list, so a stranger's id is not there to be found, and
+    // whereNumber keeps «answer» below from being read as one.
     Route::middleware('can:employees.edit.block.degree,employee')->group(function () {
-        Route::put('degree', [EmployeeDegreeController::class, 'update'])->name('degree.update');
-        Route::delete('degree/document', [EmployeeDegreeController::class, 'destroy'])->name('degree.document.destroy');
+        Route::post('degrees', [EmployeeDegreeController::class, 'store'])->name('degrees.store');
+        // Several records in one request: the steps of the "new colleague" wizard.
+        Route::post('degrees/many', [EmployeeDegreeController::class, 'storeMany'])->name('degrees.many');
+        // Whether there are any at all, said about the whole list at once — and
+        // before «degrees/{record}», or «answer» would be read as the id of a
+        // record.
+        Route::put('degrees/answer', [EmployeeDegreeController::class, 'answer'])->name('degrees.answer');
+        Route::put('degrees/{record}', [EmployeeDegreeController::class, 'update'])->name('degrees.update')->whereNumber('record');
+        Route::delete('degrees/{record}', [EmployeeDegreeController::class, 'destroy'])->name('degrees.destroy')->whereNumber('record');
     });
 
-    // And the document itself, outside that group for the reason the diploma is.
-    Route::get('degree/document', [EmployeeDegreeController::class, 'document'])->name('degree.document.show');
+    // The diploma on a record, outside the group above: those gates are about
+    // changing a record, and reading one is the other question — asked in the
+    // controller against the very line of the card that decides whether the
+    // records show at all, exactly as a photograph is.
+    Route::get('degrees/{record}/document', [EmployeeDegreeController::class, 'document'])->name('degrees.document')->whereNumber('record');
 
-    // «Государственные награды, поощрения», kept on the same terms down to the
-    // addresses: one line saved whole, one document attached by that save and
-    // taken off on its own, and the reading of it asked in the controller.
+    // «Государственные награды, поощрения», kept on the degrees' terms down to
+    // the addresses: a list of records, each with its own paper, and the
+    // reading of that paper asked in the controller rather than at the door.
     Route::middleware('can:employees.edit.block.award,employee')->group(function () {
-        Route::put('award', [EmployeeAwardController::class, 'update'])->name('award.update');
-        Route::delete('award/document', [EmployeeAwardController::class, 'destroy'])->name('award.document.destroy');
+        Route::post('awards', [EmployeeAwardController::class, 'store'])->name('awards.store');
+        Route::post('awards/many', [EmployeeAwardController::class, 'storeMany'])->name('awards.many');
+        // Before «awards/{record}», for the reason the degrees' answer is.
+        Route::put('awards/answer', [EmployeeAwardController::class, 'answer'])->name('awards.answer');
+        Route::put('awards/{record}', [EmployeeAwardController::class, 'update'])->name('awards.update')->whereNumber('record');
+        Route::delete('awards/{record}', [EmployeeAwardController::class, 'destroy'])->name('awards.destroy')->whereNumber('record');
     });
 
-    Route::get('award/document', [EmployeeAwardController::class, 'document'])->name('award.document.show');
+    Route::get('awards/{record}/document', [EmployeeAwardController::class, 'document'])->name('awards.document')->whereNumber('record');
 
-    // «Отношение к воинской обязанности», the third of those lines and kept
+    // «Отношение к воинской обязанности», the third of those lists and kept
     // exactly as the two above it.
     Route::middleware('can:employees.edit.block.military,employee')->group(function () {
-        Route::put('military', [EmployeeMilitaryController::class, 'update'])->name('military.update');
-        Route::delete('military/document', [EmployeeMilitaryController::class, 'destroy'])->name('military.document.destroy');
+        Route::post('military_records', [EmployeeMilitaryController::class, 'store'])->name('military_records.store');
+        Route::post('military_records/many', [EmployeeMilitaryController::class, 'storeMany'])->name('military_records.many');
+        // Before «military_records/{record}», for the reason the degrees' answer is.
+        Route::put('military_records/answer', [EmployeeMilitaryController::class, 'answer'])->name('military_records.answer');
+        Route::put('military_records/{record}', [EmployeeMilitaryController::class, 'update'])->name('military_records.update')->whereNumber('record');
+        Route::delete('military_records/{record}', [EmployeeMilitaryController::class, 'destroy'])->name('military_records.destroy')->whereNumber('record');
     });
 
-    Route::get('military/document', [EmployeeMilitaryController::class, 'document'])->name('military.document.show');
+    Route::get('military_records/{record}/document', [EmployeeMilitaryController::class, 'document'])->name('military_records.document')->whereNumber('record');
 
     Route::middleware('can:employees.edit.block.experience,employee')->group(function () {
         Route::post('experiences', [EmployeeWorkExperienceController::class, 'store'])->name('experiences.store');

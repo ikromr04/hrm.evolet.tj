@@ -22,15 +22,6 @@ class UserDetail extends Model
         'birth_date',
         'birth_place',
         'nationality',
-        'degree',
-        'degree_document_path',
-        'degree_document_name',
-        'award',
-        'award_document_path',
-        'award_document_name',
-        'military',
-        'military_document_path',
-        'military_document_name',
         'passport_series',
         'passport_number',
         'passport_issued_at',
@@ -43,6 +34,15 @@ class UserDetail extends Model
         'has_children',
         'has_educations',
         'has_experience',
+        // Whether the three blocks that used to be one line apiece have
+        // anything in them: «Учёная степень, звание», «Государственные
+        // награды, поощрения», «Отношение к воинской обязанности». The word
+        // «Нет» was written into those lines to tell them from an unanswered
+        // one, and a list has no line to write it in — so each is answered
+        // here, the way the children and the places of study are.
+        'has_degrees',
+        'has_awards',
+        'has_military_records',
         'home_address',
         'phone',
         'sos_phone',
@@ -63,6 +63,9 @@ class UserDetail extends Model
             'has_children' => 'boolean',
             'has_educations' => 'boolean',
             'has_experience' => 'boolean',
+            'has_degrees' => 'boolean',
+            'has_awards' => 'boolean',
+            'has_military_records' => 'boolean',
             'passport_issued_at' => 'date',
         ];
     }

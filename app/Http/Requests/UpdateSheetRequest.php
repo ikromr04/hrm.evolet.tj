@@ -75,13 +75,15 @@ class UpdateSheetRequest extends FormRequest
         'birth_place' => ['birth_place'],
         'nationality' => ['nationality'],
         'citizenship' => ['citizenship'],
-        // The three lines that keep a document apiece: the line, its paper and
-        // the asking for that paper to go are one answer, so one right carries
-        // all three. Somebody who may not retype the line may not strip it of
-        // what it is proof of either.
-        'degree' => ['degree', 'degree_document', 'degree_document_remove'],
-        'award' => ['award', 'award_document', 'award_document_remove'],
-        'military' => ['military', 'military_document', 'military_document_remove'],
+        // The three lists that are a line of text and one paper apiece. They
+        // were one line with one document each until November 2026, and the
+        // right over them has not moved: the rows, the papers hanging off them
+        // and the «есть или нет» in front of them are one answer, so one right
+        // carries all of it. Somebody who may not retype a degree may not
+        // answer whether there is one, nor strip it of what it is proof of.
+        'degree' => ['has_degrees', 'degrees'],
+        'award' => ['has_awards', 'awards'],
+        'military' => ['has_military_records', 'military_records'],
         // A list answered before it is filled: the rows and the «есть или нет»
         // behind them are the same question, so they stand or fall together.
         'educations' => ['has_educations', 'educations'],
@@ -120,30 +122,30 @@ class UpdateSheetRequest extends FormRequest
      * The citizenships arrive as a list to be tidied; the telephones arrive as
      * typed and are stored in E.164, the way every form of this card stores them.
      *
-     * And the five lists arrive as empty where they did not arrive at all,
+     * And the eight lists arrive as empty where they did not arrive at all,
      * which is not the contradiction of the «present» rules below that it
      * looks like. «Present» says what it has always said — that the sheet edits
-     * every one of these lists whole, so the save speaks for all five and a form
-     * that silently dropped one must not read as «take those away». What it
+     * every one of these lists whole, so the save speaks for all eight and a
+     * form that silently dropped one must not read as «take those away». What it
      * cannot say is how a form sends an empty list, because a form cannot: a
      * field is a name and a value, a list with no values appends no field, and
      * the name never arrives. Over plain form encoding nothing noticed, but the
      * moment a paper is attached anywhere on the sheet — a diploma, or the
-     * document of the degree, the awards or the military papers — the save goes
+     * document of a degree, an award or a military record — the save goes
      * multipart and every empty list goes missing with it. A colleague with no
      * relatives could not be given a diploma.
      *
      * So the two are read together: on a whole-sheet save a list that did not
      * come is an empty list. «Present» then goes on saying what it says — that
-     * all five belong to every save of this sheet — without having to catch a
+     * all eight belong to every save of this sheet — without having to catch a
      * form out over the way a browser encodes nothing, which it cannot tell from
-     * a field somebody dropped. The create page defaults three of its lists for
-     * the same reason and says the same thing about them.
+     * a field somebody dropped. The create page defaults its own lists for the
+     * same reason and says the same thing about them.
      *
      * The languages keep their «min:1» and an empty one is still refused — by
      * the rule that means it rather than by an accident of encoding — and the
-     * two lists answered «есть» before they are filled keep their «required_if»,
-     * which only fires because the list is here to be looked at.
+     * five lists answered «есть» before they are filled keep their
+     * «required_if», which only fires because the list is here to be looked at.
      */
     protected function prepareForValidation(): void
     {
@@ -151,7 +153,7 @@ class UpdateSheetRequest extends FormRequest
 
         $this->merge(EmployeeCard::normalizedPhones($this->all()));
 
-        foreach (['educations', 'experiences', 'children', 'relatives', 'languages'] as $list) {
+        foreach (['educations', 'experiences', 'children', 'relatives', 'languages', 'degrees', 'awards', 'military_records'] as $list) {
             $this->merge([$list => $this->input($list, [])]);
         }
     }
@@ -181,20 +183,7 @@ class UpdateSheetRequest extends FormRequest
             ...$this->citizenshipRules(),
 
             /* Учёная степень, звание */
-            ...EmployeeCard::degreeRules(),
-            // And the paper taken off the line, which the sheet asks for rather
-            // than doing: the card's own windows delete a document outright,
-            // and such a removal would be the one thing on this page «Отмена»
-            // could not put back. So it travels as an answer among the others
-            // and happens when they do.
-            //
-            // Asked for in so many words, because no file has always meant «do
-            // not touch the file» on this card: inferred from an absence, every
-            // save of a sheet nobody changed would strip every paper it holds.
-            // Which is why it is nullable as well as optional — a form that
-            // carries the flag unset is saying nothing, and nothing is the
-            // answer that leaves the paper alone.
-            'degree_document_remove' => ['nullable', 'boolean'],
+            ...$this->papersOf('degrees', EmployeeCard::DEGREES_REQUIRED, $rows),
 
             /* Образование */
             'has_educations' => ['nullable', 'boolean'],
@@ -217,7 +206,7 @@ class UpdateSheetRequest extends FormRequest
                 Rule::exists('user_educations', 'id')->where('user_id', $employee->id),
             ],
             // And the diploma of a record taken off it, on the terms the three
-            // lines' papers are taken off theirs. It belongs to the row rather
+            // lists below take a paper off one of theirs. It belongs to the row rather
             // than to the list, because that is what a diploma hangs off: a row
             // without an id has nothing on file to take off, and a row with one
             // says which paper is meant.
@@ -244,12 +233,10 @@ class UpdateSheetRequest extends FormRequest
             ],
 
             /* Государственные награды, поощрения */
-            ...EmployeeCard::awardRules(),
-            'award_document_remove' => ['nullable', 'boolean'],
+            ...$this->papersOf('awards', EmployeeCard::AWARDS_REQUIRED, $rows),
 
             /* Отношение к воинской обязанности */
-            ...EmployeeCard::militaryRules(),
-            'military_document_remove' => ['nullable', 'boolean'],
+            ...$this->papersOf('military_records', EmployeeCard::MILITARY_RECORDS_REQUIRED, $rows),
 
             /* Семейное положение и состав семьи */
             ...EmployeeCard::familyRules(),
@@ -263,6 +250,63 @@ class UpdateSheetRequest extends FormRequest
             'home_address' => ['nullable', 'string', 'max:255'],
             ...EmployeeCard::contactRules(),
         ]);
+    }
+
+    /**
+     * One of the three lists that are a line of text and one paper apiece,
+     * described exactly as the places of study above are described.
+     *
+     * The three are the same question three times — «Учёная степень, звание»,
+     * «Государственные награды, поощрения», «Отношение к воинской обязанности»
+     * — and three copies of these five rules would be two copies somebody will
+     * not change. Only the name of the list differs, and the flag and the table
+     * follow from it by the contract the whole feature is built on: the rows of
+     * «degrees» are answered by «has_degrees» and kept in «user_degrees».
+     *
+     * The flag is «nullable» rather than insisted on, because only «нет» has to
+     * be believed as it came: rows on file always mean «есть», so the two
+     * cannot drift — see EmployeeCard::listFlag(). What the list itself may hold
+     * is EmployeeCard's to say, so that the sheet and «Новый сотрудник» cannot
+     * come to disagree about it.
+     *
+     * Which record a row is, so that one already on the card goes on being that
+     * row and keeps the paper hanging off it. The sheet edits the whole list,
+     * and a list rewritten from scratch would hand every row a new id and leave
+     * its document behind — a save that brings no file means «do not change the
+     * file», here as everywhere else on this card. Which card the row belongs
+     * to is asked outright and not assumed: an id from somebody else's card is
+     * refused rather than quietly dropped.
+     *
+     * And the paper taken off a record, which the sheet asks for rather than
+     * doing: the card's own windows delete a document outright, and such a
+     * removal would be the one thing on this page «Отмена» could not put back.
+     * So it travels as an answer among the others and happens when they do.
+     * Asked for in so many words, because no file has always meant «do not
+     * touch the file» here: inferred from an absence, every save of a sheet
+     * nobody changed would strip every paper it holds. Which is why it is
+     * nullable as well as optional — a form that carries the flag unset is
+     * saying nothing, and nothing is the answer that leaves the paper alone.
+     *
+     * @param  string  $list  what the form calls it: «degrees», «awards», «military_records»
+     * @param  string  $required  the «есть with nothing under it» rule of this very list
+     * @param  list<string>  $rows  what the sheet says of every list it edits whole
+     * @return array<string, mixed>
+     */
+    private function papersOf(string $list, string $required, array $rows): array
+    {
+        /** @var User $employee */
+        $employee = $this->route('employee');
+
+        return [
+            "has_{$list}" => ['nullable', 'boolean'],
+            $list => [...$rows, $required],
+            ...EmployeeCard::paperRules("{$list}.*."),
+            "{$list}.*.id" => [
+                'nullable', 'integer',
+                Rule::exists("user_{$list}", 'id')->where('user_id', $employee->id),
+            ],
+            "{$list}.*.document_remove" => ['nullable', 'boolean'],
+        ];
     }
 
     /**
@@ -354,24 +398,30 @@ class UpdateSheetRequest extends FormRequest
             ...EmployeeCard::mainAttributes(),
             'citizenship' => 'гражданство',
             'citizenship.*' => 'гражданство',
-            ...EmployeeCard::degreeAttributes(),
             ...EmployeeCard::educationAttributes('educations.*.'),
+            // Each record of the three lists is named by the block it stands
+            // in: a refusal reading «Поле название обязательно» says nothing
+            // about which part of the sheet was being filled in.
+            ...EmployeeCard::paperAttributes('degrees.*.', 'учёная степень, звание'),
+            ...EmployeeCard::paperAttributes('awards.*.', 'награда или поощрение'),
+            ...EmployeeCard::paperAttributes('military_records.*.', 'отношение к воинской обязанности'),
             // Named for the sake of the one refusal they can produce: a row
             // claiming to be a record of somebody else's card.
             'educations.*.id' => 'учебное заведение',
             'experiences.*.id' => 'место работы',
-            // And the four flags that ask for a paper to go, named for the same
+            'degrees.*.id' => 'степень или звание',
+            'awards.*.id' => 'награда или поощрение',
+            'military_records.*.id' => 'запись',
+            // And the flags that ask for a paper to go, named for the same
             // reason: no page can send one of them as anything but yes or no,
             // but the refusal of a request built by hand still has to read as
             // Russian rather than as the name of a column.
-            'degree_document_remove' => 'документ',
-            'award_document_remove' => 'документ',
-            'military_document_remove' => 'документ',
             'educations.*.document_remove' => 'документ',
+            'degrees.*.document_remove' => 'документ',
+            'awards.*.document_remove' => 'документ',
+            'military_records.*.document_remove' => 'документ',
             ...EmployeeCard::languageAttributes(),
             ...EmployeeCard::experienceAttributes('experiences.*.'),
-            ...EmployeeCard::awardAttributes(),
-            ...EmployeeCard::militaryAttributes(),
             ...EmployeeCard::familyAttributes(),
             ...EmployeeCard::passportAttributes(),
             ...EmployeeCard::contactAttributes(),

@@ -277,6 +277,54 @@ class User extends Authenticatable
     }
 
     /**
+     * The degrees and titles the card names, in the order they were written
+     * down; private, like details.
+     *
+     * A list rather than a line, as of November 2026: a degree and a title are
+     * two answers, and each of them has a paper of its own to be proved by.
+     * The order is the order they arrived in, because there is no other —
+     * nobody dates a degree on this card, and the one somebody typed first is
+     * the one they thought of first.
+     */
+    public function degrees(): HasMany
+    {
+        return $this->hasMany(UserDegree::class)->orderBy('id');
+    }
+
+    /**
+     * The state's awards and the company's commendations, on the degrees'
+     * terms and in the same order.
+     */
+    public function awards(): HasMany
+    {
+        return $this->hasMany(UserAward::class)->orderBy('id');
+    }
+
+    /**
+     * And what the military book says, which is a list for the same reason: the
+     * standing and the rank in the reserve are two lines of one document, or
+     * two documents.
+     */
+    public function militaryRecords(): HasMany
+    {
+        return $this->hasMany(UserMilitaryRecord::class)->orderBy('id');
+    }
+
+    /**
+     * The papers of the checklist this person has handed in, one row per kind
+     * of paper; private, like the rest of the card's own documents.
+     *
+     * What is still wanted is not here and cannot be: a paper nobody has handed
+     * in has no row, and what the company asks for is the list of kinds in
+     * «Справочники». The two are read against each other wherever the
+     * checklist is drawn.
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(EmployeeDocument::class);
+    }
+
+    /**
      * One answer to "may this person do that".
      *
      * Every check in the application ends up here — the gate, the "can:"

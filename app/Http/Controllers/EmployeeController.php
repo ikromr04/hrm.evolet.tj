@@ -13,11 +13,15 @@ use App\Models\EquipmentField;
 use App\Models\EquipmentType;
 use App\Models\Position;
 use App\Models\User;
+use App\Models\UserAward;
 use App\Models\UserChild;
 use App\Models\UserCitizenship;
+use App\Models\UserDegree;
 use App\Models\UserDetail;
 use App\Models\UserEducation;
 use App\Models\UserLanguage;
+use App\Models\UserMilitaryRecord;
+use App\Models\UserPaperRecord;
 use App\Models\UserRelative;
 use App\Models\UserWorkExperience;
 use App\Notifications\AccountCreated;
@@ -32,8 +36,11 @@ use App\Support\PersonnelSheet;
 use App\Support\Placements;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -107,7 +114,23 @@ class EmployeeController extends Controller
 
     private const PRIVATE_SORTS = [
         'birth_date', 'nationality', 'citizenship', 'home_address', 'phone', 'marital_status', 'children', 'hired_at',
+        'sheet', 'documents',
     ];
+
+    /**
+     * The two columns the database cannot put in order.
+     *
+     * How far «Личный листок» has got is counted over the lines each viewer may
+     * read, and how far the checklist has got is counted over the papers the
+     * company asks for — neither is a column of a table, and both would be a
+     * dozen joins written twice over to say in SQL what PersonnelSheet already
+     * says in Russian. So a page sorted by one of them is read whole, ordered
+     * here, and cut into a page afterwards. Which is affordable because this is
+     * a company's staff and not a log: the rows are counted in hundreds.
+     *
+     * @var list<string>
+     */
+    private const COUNTED_SORTS = ['sheet', 'documents'];
 
     public function index(Request $request): Response
     {
@@ -122,7 +145,11 @@ class EmployeeController extends Controller
         $canStatus = $viewer->can('employees.fire');
         $sortable = array_values(array_filter(
             [...self::PUBLIC_SORTS, ...self::PRIVATE_SORTS],
-            fn (string $sort) => $shows(self::SORT_FIELDS[$sort] ?? $sort) || in_array($sort, ['created', 'name'], true),
+            // The sheet is not a field but a count over many of them, so it is
+            // offered to whoever may read any of the private lines it counts.
+            fn (string $sort) => $sort === 'sheet'
+                ? $this->readsSheet($visible)
+                : ($shows(self::SORT_FIELDS[$sort] ?? $sort) || in_array($sort, ['created', 'name'], true)),
         ));
         // A filter on a field that is not shown is not merely ignored: sending it
         // is refused, so nobody narrows a list by what they cannot read.
@@ -227,9 +254,14 @@ class EmployeeController extends Controller
             ->where('status', $status);
         $this->applySearch($query, $filters['q'], $visible);
         $this->applyFilters($query, $filters, $visible);
-        $this->applySort($query, $sort, $direction);
 
-        $employees = $query->paginate($perPage)->withQueryString();
+        if (in_array($sort, self::COUNTED_SORTS, true)) {
+            $employees = $this->pageByCount($query, $sort, $direction, $perPage, $viewer);
+        } else {
+            $this->applySort($query, $sort, $direction);
+
+            $employees = $query->paginate($perPage)->withQueryString();
+        }
 
         // Private data is loaded only for the rows the viewer may see, so it
         // never reaches the browser for anyone else.
@@ -237,6 +269,16 @@ class EmployeeController extends Controller
         // and everyone else's when at least one such field is open to them.
         $loaded = $employees->getCollection()->filter(fn (User $user) => $viewer->can('viewPrivateDetails', $user));
         $loaded->load(['details', 'children', 'citizenships']);
+
+        // The papers the company insists on, and what each row answers them
+        // with: one question for the page rather than one per row, and only
+        // the kinds that are insisted on, since those are the ones the column
+        // counts.
+        $required = $shows('documents') ? $this->requiredDocuments() : collect();
+
+        if ($required->isNotEmpty()) {
+            $loaded->load(['documents' => fn (HasMany $q) => $q->whereIn('document_type_id', $required)]);
+        }
 
         $employees->through(fn (User $user) => [
             'id' => $user->id,
@@ -265,6 +307,24 @@ class EmployeeController extends Controller
             // same set of lines as a colleague's.
             'private' => $loaded->contains($user)
                 ? $this->privateDetails($user, $user->is($viewer) ? EmployeeFields::visibleTo($viewer, $user) : $visible)
+                : null,
+            // How far «Личный листок» has got, as the card's own header reads
+            // it: the same figure counted the same way, so the list and the
+            // card cannot disagree about whose sheet is still wanting.
+            //
+            // Only where the private side of a row is this viewer's to read at
+            // all. Counted over the lines they may read, a card whose private
+            // lines are closed to them comes out of the count as «filled» on
+            // the four lines that are never closed — a figure that says
+            // nothing about the sheet and a hundred per cent that is not one.
+            'sheet' => $loaded->contains($user) ? PersonnelSheet::filled($user, $viewer) : null,
+            // And the papers of the checklist, counted the same way for the
+            // same reason: the card shows «Принято 2 из 10» over the block,
+            // and the list says it of everybody at once. Only the papers the
+            // company insists on — what somebody handed in beyond them is to
+            // their credit and not to the count.
+            'documents' => $required->isNotEmpty() && $loaded->contains($user)
+                ? $this->checklist($user, $required->count())
                 : null,
         ]);
 
@@ -327,11 +387,12 @@ class EmployeeController extends Controller
         /**
          * Whether this viewer may read a line of a card at all.
          *
-         * The lists offered under the three free-text lines are what other
-         * cards say on them, and those three are private: the right to add a
-         * colleague is not the right to read what the colleagues already on
-         * file hold. Without it the box still takes whatever is typed — it is
-         * the offering that stops, not the answering.
+         * The suggestions offered under the records of the three lists that are
+         * a line of text and one paper apiece are what other cards say on them,
+         * and those blocks are private: the right to add a colleague is not the
+         * right to read what the colleagues already on file hold. Without it the
+         * box still takes whatever is typed — it is the offering that stops, not
+         * the answering.
          */
         $reads = fn (string $field) => $request->user()->can(EmployeeFields::permission($field));
 
@@ -363,12 +424,13 @@ class EmployeeController extends Controller
                 // usual half-dozen travel to anybody; what the cards on file say
                 // only to somebody who may read a card's education.
                 'qualifications' => $this->qualifications($reads('educations')),
-                // And what is written on the three lines a card keeps as free
-                // text, for the same reason and on the same terms — but only
-                // for somebody who may read those lines on a card at all.
-                'degrees' => $reads('degree') ? $this->distinctDetail('degree') : [],
-                'awards' => $reads('award') ? $this->distinctDetail('award') : [],
-                'militaries' => $reads('military') ? $this->distinctDetail('military') : [],
+                // And what the records of the three lists that are a line of text
+                // and one paper apiece say, for the same reason and on the same
+                // terms — but only for somebody who may read those blocks on a
+                // card at all.
+                'degrees' => $reads('degree') ? $this->distinctPaper(UserDegree::class) : [],
+                'awards' => $reads('award') ? $this->distinctPaper(UserAward::class) : [],
+                'militaries' => $reads('military') ? $this->distinctPaper(UserMilitaryRecord::class) : [],
                 // Why a job ended, on the same terms again: a labour book says
                 // what it says, and the usual wordings are only a start.
                 'reasons' => $this->leavingReasons($reads('work_experiences')),
@@ -419,11 +481,6 @@ class EmployeeController extends Controller
             // because that is the order somebody looking for a field will read.
             $employee->details()->create([
                 ...Arr::only($data, ['hired_at', 'birth_date', 'birth_place', 'nationality', 'home_address']),
-                // The two lines that keep a document apiece: a file rather than
-                // a column, so it is put away on the way in.
-                ...EmployeeCard::lineColumns($employee, $data, 'degree'),
-                ...EmployeeCard::lineColumns($employee, $data, 'award'),
-                ...EmployeeCard::lineColumns($employee, $data, 'military'),
                 ...Arr::only($data, ['phone', 'sos_phone', 'sos_contact']),
                 ...Arr::only($data, ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number']),
                 ...Arr::only($data, ['marital_status', 'spouse_name', 'spouse_birth_date', 'spouse_occupation']),
@@ -436,6 +493,15 @@ class EmployeeController extends Controller
                 // nobody employed them before, or says nothing about either.
                 'has_educations' => EmployeeCard::listFlag($data['has_educations'] ?? null, $data['educations'] ?? []),
                 'has_experience' => EmployeeCard::listFlag($data['has_experience'] ?? null, $data['experiences'] ?? []),
+                // And for the three blocks that were one line of free text each
+                // until November 2026, where «Нет» was written into the line
+                // itself to tell it from a line nobody had filled in. They are
+                // lists now — a person has two medals as readily as one — so the
+                // «нет» sits in a flag beside each list, and the rows themselves
+                // go in below rather than into this row.
+                'has_degrees' => EmployeeCard::listFlag($data['has_degrees'] ?? null, $data['degrees'] ?? []),
+                'has_awards' => EmployeeCard::listFlag($data['has_awards'] ?? null, $data['awards'] ?? []),
+                'has_military_records' => EmployeeCard::listFlag($data['has_military_records'] ?? null, $data['military_records'] ?? []),
             ]);
             EmployeeCard::saveCitizenships($employee, $data['citizenship'] ?? []);
 
@@ -471,6 +537,14 @@ class EmployeeController extends Controller
             // languages and the children do.
             EmployeeCard::saveEducations($employee, $data['educations'] ?? []);
             $employee->workExperiences()->createMany($data['experiences'] ?? []);
+
+            // And the three lists that are a line of text and one paper apiece,
+            // through the same door and for the same reason: the paper is a file
+            // rather than a column. The relation is handed over rather than
+            // named, because nothing but the relation tells the three apart.
+            EmployeeCard::savePapers($employee, $employee->degrees(), $data['degrees'] ?? []);
+            EmployeeCard::savePapers($employee, $employee->awards(), $data['awards'] ?? []);
+            EmployeeCard::savePapers($employee, $employee->militaryRecords(), $data['military_records'] ?? []);
 
             // Only what is free is handed over, as everywhere else in the fleet.
             EmployeeCard::issueEquipment($employee, $data['equipment'] ?? [], $data['issued_at'] ?? null);
@@ -545,7 +619,7 @@ class EmployeeController extends Controller
             // The values come with the field behind each of them: a unit's name
             // and its number are two of those fields, read by the role they
             // carry, so the block cannot print either without them.
-            $employee->load(['details', 'children', 'relatives', 'citizenships', 'educations', 'workExperiences', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
+            $employee->load(['details', 'children', 'relatives', 'citizenships', 'educations', 'workExperiences', 'degrees', 'awards', 'militaryRecords', 'equipment.type.fields', 'equipment.fieldValues.field:id,role']);
         }
 
         return Inertia::render('employees/show', [
@@ -604,12 +678,27 @@ class EmployeeController extends Controller
                     // the block that shows one has to know which it is showing.
                     ...($shows('educations') ? ['has_educations' => $employee->details?->has_educations] : []),
                     ...($shows('work_experiences') ? ['has_experience' => $employee->details?->has_experience] : []),
-                    // The degree is one line, read with the rest of the private
-                    // lines above; the document shown for it travels with that
-                    // line and under the same answer.
-                    ...($shows('degree') ? ['degree_document' => $this->lineDocument($employee, 'degree')] : []),
-                    ...($shows('award') ? ['award_document' => $this->lineDocument($employee, 'award')] : []),
-                    ...($shows('military') ? ['military_document' => $this->lineDocument($employee, 'military')] : []),
+                    // The three lists that are a line of text and one paper
+                    // apiece, each with the «есть или нет» in front of it, on
+                    // the terms the two lists above travel: a block that shows
+                    // an empty list has to know whether it is showing «нет» or a
+                    // card nobody has been asked about.
+                    //
+                    // Until November 2026 each of the three was one line of the
+                    // private row with one document beside it, which is why they
+                    // are read here rather than among the lines above.
+                    ...($shows('degree') ? [
+                        'degrees' => $employee->degrees->map(fn (UserDegree $r) => $this->paper($r, 'degrees'))->all(),
+                        'has_degrees' => $employee->details?->has_degrees,
+                    ] : []),
+                    ...($shows('award') ? [
+                        'awards' => $employee->awards->map(fn (UserAward $r) => $this->paper($r, 'awards'))->all(),
+                        'has_awards' => $employee->details?->has_awards,
+                    ] : []),
+                    ...($shows('military') ? [
+                        'military_records' => $employee->militaryRecords->map(fn (UserMilitaryRecord $r) => $this->paper($r, 'military_records'))->all(),
+                        'has_military_records' => $employee->details?->has_military_records,
+                    ] : []),
                     // What they hold and what happened to it while they held it:
                     // one field, two things to read.
                     // Both readings are narrowed to the units this viewer may
@@ -723,10 +812,11 @@ class EmployeeController extends Controller
                 // — the usual wordings to anybody, the ones on file only to
                 // somebody who may read the jobs a card lists.
                 'reasons' => $this->leavingReasons($shows('work_experiences')),
-                // What diplomas have made of people here, and what is written on
-                // the three lines a card keeps as free text: offered rather than
-                // imposed, because a diploma may name something no list has
-                // heard of and a line of free text is free. «Личный листок» is
+                // What diplomas have made of people here, and what the records of
+                // the three lists that are a line of text and one paper apiece
+                // say: offered rather than imposed, because a diploma may name
+                // something no list has heard of and a degree or a medal is
+                // written down as it is written on the paper. «Личный листок» is
                 // retyped on this page now, and these four boxes were taking
                 // whatever was typed while suggesting nothing — the very same
                 // boxes on «Новый сотрудник» have always offered what the other
@@ -736,9 +826,9 @@ class EmployeeController extends Controller
                 // private lines, so a viewer who may not read the line is
                 // offered nothing and still types whatever they like.
                 'qualifications' => $this->qualifications($shows('educations')),
-                'degrees' => $shows('degree') ? $this->distinctDetail('degree') : [],
-                'awards' => $shows('award') ? $this->distinctDetail('award') : [],
-                'militaries' => $shows('military') ? $this->distinctDetail('military') : [],
+                'degrees' => $shows('degree') ? $this->distinctPaper(UserDegree::class) : [],
+                'awards' => $shows('award') ? $this->distinctPaper(UserAward::class) : [],
+                'militaries' => $shows('military') ? $this->distinctPaper(UserMilitaryRecord::class) : [],
             ] : null,
             // The dialog edits these by id or name, not by the labels shown above.
             'assigned' => $canEdit ? [
@@ -1005,6 +1095,108 @@ class EmployeeController extends Controller
                     $q->where(fn (Builder $q) => $q->where('phone', 'like', "%{$digits}%")->orWhere('sos_phone', 'like', "%{$digits}%"));
                 });
         });
+    }
+
+    /**
+     * Whether the sheet's own count is this viewer's to read at all.
+     *
+     * It is a count over the lines of «Личный листок», most of which are
+     * private — so a viewer who may read none of those is offered neither the
+     * column nor the sort: counted over the four lines that are never closed,
+     * every card on the books would read «100%».
+     *
+     * @param  list<string>  $visible
+     */
+    private function readsSheet(array $visible): bool
+    {
+        return array_intersect(array_keys(PersonnelSheet::LINES), EmployeeFields::PRIVATE_FIELDS, $visible) !== [];
+    }
+
+    /**
+     * The kinds of paper the company insists on, by id.
+     *
+     * @return Collection<int, int>
+     */
+    private function requiredDocuments(): Collection
+    {
+        return DocumentType::query()->where('is_required', true)->pluck('id');
+    }
+
+    /**
+     * Where one card stands with those papers: how many are accepted, waiting,
+     * sent back, and how many nobody has handed in at all.
+     *
+     * The four add up to the number asked for, which is what lets the column
+     * draw them as one bar: «не приложен» is not a status on a row but the
+     * absence of a row, so it is whatever is left when the three that are
+     * written down have been counted.
+     *
+     * @return array<string, int>
+     */
+    private function checklist(User $employee, int $required): array
+    {
+        $handed = $employee->documents;
+
+        $answered = fn (string $status) => $handed->where('status', $status)->count();
+
+        $approved = $answered(EmployeeDocument::APPROVED);
+        $pending = $answered(EmployeeDocument::PENDING);
+        $rejected = $answered(EmployeeDocument::REJECTED);
+
+        return [
+            'required' => $required,
+            'approved' => $approved,
+            'pending' => $pending,
+            'rejected' => $rejected,
+            'missing' => max(0, $required - $approved - $pending - $rejected),
+        ];
+    }
+
+    /**
+     * A page of the list ordered by something the database cannot order by:
+     * how far the sheet has got, or how far the checklist has.
+     *
+     * Read whole, counted row by row, ordered, and then cut into a page —
+     * which is the one way to order a list by a figure that is worked out in
+     * PHP and differs from viewer to viewer. See COUNTED_SORTS for why that is
+     * affordable here and would not be on a table of events.
+     *
+     * A row whose private side this viewer may not read counts as less than
+     * nothing, so the rows they cannot judge gather at one end instead of
+     * being scattered through the order by a figure they are not shown.
+     *
+     * @param  Builder<User>  $query
+     * @return LengthAwarePaginator<int, User>
+     */
+    private function pageByCount(Builder $query, string $sort, string $direction, int $perPage, User $viewer): LengthAwarePaginator
+    {
+        $rows = $query->with(['details', 'citizenships'])->get();
+        $required = $sort === 'documents' ? $this->requiredDocuments() : collect();
+
+        if ($required->isNotEmpty()) {
+            $rows->load(['documents' => fn (HasMany $q) => $q->whereIn('document_type_id', $required)]);
+        }
+
+        $counted = fn (User $user) => match (true) {
+            ! $viewer->can('viewPrivateDetails', $user) => -1,
+            $sort === 'sheet' => PersonnelSheet::filled($user, $viewer),
+            // By what is accepted of what is asked for, which is the figure the
+            // card prints over the block; a company that asks for nothing has
+            // nothing to be short of.
+            $required->isEmpty() => -1,
+            default => $this->checklist($user, $required->count())['approved'] / $required->count(),
+        };
+
+        $ordered = $direction === 'desc' ? $rows->sortByDesc($counted) : $rows->sortBy($counted);
+        $page = Paginator::resolveCurrentPage();
+
+        return (new LengthAwarePaginator(
+            $ordered->values()->forPage($page, $perPage)->values(),
+            $ordered->count(),
+            $perPage,
+            $page,
+            ['path' => Paginator::resolveCurrentPath()],
+        ))->withQueryString();
     }
 
     private function applySort(Builder $query, string $sort, string $direction): void
@@ -1614,24 +1806,30 @@ class EmployeeController extends Controller
     }
 
     /**
-     * The document behind one of the card's two lines that keep one — the
-     * degree, the award — as a card reads it.
+     * One record of the three lists that are a line of text and one paper
+     * apiece — a degree, an award, a standing with the army — as a card reads it.
      *
-     * @param  string  $line  the column it lives in, which is also its right
-     * @return array<string, string>|null
+     * The three are one shape three times over, and nothing but the block they
+     * belong to tells them apart, which is the whole of what the route prefix
+     * is for: a record of «Учёная степень, звание» hands its document out at
+     * «employees.degrees.document», and the record itself does not know that.
+     *
+     * @param  string  $routes  the block's own route prefix: «degrees», «awards», «military_records»
+     * @return array<string, mixed>
      */
-    private function lineDocument(User $employee, string $line): ?array
+    private function paper(UserPaperRecord $record, string $routes): array
     {
-        if ($employee->details?->{"{$line}_document_path"} === null) {
-            return null;
-        }
-
         return [
-            'name' => $employee->details->{"{$line}_document_name"},
-            // As a way to ask for it rather than as a path, for the reason a
-            // diploma is: where the file lies is nobody's business outside this
-            // application.
-            'url' => route("employees.{$line}.document.show", $employee),
+            'id' => $record->id,
+            'name' => $record->name,
+            // The document as a way to ask for it rather than as a path, for the
+            // reason a diploma is: where the file lies is nobody's business
+            // outside this application, and the address answers only somebody
+            // who may read this card.
+            'document' => $record->document_path === null ? null : [
+                'name' => $record->document_name,
+                'url' => route("employees.{$routes}.document", [$record->user_id, $record->id]),
+            ],
         ];
     }
 
@@ -1641,6 +1839,23 @@ class EmployeeController extends Controller
     private function distinctDetail(string $column): array
     {
         return UserDetail::query()->whereNotNull($column)->distinct()->orderBy($column)->pluck($column)->all();
+    }
+
+    /**
+     * And the same for one of the three lists that are kept beside the private
+     * row rather than in it: what other cards have written on their records,
+     * each wording once.
+     *
+     * A table apiece and the same column in all three, so the model is handed
+     * over rather than the table named — that is the one thing that differs,
+     * and it is the thing the caller knows.
+     *
+     * @param  class-string<UserPaperRecord>  $records
+     * @return list<string>
+     */
+    private function distinctPaper(string $records): array
+    {
+        return $records::query()->whereNotNull('name')->distinct()->orderBy('name')->pluck('name')->all();
     }
 
     /**
@@ -1760,9 +1975,11 @@ class EmployeeController extends Controller
             ...$this->only($visible, [
                 'birth_date' => fn () => $details?->birth_date?->toDateString(),
                 'nationality' => fn () => $details?->nationality,
-                'degree' => fn () => $details?->degree,
-                'award' => fn () => $details?->award,
-                'military' => fn () => $details?->military,
+                // «Учёная степень, звание», «Государственные награды,
+                // поощрения» and «Отношение к воинской обязанности» used to be
+                // three lines of this row. They are lists kept beside it as of
+                // November 2026 and are read in card(), where the papers
+                // hanging off their records are read with them.
                 'citizenship' => fn () => $user->citizenships->pluck('name')->all() ?: null,
                 'home_address' => fn () => $details?->home_address,
                 'phone' => fn () => $details?->phone,

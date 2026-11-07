@@ -34,6 +34,7 @@ import {
     papersWanted,
     SHEET_PART_FIELDS,
     sheetToSend,
+    type PaperRow,
     type SheetOptions,
     type SheetValues,
 } from '@/components/personnel-sheet/values';
@@ -73,10 +74,10 @@ import {
     monthNames,
     sexLabels,
     tenure,
-    type CardDocument,
     type Education,
     type Equipment,
     type LanguageLevel,
+    type PaperRecord,
     type PrivateDetails,
     type Sex,
     type SpokenLanguage,
@@ -91,6 +92,7 @@ import {
     Camera,
     ChevronLeft,
     ChevronRight,
+    CircleDashed,
     FileText,
     LoaderCircle,
     Lock,
@@ -139,10 +141,18 @@ interface ProfilePrivate extends PrivateDetails {
      * right to read the list it is about.
      */
     has_educations: boolean | null;
-    /** The documents behind those two lines; the lines themselves are private details. */
-    degree_document: CardDocument | null;
-    award_document: CardDocument | null;
-    military_document: CardDocument | null;
+    /**
+     * The three parts that are a list of records of a line and a paper apiece,
+     * each with the answer that opens it — read exactly as the schooling above
+     * is, and under the right over the part they belong to, so a reader who may
+     * not read the degrees is sent neither the records nor the answer.
+     */
+    degrees: PaperRecord[];
+    has_degrees: boolean | null;
+    awards: PaperRecord[];
+    has_awards: boolean | null;
+    military_records: PaperRecord[];
+    has_military_records: boolean | null;
     /** The latest first. */
     work_experiences: (WorkExperience & { id: number })[];
     /** The jobs' own answer, asked and read exactly as the schools' above. */
@@ -326,8 +336,8 @@ interface EditOptions extends PlacementOptions {
     equipment_types: { id: number; name: string }[];
     /**
      * The four lists only «Личный листок» asks for: what diplomas have made of
-     * people here, and what the three free-text lines say on the cards already
-     * filed.
+     * people here, and what the records of the three paper lists say on the
+     * cards already filed.
      *
      * Asked for as the page may or may not have them, because every one of them
      * is a suggestion and none is binding — a box handed nothing still takes
@@ -640,11 +650,12 @@ interface SheetProgress {
     /** The lines nobody has answered yet, as the sheet names them, in the order it asks. */
     missing: string[];
     /**
-     * And the lines that are answered and still short of the paper that proves
-     * it — a degree with no diploma, a place of study somebody left with
-     * nothing on file. Not part of the figure above: a document is not an
-     * answer, and a line that said «Не заполнено» because a scan had not
-     * arrived would send somebody to ask a question that has been answered.
+     * And the records that are still short of the paper that proves them — a
+     * degree with no diploma, a place of study somebody left with nothing on
+     * file — each named by the part it belongs to and by what it says, since a
+     * card may hold three of either. Not part of the figure above: a document
+     * is not an answer, and a part that said «Не заполнено» because a scan had
+     * not arrived would send somebody to ask a question that has been answered.
      */
     papers: string[];
     /**
@@ -854,42 +865,45 @@ function Paper({ paper }: { paper: { name: string | null; url: string } }) {
 }
 
 /**
- * A part the card answers in one line, and the parts whose list is empty: what
- * it says, or the same dash a line of «Основное» leaves where nobody has said
+ * What a part says where it has no table to show: «Нет» from a part answered
+ * that way, or the same dash a line of «Основное» leaves where nobody has said
  * anything. The question has still been asked, so the part is drawn either way.
  *
- * Where a paper stands behind the answer — a diploma of a degree, the order of
- * an award, a military card — it is clipped to the end of the line as a mark
- * rather than named: the line has already said what the paper is about, and the
- * name of a file says only what somebody called it when they uploaded it. It
- * never stands beside a dash, since the card refuses a paper for a line that
- * answers nothing.
+ * No paper is clipped here any more. Every paper on the sheet now hangs off a
+ * record of a list, so it is named in that list's own «Документ» column by
+ * Paper above — and a part that has records to show is not drawn by this.
  */
-function SheetLine({ children, paper }: { children?: ReactNode; paper?: CardDocument | null }) {
-    if (!paper) {
-        return <p className="text-sm font-medium">{children || <span className="text-muted-foreground font-normal">—</span>}</p>;
-    }
-
-    return (
-        <p className="text-sm font-medium">
-            {/* The answer itself is the way to the paper behind it, mark and
-                words together: a target the width of an icon is a target to be
-                missed, and the line already says what the paper is about. The
-                mark leads, so that a part carrying one is known for it before
-                the answer is read. */}
-            <a
-                href={paper.url}
-                target="_blank"
-                rel="noopener"
-                title={paper.name}
-                className="hover:text-brand-strong inline-flex min-w-0 items-center gap-1.5 underline-offset-4 hover:underline"
-            >
-                <FileText className="size-4 shrink-0" />
-                <span className="min-w-0 break-words">{children}</span>
-            </a>
-        </p>
-    );
+function SheetLine({ children }: { children?: ReactNode }) {
+    return <p className="text-sm font-medium">{children || <span className="text-muted-foreground font-normal">—</span>}</p>;
 }
+
+/**
+ * A record of one of the three paper lists, read into the row a form holds it
+ * as.
+ *
+ * Written once for the three because the three are one shape, and because the
+ * two decisions in it are the same decisions every record of this sheet makes:
+ * the file box opens empty — not attaching a paper is how the save is told to
+ * leave the one on file alone — and what is on file is handed over as a label
+ * beside it, so an empty box does not read as a paper that went missing.
+ */
+const asPaperRow = (record: PaperRecord): PaperRow => ({
+    id: record.id,
+    name: record.name,
+    document: null,
+    attached: record.document?.name ?? undefined,
+});
+
+/**
+ * One of the three paper lists as a table: what each record says, and the paper
+ * behind it or the dash a record still waiting for one reads.
+ *
+ * Named by the part it belongs to, because the first column answers the part's
+ * own question — «Учёная степень, звание» over the lines that say which — and
+ * the second is the same column of papers «Образование» ends with, so the four
+ * tables of the sheet read as the one table they are.
+ */
+const paperRows = (records: PaperRecord[]) => records.map((record) => [record.name, record.document ? <Paper paper={record.document} /> : '—']);
 
 /**
  * Every line of the card the eleven parts of the sheet answer, as
@@ -901,6 +915,50 @@ function SheetLine({ children, paper }: { children?: ReactNode; paper?: CardDocu
  * of text. Not the sheet's own line keys: those name questions, and these name
  * the rights, and «Серия и номер» is one right over two boxes.
  */
+/**
+ * The lines the sheet counts whose answer is written in a box of another name.
+ *
+ * «Образование» is answered by «есть или нет» and the records under it, the
+ * passport's first line is answered by the series and the number — so a line
+ * pressed in the list of what is still wanted cannot always be looked up by
+ * its own key among the fields of a part. Only the seven that differ are here;
+ * every other line is its own box.
+ */
+/**
+ * One line of what the card is still short of, in the column beside the sheet.
+ *
+ * The same plate the checklist draws a paper on, down to the class list:
+ * «Не заполнено» and «Не приложены» are two lists of one kind standing one
+ * under the other, and a column that drew them differently would read as two
+ * blocks that have nothing to do with each other.
+ */
+const wantedLine = 'bg-muted/40 flex w-full min-w-0 items-center gap-3 rounded-lg border px-2 py-1.5 text-left transition-colors';
+
+/**
+ * The lines whose papers hang off records rather than off the line itself, and
+ * the list each of them keeps those records in.
+ *
+ * What «Документы не приложены» names is a record — «Учёная степень, звание —
+ * доцент» — so a line pressed there leads to that record's own file box, and
+ * the list is how the name after the dash is looked up.
+ */
+const SHEET_LINE_RECORDS: Record<string, 'educations' | 'degrees' | 'awards' | 'military_records'> = {
+    educations: 'educations',
+    degree: 'degrees',
+    award: 'awards',
+    military: 'military_records',
+};
+
+const SHEET_LINE_BOX: Record<string, string> = {
+    educations: 'has_educations',
+    work_experiences: 'has_experience',
+    degree: 'has_degrees',
+    award: 'has_awards',
+    military: 'has_military_records',
+    children: 'has_children',
+    passport_number: 'passport_series',
+};
+
 const SHEET_FIELDS = [
     'surname',
     'name',
@@ -1002,12 +1060,16 @@ function SheetTab({
             started_year: String(education.started_year),
             graduated_year: education.graduated_year === null ? '' : String(education.graduated_year),
             document: null,
-            document_name: education.document?.name ?? '',
             // What is already clipped to this record, so that an empty file box
             // does not read as a diploma that went missing.
             attached: education.document?.name ?? undefined,
         })),
-        degree: details?.degree ?? '',
+        // The degrees, read exactly as the schooling above: records on file say
+        // «есть» whatever the flag holds, each record names itself so the save
+        // corrects it where it stands, and the paper clipped to it is a label
+        // rather than an answer.
+        has_degrees: (details?.degrees ?? []).length > 0 ? 'yes' : asSaid(details?.has_degrees),
+        degrees: (details?.degrees ?? []).map(asPaperRow),
         // A card naming no language opens on the one empty row «Новый
         // сотрудник» opens on, and for the same reason: everybody speaks
         // something, and a part that opened empty would read as a part that may
@@ -1026,7 +1088,9 @@ function SheetTab({
             ended_year: job.ended_year === null ? '' : String(job.ended_year),
             reason: job.reason ?? '',
         })),
-        award: details?.award ?? '',
+        // And the awards, on the degrees' terms.
+        has_awards: (details?.awards ?? []).length > 0 ? 'yes' : asSaid(details?.has_awards),
+        awards: (details?.awards ?? []).map(asPaperRow),
         marital_status: details?.marital_status ?? '',
         spouse_name: details?.spouse_name ?? '',
         spouse_birth_date: details?.spouse_birth_date ?? '',
@@ -1054,7 +1118,9 @@ function SheetTab({
         phone: details?.phone ?? '',
         sos_phone: details?.sos_phone ?? '',
         sos_contact: details?.sos_contact ?? '',
-        military: details?.military ?? '',
+        // And the military record, the third of the same.
+        has_military_records: (details?.military_records ?? []).length > 0 ? 'yes' : asSaid(details?.has_military_records),
+        military_records: (details?.military_records ?? []).map(asPaperRow),
     });
 
     const form = useClearingForm<SheetValues>(saved());
@@ -1283,9 +1349,9 @@ function SheetTab({
     // there is nothing to keep out here.
     const papers = [
         ...(details?.educations ?? []).map((education) => education.document),
-        details?.degree_document,
-        details?.award_document,
-        details?.military_document,
+        ...(details?.degrees ?? []).map((record) => record.document),
+        ...(details?.awards ?? []).map((record) => record.document),
+        ...(details?.military_records ?? []).map((record) => record.document),
     ].flatMap((paper) => (paper ? [paper] : []));
 
     /**
@@ -1343,30 +1409,40 @@ function SheetTab({
             title: 'Учёная степень, звание',
             shown: shows('degree'),
             fields: SHEET_PART_FIELDS.degree,
-            body: <SheetLine paper={details?.degree_document}>{details?.degree}</SheetLine>,
-            edit: answers('degree') && <DegreeGroup {...asked} attached={details?.degree_document?.name ?? null} />,
+            body:
+                (details?.degrees ?? []).length === 0 ? (
+                    // «Нет» where somebody has said so, and the dash only for a
+                    // part nobody has been asked about — the reading
+                    // «Образование» has, now that this part is answered the same
+                    // way.
+                    <SheetLine>{details?.has_degrees === false ? 'Нет' : null}</SheetLine>
+                ) : (
+                    <RecordTable head={['Учёная степень, звание', 'Документ']} rows={paperRows(details?.degrees ?? [])} />
+                ),
+            edit: answers('degree') && <DegreeGroup {...asked} />,
         },
         {
             number: '05',
             title: 'Знание языков',
             shown: shows('languages'),
             fields: SHEET_PART_FIELDS.languages,
-            // Each with its level beside it, said the way the card's own «Знание
-            // языков» block says it — the bars and the word — but running along
-            // the line and wrapping, because the sheet reads a part at a glance
-            // and a column of one language a row would be the longest part of it.
+            // A record apiece, in the table every list of this sheet is read
+            // in: a language is answered in two boxes under «Запись 1» like
+            // the schools and the degrees are, and a part that read as a line
+            // of chips while it was filled in as records was the one part
+            // whose two faces did not match.
+            //
+            // The level keeps the bars and the word the card's own «Знание
+            // языков» block gives it, because that is what a level is on this
+            // card wherever it is read.
             body:
                 languages.length === 0 ? (
                     <SheetLine />
                 ) : (
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        {languages.map((language) => (
-                            <span key={language.name} className="flex items-center gap-1.5 text-sm font-medium">
-                                {language.name}
-                                <LevelBadge level={language.level} />
-                            </span>
-                        ))}
-                    </div>
+                    <RecordTable
+                        head={['Язык', 'Уровень']}
+                        rows={languages.map((language) => [language.name, <LevelBadge key={language.name} level={language.level} />])}
+                    />
                 ),
             edit: answers('languages') && <LanguagesGroup {...asked} />,
         },
@@ -1388,8 +1464,13 @@ function SheetTab({
             title: 'Государственные награды, поощрения',
             shown: shows('award'),
             fields: SHEET_PART_FIELDS.award,
-            body: <SheetLine paper={details?.award_document}>{details?.award}</SheetLine>,
-            edit: answers('award') && <AwardGroup {...asked} attached={details?.award_document?.name ?? null} />,
+            body:
+                (details?.awards ?? []).length === 0 ? (
+                    <SheetLine>{details?.has_awards === false ? 'Нет' : null}</SheetLine>
+                ) : (
+                    <RecordTable head={['Государственные награды, поощрения', 'Документ']} rows={paperRows(details?.awards ?? [])} />
+                ),
+            edit: answers('award') && <AwardGroup {...asked} />,
         },
         {
             number: '08',
@@ -1403,7 +1484,11 @@ function SheetTab({
             // its own and the question is what somebody came to read; the
             // tables are the same table, so the three still line up.
             body: (
-                <div className="flex flex-col gap-5">
+                // Sixteen between the three, which is what everything inside a
+                // part of this sheet stands at — the fields of a record, the
+                // records of a list, and the blocks of a part whether they are
+                // read or filled in.
+                <div className="flex flex-col gap-4">
                     {shows('marital_status') && <SheetFacts rows={[['Семейное положение', marital]]} />}
                     {spouseRows.length > 0 && (
                         <div className="flex min-w-0 flex-col gap-1">
@@ -1451,8 +1536,13 @@ function SheetTab({
             title: 'Отношение к воинской обязанности',
             shown: shows('military'),
             fields: SHEET_PART_FIELDS.military,
-            body: <SheetLine paper={details?.military_document}>{details?.military}</SheetLine>,
-            edit: answers('military') && <MilitaryGroup {...asked} attached={details?.military_document?.name ?? null} />,
+            body:
+                (details?.military_records ?? []).length === 0 ? (
+                    <SheetLine>{details?.has_military_records === false ? 'Нет' : null}</SheetLine>
+                ) : (
+                    <RecordTable head={['Отношение к воинской обязанности', 'Документ']} rows={paperRows(details?.military_records ?? [])} />
+                ),
+            edit: answers('military') && <MilitaryGroup {...asked} />,
         },
     ];
 
@@ -1628,7 +1718,124 @@ function SheetTab({
      */
     const counted = sheet.lines ?? [];
     const unanswered = counted.filter((line) => !isAnswered(line.key, form.data));
-    const missing = editing ? unanswered.map((line) => line.title) : sheet.missing;
+    // Named and keyed, because the list is pressed as well as read: the title
+    // is what it says and the key is what it leads to. While the sheet is shut
+    // the server's own count is the truth about the card, and the keys are
+    // read back off the lines it counted — the titles are the sheet's own and
+    // no two lines share one.
+    const missing = editing ? unanswered : counted.filter((line) => sheet.missing.includes(line.title));
+
+    /**
+     * Pressing a line of «Не заполнено»: the sheet opens on the box that
+     * answers it, with the cursor already in it.
+     *
+     * The list is beside the sheet to be acted on — it says what the office
+     * still has to ask about, and the shortest way to stop asking is to type
+     * the answer in. Reading the name of a line and then going to look for it
+     * among eleven parts is the errand this saves.
+     *
+     * The sheet is opened for answering where this reader may answer that
+     * line, because a box is the thing being led to: scrolling to a part that
+     * is still being read would land on the dash it is short of. Where the
+     * line is theirs to read and not to change, the part itself is as far as
+     * this goes.
+     *
+     * The box is found after the next paint rather than at once, since it does
+     * not exist until the parts have been drawn as forms.
+     */
+    const answerLine = (key: string, target: string = key) => {
+        const box = SHEET_LINE_BOX[key] ?? key;
+        const part = drawn.findIndex((plan) => plan.fields.includes(box));
+
+        if (part >= 0) mark(part);
+
+        if (!editing && answers(key)) answer(true);
+
+        window.requestAnimationFrame(() =>
+            window.requestAnimationFrame(() => {
+                // The box asked for, or the line's own where that one is not
+                // on the page — a record that has gone since the list was
+                // counted, or a line this reader may read and not change.
+                const field =
+                    holder.current?.querySelector<HTMLElement>(`[data-field="${target}"]`) ??
+                    holder.current?.querySelector<HTMLElement>(`[data-field="${key}"]`);
+
+                if (field === null || field === undefined) {
+                    if (part >= 0) show(part);
+
+                    return;
+                }
+
+                // Centred rather than brought to the top: a field answered in
+                // two boxes — the series and the number of a passport — is one
+                // thing to look at, and the part it belongs to says overhead
+                // which part it is.
+                field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                // The first control somebody could have reached themselves.
+                // Not simply the first one in the markup: a file box keeps its
+                // own input hidden behind the button that opens it — hidden
+                // and therefore unfocusable, so focus went nowhere and stayed
+                // where it was, which read as a press that did nothing.
+                const box = [...field.querySelectorAll<HTMLElement>('input, textarea, select, button, [tabindex]:not([tabindex="-1"])')].find(
+                    (control) => control.offsetParent !== null && !control.hasAttribute('disabled'),
+                );
+
+                if (box === undefined) return;
+
+                box.focus({ preventScroll: true });
+
+                // And shown to be focused, which the browser will not do on
+                // its own: a control focused by a press somewhere else is
+                // focused but not «focus-visible», so a box takes the ring and
+                // a line answered by a list or a date does not — the very
+                // fields this list leads to most often. The ring is the one
+                // those controls wear when they are tabbed to, put on by hand
+                // and taken off the moment the control is left.
+                const ring = ['ring-2', 'ring-ring', 'ring-offset-2', 'outline-hidden'];
+
+                box.classList.add(...ring);
+                box.addEventListener('blur', () => box.classList.remove(...ring), { once: true });
+            }),
+        );
+    };
+
+    /**
+     * Pressing a line of «Документы не приложены»: the sheet opens on the file
+     * box of the very record the paper belongs to.
+     *
+     * The list says which record it is — «Учёная степень, звание — доцент» —
+     * because a card may name three of them and three missing papers are three
+     * errands. So the line is read back apart: the title says which part of the
+     * sheet, and what follows the dash says which record of it.
+     *
+     * A record that cannot be found by name — renamed on the page since the
+     * list was counted, or a line that keeps its paper without records — leads
+     * to the part's own first box, which is as far as the list can honestly
+     * point.
+     */
+    const attachPaper = (what: string) => {
+        const line = counted.find((counted) => what === counted.title || what.startsWith(`${counted.title} — `));
+
+        if (line === undefined) return;
+
+        const list = SHEET_LINE_RECORDS[line.key];
+        const named = what.startsWith(`${line.title} — `) ? what.slice(line.title.length + 3).trim() : '';
+
+        if (list === undefined || named === '') {
+            answerLine(line.key);
+
+            return;
+        }
+
+        // A place of study is named by its institution and the three other
+        // lists by the line itself; both are what the list after the dash was
+        // written from.
+        const rows = form.data[list] as { name?: string; institution?: string }[];
+        const index = rows.findIndex((row) => (row.institution ?? row.name ?? '').trim() === named);
+
+        answerLine(line.key, index >= 0 ? `${list}.${index}.document` : line.key);
+    };
     // A hundred where there is nothing to count, as PersonnelSheet has it: a
     // reader who may read none of these lines is told nothing rather than
     // nought, which would read as a card nobody has filled in.
@@ -1648,17 +1855,7 @@ function SheetTab({
      * server counted for this reader, so a line that is not theirs to see
      * cannot be named here either.
      */
-    const unattached = editing
-        ? papersWanted(
-              form.data,
-              {
-                  degree: details?.degree_document != null,
-                  award: details?.award_document != null,
-                  military: details?.military_document != null,
-              },
-              (line) => counted.find((counted) => counted.key === line)?.title,
-          )
-        : sheet.papers;
+    const unattached = editing ? papersWanted(form.data, (line) => counted.find((counted) => counted.key === line)?.title) : sheet.papers;
 
     /** Whether there is anything on this sheet for this reader to answer at all. */
     const answerable = SHEET_FIELDS.some(answers);
@@ -1838,15 +2035,24 @@ function SheetTab({
                                                 </Button>
                                             </div>
 
-                                            <ul className="flex flex-col">
-                                                {missing.map((what) => (
-                                                    // In the colour the nav above writes an entry
-                                                    // nobody is on, since this is the same column
-                                                    // saying the same kind of thing: the names of
-                                                    // parts of the sheet, read and not pressed.
-                                                    <li key={what} className="text-muted-foreground flex items-center gap-2 py-1.5 text-[13px]">
-                                                        <span className="size-1.5 shrink-0 rounded-full bg-[#F5A524]" />
-                                                        <span className="min-w-0 break-words">{what}</span>
+                                            {/* Read as the papers of the card are read, because
+                                                the two lists say the same kind of thing: a line
+                                                apiece, a mark saying it is still wanted, and the
+                                                whole line to press. The mark is the outline the
+                                                checklist gives a paper nobody has handed in —
+                                                the same answer about a different question. */}
+                                            <ul className="flex flex-col gap-2">
+                                                {missing.map((line) => (
+                                                    <li key={line.key}>
+                                                        <button
+                                                            type="button"
+                                                            className={cn(wantedLine, 'hover:bg-muted')}
+                                                            onClick={() => answerLine(line.key)}
+                                                            title={`Заполнить: ${line.title}`}
+                                                        >
+                                                            <CircleDashed className="size-4 shrink-0 text-[#F5A524]" />
+                                                            <span className="min-w-0 flex-1 text-sm break-words">{line.title}</span>
+                                                        </button>
                                                     </li>
                                                 ))}
                                             </ul>
@@ -1870,7 +2076,7 @@ function SheetTab({
                                                 <span className="tabular-nums">{unattached.length}</span>
                                             </h3>
 
-                                            <ul className="flex flex-col">
+                                            <ul className="flex flex-col gap-2">
                                                 {unattached.map((what, index) => (
                                                     // By where it stands as well
                                                     // as by its name: a card may
@@ -1878,12 +2084,30 @@ function SheetTab({
                                                     // with one name, and two
                                                     // papers are missing and not
                                                     // one.
-                                                    <li
-                                                        key={`${what}-${index}`}
-                                                        className="text-muted-foreground flex items-center gap-2 py-1.5 text-[13px]"
-                                                    >
-                                                        <FileText className="size-3.5 shrink-0" />
-                                                        <span className="min-w-0 break-words">{what}</span>
+                                                    //
+                                                    // Pressed like the lines
+                                                    // above it, and to the same
+                                                    // end: the sheet opens on
+                                                    // the box this paper is
+                                                    // attached in, rather than
+                                                    // on the part it is
+                                                    // somewhere inside.
+                                                    <li key={`${what}-${index}`}>
+                                                        <button
+                                                            type="button"
+                                                            className={cn(wantedLine, 'hover:bg-muted')}
+                                                            onClick={() => attachPaper(what)}
+                                                            title={`Приложить: ${what}`}
+                                                        >
+                                                            {/* The mark the checklist gives a paper
+                                                                nobody has handed in, because that is
+                                                                what this is: the same answer about a
+                                                                paper the office is still waiting for,
+                                                                said about the sheet instead of about
+                                                                the list of documents. */}
+                                                            <CircleDashed className="size-4 shrink-0 text-[#F5A524]" />
+                                                            <span className="min-w-0 flex-1 text-sm break-words">{what}</span>
+                                                        </button>
                                                     </li>
                                                 ))}
                                             </ul>
@@ -3428,9 +3652,20 @@ function EquipmentHeads() {
  * fleet, so a viewer who may not open one reads the same row without the link.
  */
 function UnitName({ unit, className }: { unit: HeldUnit; className?: string }) {
+    /**
+     * Whether the name stands on its own.
+     *
+     * A mark twenty-eight points high and one line of text read as one thing
+     * only when they are centred on each other; held to the top, the name sat
+     * above the middle of its own mark and the row read as though it had
+     * slipped. Where there is a second line under the name the mark belongs to
+     * the first of them, so it stays at the top and the two lines run past it.
+     */
+    const alone = !unit.details;
+
     const named = (
         <>
-            <CategoryChip icon={unit.type_icon} size={28} iconSize={14} className="mt-px" />
+            <CategoryChip icon={unit.type_icon} size={28} iconSize={14} className={cn(!alone && 'mt-px')} />
             <span className="flex min-w-0 flex-col">
                 <span
                     className={cn(
@@ -3448,13 +3683,13 @@ function UnitName({ unit, className }: { unit: HeldUnit; className?: string }) {
     return unit.open ? (
         <Link
             href={route('equipment.show', unit.id)}
-            className={cn('group flex min-w-0 items-start gap-2', className)}
+            className={cn('group flex min-w-0 gap-2', alone ? 'items-center' : 'items-start', className)}
             title={`Открыть: ${unit.name}`}
         >
             {named}
         </Link>
     ) : (
-        <div className={cn('flex min-w-0 items-start gap-2', className)}>{named}</div>
+        <div className={cn('flex min-w-0 gap-2', alone ? 'items-center' : 'items-start', className)}>{named}</div>
     );
 }
 

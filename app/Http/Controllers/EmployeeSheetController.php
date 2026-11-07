@@ -24,8 +24,8 @@ use Illuminate\Support\Facades\DB;
  *
  * Each part is saved the way its own window already saves it, through the same
  * calls — the languages, the children, the rest of the family, the places of
- * study, the three lines that keep a document apiece. Two ways of writing one
- * block is one way somebody will fix and one they will not.
+ * study, the three lists that are a line of text and one paper apiece. Two ways
+ * of writing one block is one way somebody will fix and one they will not.
  *
  * What the request did not carry is not written. The sheet spans the lines of
  * eleven different rights and UpdateSheetRequest validates only the ones this
@@ -45,9 +45,6 @@ class EmployeeSheetController extends Controller
         'passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number',
         'home_address', 'phone', 'sos_phone', 'sos_contact',
     ];
-
-    /** The three blocks that are one line of text and the one document behind it. */
-    private const LINES_WITH_DOCUMENTS = ['degree', 'award', 'military'];
 
     /**
      * The sheet retyped.
@@ -76,27 +73,26 @@ class EmployeeSheetController extends Controller
 
             $details = Arr::only($data, self::ON_DETAILS);
 
-            // The three lines whose answer carries a paper. The file is not a
-            // column, so it is put away on the way in and the row keeps where it
-            // went; what the row pointed at before is noted so the disk does not
-            // keep a copy nothing names any more.
-            foreach (self::LINES_WITH_DOCUMENTS as $line) {
-                $columns = EmployeeCard::lineColumns($employee, $data, $line);
-                $was = $employee->details?->{"{$line}_document_path"};
-
-                if (array_key_exists("{$line}_document_path", $columns) && $columns["{$line}_document_path"] !== $was) {
-                    $replaced[] = $was;
-                }
-
-                $details = [...$details, ...$columns];
-            }
-
             // «Нет» and «не указано» look the same in an empty list, so the
             // answer is worked out rather than taken as sent: rows mean «есть»
             // whatever the flag said, and only «нет» is believed as it came.
             // Asked of each list only where the list itself was carried — a
             // flag without the rows it describes is not an answer about them.
-            foreach (['children' => 'has_children', 'educations' => 'has_educations', 'experiences' => 'has_experience'] as $list => $flag) {
+            //
+            // Six of them now: the degrees, the awards and the military records
+            // used to be one line of free text each, where «Нет» was typed into
+            // the line itself to tell it from a line nobody had filled in. They
+            // are lists as of November 2026, so the «нет» sits beside the list
+            // in a flag of its own, which is where the children's has always
+            // been — and reading it is the same work for all six.
+            foreach ([
+                'children' => 'has_children',
+                'educations' => 'has_educations',
+                'experiences' => 'has_experience',
+                'degrees' => 'has_degrees',
+                'awards' => 'has_awards',
+                'military_records' => 'has_military_records',
+            ] as $list => $flag) {
                 if (array_key_exists($list, $data)) {
                     $details[$flag] = EmployeeCard::listFlag($data[$flag] ?? null, $data[$list]);
                 }
@@ -132,7 +128,7 @@ class EmployeeSheetController extends Controller
                 $replaced = [...$replaced, ...$this->reconcile(
                     $employee->educations(),
                     $data['educations'],
-                    fn (array $record) => $this->educationColumns($employee, $record),
+                    fn (array $record) => $this->papered($record, fn (array $row) => EmployeeCard::educationRow($employee, $row)),
                     'document_path',
                 )];
             }
@@ -144,6 +140,33 @@ class EmployeeSheetController extends Controller
             if (array_key_exists('experiences', $data)) {
                 $this->reconcile($employee->workExperiences(), $data['experiences']);
             }
+
+            // And the three lists that are a line of text and one paper apiece,
+            // reconciled rather than replaced for the reason the places of study
+            // are: a paper hangs off every record, and the sheet sends no file
+            // for a document it is not changing. Until November 2026 the three
+            // were a single line of the row above, which is why anybody looking
+            // for them will look among its columns and not find them here.
+            //
+            // Which relation each list is saved into is the one thing that tells
+            // them apart — the rules, the columns and the reconciling are all
+            // the same work — so they are written once and walked.
+            foreach ([
+                'degrees' => $employee->degrees(),
+                'awards' => $employee->awards(),
+                'military_records' => $employee->militaryRecords(),
+            ] as $list => $records) {
+                if (! array_key_exists($list, $data)) {
+                    continue;
+                }
+
+                $replaced = [...$replaced, ...$this->reconcile(
+                    $records,
+                    $data[$list],
+                    fn (array $record) => $this->papered($record, fn (array $row) => EmployeeCard::paperRow($employee, $row)),
+                    'document_path',
+                )];
+            }
         });
 
         foreach ($replaced as $path) {
@@ -154,36 +177,42 @@ class EmployeeSheetController extends Controller
     }
 
     /**
-     * One place of study as the columns to write, with the asking for its
-     * diploma to go honoured.
+     * One record that carries a paper as the columns to write, with the asking
+     * for that paper to go honoured.
+     *
+     * All four of the sheet's lists that keep a document come through here — the
+     * places of study and the three that are a line of text and one paper
+     * apiece — because the question is the same in each: what EmployeeCard makes
+     * of the record is the record's own business, and whether the paper on file
+     * is to go is the sheet's.
      *
      * The flag is not a column, and it is the sheet's rather than the card's:
-     * the window that keeps one record at a time replaces a diploma on a save
-     * and takes it off through a request of its own, while nothing on this page
+     * the windows that keep one record at a time replace a document on a save
+     * and take it off through a request of their own, while nothing on this page
      * is written until «Сохранить» — so a removal has to wait with everything
      * else, and the only way to make it wait is to send it along. Which is why
-     * it is read here and not in EmployeeCard::educationRow(), where the create
-     * page would find it and have nothing on file to take off.
+     * it is read here and not in EmployeeCard::educationRow() or paperRow(),
+     * where the create page would find it and have nothing on file to take off.
      *
-     * A file beats the flag, for the reason it does on the three lines that
-     * keep a paper apiece: somebody who attached one plainly wants it. So the
-     * removal is read off what educationRow() came back with — a row carrying a
-     * new paper already names it, and only a row that names none is asked
-     * whether the old one is to go.
+     * A file beats the flag: somebody who attached one plainly wants it. So the
+     * removal is read off what the row came back as — a record carrying a new
+     * paper already names it, and only one that names none is asked whether the
+     * old one is to go.
      *
      * The name goes with the paper. It is what the card shows as the thing one
      * presses to open the document, and a name with nothing behind it is a
      * label pointing at nothing.
      *
      * @param  array<string, mixed>  $record  as validated, the file and the flag included
+     * @param  callable(array<string, mixed>): array<string, mixed>  $row  what this kind of record comes to
      * @return array<string, mixed> the columns to write
      */
-    private function educationColumns(User $employee, array $record): array
+    private function papered(array $record, callable $row): array
     {
         $asked = (bool) ($record['document_remove'] ?? false);
         unset($record['document_remove']);
 
-        $columns = EmployeeCard::educationRow($employee, $record);
+        $columns = $row($record);
 
         if ($asked && ! array_key_exists('document_path', $columns)) {
             $columns['document_path'] = null;
@@ -202,8 +231,9 @@ class EmployeeSheetController extends Controller
      * sheet. That is the whole of the difference from the lists kept beside
      * these — the children, the rest of the family, the languages, which have no
      * identity beyond what they say and are replaced whole. A place of study
-     * does: a diploma hangs off it, and the sheet sends no file for a document
-     * it is not changing.
+     * does, and so does a degree, an award or a military record: a paper hangs
+     * off each of them, and the sheet sends no file for a document it is not
+     * changing.
      *
      * The ids were checked against this very card on the way in, so an id here
      * names a record of it or names nothing.

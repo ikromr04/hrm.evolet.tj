@@ -8,12 +8,6 @@ export type Marital = 'single' | 'married';
 export interface PrivateDetails {
     birth_date: string | null;
     nationality: string | null;
-    /** «кандидат экономических наук, доцент», written out as one line. */
-    degree: string | null;
-    /** And what a state has given them, written out the same way. */
-    award: string | null;
-    /** And how they stand with the army: «военнообязанный», «снят с учёта», «Нет». */
-    military: string | null;
     /** Every country the person is a citizen of; there may be several. */
     citizenship: string[] | null;
     home_address: string | null;
@@ -143,16 +137,33 @@ export interface Education {
 }
 
 /**
- * The document behind one of the card's two lines that keep one — the degree,
- * the award: what it is called and where to ask for it.
+ * The document behind a record of the card: what it is called and where to ask
+ * for it.
  *
- * The name is the one the file arrived under — the line it belongs to already
- * says what the paper is about, so nobody retypes it. A path on the disk is
- * never sent: the address answers only somebody who may read this card.
+ * The name is the one the file arrived under, which is the name of the paper —
+ * a paper is a PDF here, and it is renamed before it is sent rather than
+ * labelled afterwards, so nobody retypes it. A path on the disk is never sent:
+ * the address answers only somebody who may read this card.
  */
 export interface CardDocument {
     name: string;
     url: string;
+}
+
+/**
+ * One record of the three parts that are a line of text and a paper apiece —
+ * «Учёная степень, звание», «Государственные награды, поощрения», «Отношение к
+ * воинской обязанности».
+ *
+ * All three are the same two answers, so all three arrive in one shape; what
+ * the line says is the record's own business and the card prints it as it
+ * stands. The id is here because the sheet's form corrects a record where it
+ * stands, which is what leaves its paper clipped to it.
+ */
+export interface PaperRecord {
+    id: number;
+    name: string;
+    document: CardDocument | null;
 }
 
 /** A previous job, known to the month; private. */

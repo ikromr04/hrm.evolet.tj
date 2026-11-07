@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\User;
-use App\Models\UserDetail;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,15 +12,17 @@ use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 /**
- * The «Отношение к воинской обязанности» block: one line of text, and the one
- * document behind it — the военный билет, or the page of it that says this.
+ * The «Отношение к воинской обязанности» block: the answer whether there are
+ * any, and then a record for each, one line of text with the one paper behind
+ * it.
  *
- * The third block kept on the degree's terms down to the addresses, so this file
- * is the degree's and the award's too: the line is saved whole, the way the
- * passport and the contacts are, because there is one question here and the
- * answer is a sentence; the document is the part that is not a column, it comes
- * with a save and replaces whatever was on file, while taking it away is a
- * request of its own.
+ * It used to be a single column with a single document — one answer per card,
+ * which had the standing and the rank in the reserve crammed into the same box
+ * with one scan to prove both. It is kept the way the places of study are now, record by
+ * record, so this file asks what EmployeeEducationTest asks of those: adding
+ * one must not rewrite the rest, the answer about the list is told from an
+ * empty list, and the paper is private until somebody who may read the block
+ * asks for it.
  */
 class EmployeeMilitaryTest extends TestCase
 {
@@ -52,12 +53,10 @@ class EmployeeMilitaryTest extends TestCase
         return User::factory()->create()->assignRole($role);
     }
 
-    /** A card with the row the block lives on already filed. */
-    private function employee(?string $military = null): User
+    /** One record as a form sends it: the line, and nothing else unless asked. */
+    private function payload(array $overrides = []): array
     {
-        return $this->mayLookAround(
-            User::factory()->has(UserDetail::factory()->state(['military' => $military]), 'details')->create(),
-        );
+        return ['name' => 'военнообязанный, рядовой запаса', ...$overrides];
     }
 
     /** A paper of the kind the block takes, under the name it was scanned as. */
@@ -66,507 +65,496 @@ class EmployeeMilitaryTest extends TestCase
         return UploadedFile::fake()->create($name, 120, 'application/pdf');
     }
 
-    /**
-     * A document already on the card, filed the way a save files one: the
-     * columns, and the file behind them on the private disk.
-     */
-    private function attach(User $employee, string $name): string
+    public function test_an_admin_adds_a_record_without_touching_the_others()
     {
-        $path = Storage::disk('documents')->putFile("employees/{$employee->id}", $this->paper($name));
+        $employee = $this->colleague();
+        $kept = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
 
-        $employee->details->update(['military_document_path' => $path, 'military_document_name' => $name]);
-
-        return $path;
-    }
-
-    /**
-     * The line as somebody typed it, and as nothing when they cleared the box.
-     *
-     * The two have to be told apart from a save that did not carry the line at
-     * all: the block is sent by a form which may be showing only the document,
-     * and such a form must not read as «nothing is known about this».
-     */
-    public function test_an_admin_retypes_the_line_and_an_emptied_box_blanks_it()
-    {
-        $employee = $this->employee();
-        $admin = $this->sysadmin();
-
-        $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/military", ['military' => 'Военнообязанный, старший лейтенант запаса'])
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/military_records", $this->payload())
             ->assertSessionHasNoErrors()
             ->assertRedirect();
 
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $employee->details->fresh()->military);
-
-        // Cleared: the box arrives empty, which is an answer and not a silence.
-        $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/military", ['military' => ''])
-            ->assertSessionHasNoErrors();
-
-        $this->assertNull($employee->details->fresh()->military);
-
-        // And a save that says nothing about the line leaves it where it was.
-        $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/military", ['military' => 'Невоеннообязанный'])
-            ->assertSessionHasNoErrors();
-
-        $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/military", [])
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('Невоеннообязанный', $employee->details->fresh()->military);
+        $this->assertEqualsCanonicalizing(
+            ['офицер запаса', 'военнообязанный, рядовой запаса'],
+            $employee->refresh()->militaryRecords->pluck('name')->all(),
+        );
+        $this->assertNotNull($kept->fresh());
     }
 
-    /** One line and not a page of them: the column holds two hundred characters. */
-    public function test_a_line_longer_than_the_column_is_refused()
+    public function test_an_admin_changes_one_record()
     {
-        $employee = $this->employee('Военнообязанный');
+        $employee = $this->colleague();
+        $record = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
 
         $this->actingAs($this->sysadmin())
-            ->put("/employees/{$employee->id}/military", ['military' => str_repeat('я', 201)])
-            ->assertSessionHasErrors('military');
+            ->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload(['name' => 'снят с учёта по возрасту']))
+            ->assertSessionHasNoErrors();
 
-        $this->assertSame('Военнообязанный', $employee->details->fresh()->military);
+        $this->assertSame('снят с учёта по возрасту', $record->fresh()->name);
     }
 
-    /**
-     * A save brings the document along with the line, and the card keeps where
-     * the file went and what it is called.
-     */
-    public function test_a_save_files_the_document_with_the_line()
+    public function test_an_admin_deletes_one_record()
     {
-        Storage::fake('documents');
-        $employee = $this->employee();
+        $employee = $this->colleague();
+        $record = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
+        $kept = $employee->militaryRecords()->create(['name' => 'военнообязанный, рядовой запаса']);
 
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasNoErrors()->assertRedirect();
+        $this->actingAs($this->sysadmin())
+            ->delete("/employees/{$employee->id}/military_records/{$record->id}")
+            ->assertSessionHasNoErrors();
 
-        $details = $employee->details->fresh();
-
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-
-        // Filed under the colleague, under a name of the disk's own choosing...
-        $this->assertStringStartsWith("employees/{$employee->id}/", $details->military_document_path);
-        Storage::disk('documents')->assertExists($details->military_document_path);
-
-        // ...while the name the card shows is the one the file arrived under:
-        // the line above has already said which paper this is, so nobody is
-        // asked to type a name for it.
-        $this->assertSame('Военный билет.pdf', $details->military_document_name);
+        $this->assertNull($record->fresh());
+        $this->assertNotNull($kept->fresh());
     }
 
     /**
-     * One document, so a new one takes the old one's place — and the old file
-     * goes off the disk with the column that named it.
+     * «Нет» is written down, because an empty list cannot say it.
      *
-     * A file nothing points at any more is a военный билет lying on a disk for
-     * good, which nobody notices until a backup is restored somewhere it should
-     * not have been.
+     * The old block carried the word «Нет» in the line itself to be told from a
+     * line nobody had filled in; a list has no line to carry it, so the answer
+     * is asked outright — through a door of its own, because the records beside
+     * it are edited one at a time while this is said about all of them at once.
      */
-    public function test_a_new_document_replaces_the_one_on_file_and_the_old_file_goes()
+    public function test_a_card_records_that_this_person_has_no_standing_with_the_army()
     {
-        Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный, старший лейтенант запаса');
+        $employee = $this->colleague();
         $admin = $this->sysadmin();
 
-        $was = $this->attach($employee, 'Старый скан.pdf');
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => false])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
 
-        $this->actingAs($admin)->put("/employees/{$employee->id}/military", [
-            // The line travels with it, as the form sends it: a document is not
-            // taken without one.
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasNoErrors();
+        $this->assertFalse($employee->refresh()->details->has_military_records);
 
-        $details = $employee->details->fresh();
+        // And an answer taken back leaves the question open again rather than
+        // standing as «нет»: the two are different things to a department
+        // deciding whom to go and ask.
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => null])
+            ->assertSessionHasNoErrors();
 
-        $this->assertNotSame($was, $details->military_document_path);
-        $this->assertSame('Военный билет.pdf', $details->military_document_name);
-        Storage::disk('documents')->assertMissing($was);
-        Storage::disk('documents')->assertExists($details->military_document_path);
+        $this->assertNull($employee->refresh()->details->has_military_records);
+    }
 
-        // Nothing is left over: one document means one file on the disk.
+    /**
+     * The answer is worked out from the rows rather than taken as it was sent.
+     *
+     * «Есть» is not an answer this door takes: the rows are what say there are
+     * any, so a card claiming a standing it does not list would be the old
+     * ambiguity the other way up. Read the other way round, a card that lists
+     * one cannot be told it has none — the record is there to be seen, and the
+     * two answers would contradict each other.
+     */
+    public function test_the_answer_is_worked_out_from_the_rows_rather_than_taken_as_sent()
+    {
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => true])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($employee->refresh()->details->has_military_records);
+
+        $employee->militaryRecords()->create(['name' => 'офицер запаса']);
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => false])
+            ->assertSessionHasNoErrors();
+
+        $this->assertTrue($employee->refresh()->details->has_military_records);
+    }
+
+    /**
+     * A record filed answers the question, and the last record taken off asks
+     * it again.
+     *
+     * Not «нет»: a record removed is a correction, and nobody has said this
+     * person has no standing to name.
+     */
+    public function test_a_record_filed_says_there_are_some_and_the_last_one_removed_asks_again()
+    {
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        // Answered «нет» first, so what follows is the answer changing rather
+        // than being given for the first time.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => false]);
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/military_records", $this->payload())
+            ->assertSessionHasNoErrors();
+        $this->assertTrue($employee->refresh()->details->has_military_records);
+
+        // A second record, so that the first one going is not the list emptying.
+        $this->actingAs($admin)->post("/employees/{$employee->id}/military_records", $this->payload(['name' => 'офицер запаса']));
+
+        $records = $employee->refresh()->militaryRecords;
+        $this->actingAs($admin)->delete("/employees/{$employee->id}/military_records/{$records->first()->id}");
+        $this->assertTrue($employee->refresh()->details->has_military_records);
+
+        $this->actingAs($admin)->delete("/employees/{$employee->id}/military_records/{$records->last()->id}");
+        $this->assertNull($employee->refresh()->details->has_military_records);
+    }
+
+    /** And a list filed in one go answers it the same way, papers and all. */
+    public function test_a_list_filed_in_one_go_says_there_are_some()
+    {
+        Storage::fake('documents');
+        $employee = $this->colleague();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/military_records/many", ['records' => [
+                $this->payload(['document' => $this->paper('Военный билет.pdf')]),
+                $this->payload(['name' => 'офицер запаса']),
+            ]])
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $records = $employee->refresh()->militaryRecords;
+
+        $this->assertSame(['военнообязанный, рядовой запаса', 'офицер запаса'], $records->pluck('name')->all());
+        $this->assertTrue($employee->refresh()->details->has_military_records);
+
+        // The paper of the row that brought one is filed, and the row beside it
+        // is left without one rather than given the same file.
+        Storage::disk('documents')->assertExists($records->first()->document_path);
+        $this->assertNull($records->last()->document_path);
         $this->assertCount(1, Storage::disk('documents')->allFiles());
     }
 
     /**
-     * A save that brings no document leaves the one on file alone.
+     * A record names something, and no more of it than the column holds.
      *
-     * Not every save is about the document — the block is one form, and
-     * retyping the line is the commonest thing done in it — so an absent file
-     * cannot read as «take it away». That is what the DELETE beside it is for.
+     * The line used to be allowed to arrive empty, because an empty line was
+     * how a card said nobody had asked; the flag beside the list says that now,
+     * so a record that names nothing is a record somebody opened and did not
+     * fill in. Two hundred characters is one line of a card and not a page of
+     * them.
      */
-    public function test_a_save_without_a_document_leaves_the_one_on_file_alone()
+    public function test_a_record_names_something_and_no_more_than_the_column_holds()
     {
-        Storage::fake('documents');
-        $employee = $this->employee();
-        $kept = $this->attach($employee, 'Военный билет.pdf');
-
-        $this->actingAs($this->sysadmin())
-            ->put("/employees/{$employee->id}/military", ['military' => 'Военнообязанный, старший лейтенант запаса'])
-            ->assertSessionHasNoErrors();
-
-        $details = $employee->details->fresh();
-
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-        $this->assertSame($kept, $details->military_document_path);
-        $this->assertSame('Военный билет.pdf', $details->military_document_name);
-        Storage::disk('documents')->assertExists($kept);
-    }
-
-    /**
-     * «Нет» is an answer, and an empty column is not the same one.
-     *
-     * A card nobody has asked about and a card whose answer was none read alike
-     * on paper — both of them show nothing — so the line says which: HR would
-     * otherwise go round asking the same colleague every quarter.
-     */
-    public function test_the_line_can_say_there_is_none()
-    {
-        $employee = $this->employee();
-
-        $this->actingAs($this->sysadmin())
-            ->put("/employees/{$employee->id}/military", ['military' => 'Нет'])
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('Нет', $employee->details->fresh()->military);
-    }
-
-    /**
-     * And «Нет» takes the paper already on file with it.
-     *
-     * The rules refuse a document sent under «Нет»; this is the same card
-     * two saves later, which is how it would really happen — the answer was
-     * one thing, somebody asked again, and it is another. A card that said
-     * there is none and still showed a scan of it would be two answers
-     * contradicting each other.
-     */
-    public function test_saying_there_is_none_takes_the_document_off_the_card()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee();
+        $employee = $this->colleague();
         $admin = $this->sysadmin();
 
-        $this->actingAs($admin)->put("/employees/{$employee->id}/military", [
-            'military' => 'Есть что показать',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasNoErrors();
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/military_records", $this->payload(['name' => '']))
+            ->assertSessionHasErrors('name');
 
-        $was = $employee->details->fresh()->military_document_path;
+        // Refused in the block's own words: «Поле название обязательно» says
+        // nothing about which part of the sheet was being filled in.
+        $this->assertStringContainsString('отношение к воинской обязанности', session('errors')->first('name'));
 
         $this->actingAs($admin)
-            ->put("/employees/{$employee->id}/military", ['military' => 'Нет'])
-            ->assertSessionHasNoErrors();
+            ->post("/employees/{$employee->id}/military_records", $this->payload(['name' => str_repeat('я', 201)]))
+            ->assertSessionHasErrors('name');
 
-        $details = $employee->details->fresh();
+        $this->assertCount(0, $employee->refresh()->militaryRecords);
 
-        $this->assertSame('Нет', $details->military);
-        $this->assertNull($details->military_document_path);
-        $this->assertNull($details->military_document_name);
-        Storage::disk('documents')->assertMissing($was);
+        // The same of a record corrected, and of a list filed in one go — where
+        // the refusal names the row it happened in.
+        $record = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
+
+        $this->actingAs($admin)
+            ->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload(['name' => '']))
+            ->assertSessionHasErrors('name');
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/military_records/many", ['records' => [$this->payload(['name' => ''])]])
+            ->assertSessionHasErrors('records.0.name');
+
+        $this->assertSame(['офицер запаса'], $employee->refresh()->militaryRecords->pluck('name')->all());
     }
 
     /**
-     * A document with no line beside it is refused.
-     *
-     * Not because a card must say anything here — plenty of them do not — but
-     * because a card that shows a paper and answers nothing is worse than one
-     * that shows neither: whoever reads it is left to open the scan and work out
-     * what it was for.
-     */
-    public function test_a_document_is_not_taken_without_the_line()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee();
-
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military' => '',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasErrors('military');
-
-        $this->assertNull($employee->details->fresh()->military_document_path);
-        $this->assertCount(0, Storage::disk('documents')->allFiles());
-    }
-
-    /**
-     * And the same tie read the other way round: «Нет» takes no document.
-     *
-     * A card that said there is none and showed a scan of it would be two
-     * answers contradicting each other, and whoever reads it would have to open
-     * the file to find out which of them to believe.
-     */
-    public function test_a_document_is_not_taken_under_a_line_that_says_there_is_none()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee();
-
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military' => 'Нет',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasErrors('military_document');
-
-        $details = $employee->details->fresh();
-        $this->assertNull($details->military);
-        $this->assertNull($details->military_document_path);
-        $this->assertCount(0, Storage::disk('documents')->allFiles());
-    }
-
-    /** Nothing but a document: a spreadsheet is not a военный билет, and ten megabytes is the most of one. */
-    public function test_only_a_document_of_the_right_kind_and_size_is_taken()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee();
-
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military_document' => UploadedFile::fake()->create('военный билет.xlsx', 10, 'application/vnd.ms-excel'),
-        ])->assertSessionHasErrors('military_document');
-
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military_document' => UploadedFile::fake()->create('Военный билет.pdf', 11 * 1024, 'application/pdf'),
-        ])->assertSessionHasErrors('military_document');
-
-        $this->assertNull($employee->details->fresh()->military_document_path);
-        $this->assertCount(0, Storage::disk('documents')->allFiles());
-    }
-
-    /**
-     * The document is kept where only this application can reach it, and handed
+     * The paper is kept where only this application can reach it, and handed
      * out by a route that asks first.
      *
      * The whole point of keeping it off the web root: a file under it is read by
      * whoever holds its address and nobody is ever asked, and a военный билет
      * carries a name, a date of birth and a registry number on one page.
      */
-    public function test_a_document_is_kept_privately_and_handed_under_its_own_name()
+    public function test_a_paper_is_kept_privately_and_handed_to_whoever_may_read_the_block()
     {
         Storage::fake('documents');
-        $employee = $this->employee();
+        $employee = $this->colleague();
 
-        $this->actingAs($this->sysadmin())->put("/employees/{$employee->id}/military", [
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasNoErrors();
+        $this->actingAs($this->sysadmin())
+            ->post("/employees/{$employee->id}/military_records", $this->payload([
+                'document' => $this->paper('Военный билет.pdf'),
+            ]))
+            ->assertSessionHasNoErrors();
 
-        $handed = $this->actingAs($this->sysadmin())
-            ->get("/employees/{$employee->id}/military/document")
-            ->assertOk();
+        $record = $employee->refresh()->militaryRecords->first();
 
-        // Handed over rather than displayed: a document opened in a tab is a
-        // document the next person at that desk can read. And under the name it
-        // arrived with — asked of the UTF-8 parameter, because the plain one
-        // beside it can only carry ASCII and a Cyrillic name is not that.
+        // Filed under the colleague, under a name of the disk's own choosing...
+        $this->assertStringStartsWith("employees/{$employee->id}/", $record->document_path);
+        Storage::disk('documents')->assertExists($record->document_path);
+
+        // ...while the name the card shows is the one the file arrived under.
+        // There is no box to type it in any more: the form lets the name of the
+        // file be edited before it is sent, so the one name that arrives is the
+        // one name the card shows.
+        $this->assertSame('Военный билет.pdf', $record->document_name);
+
+        $url = "/employees/{$employee->id}/military_records/{$record->id}/document";
+
+        $handed = $this->actingAs($this->sysadmin())->get($url)->assertOk();
+
+        // Shown rather than downloaded: a paper on a card is looked at far
+        // oftener than it is kept, and every one of them is a PDF, which the
+        // browser hands to its own reader. And under the name it arrived with
+        // — asked of the UTF-8 parameter, because the plain one beside it can
+        // only carry ASCII and a Cyrillic name is not that.
         $disposition = (string) $handed->headers->get('content-disposition');
-        $this->assertStringStartsWith('attachment;', $disposition);
+        $this->assertStringStartsWith('inline;', $disposition);
         $this->assertStringContainsString(rawurlencode('Военный билет.pdf'), $disposition);
+
+        // A colleague who may not read this block is refused the paper behind
+        // it — the same answer that kept the records off the page in the first
+        // place.
+        $this->actingAs($this->colleague())->get($url)->assertForbidden();
+
+        // And one person's address cannot reach another person's record.
+        $other = $this->colleague();
+        $this->actingAs($this->sysadmin())
+            ->get("/employees/{$other->id}/military_records/{$record->id}/document")
+            ->assertNotFound();
     }
 
     /**
-     * A colleague who may not read the block is refused the document behind it.
+     * Nothing but a PDF, and ten megabytes is the most of one.
      *
-     * The route carries no gate of its own: it asks the question the page that
-     * shows the block asks, so the answer here is the answer that kept the
-     * document off that page in the first place.
+     * A photograph is refused now, which it was not before: every document this
+     * application keeps is a PDF, so that a reader opens them all the same way
+     * and nobody is handed a snapshot of a военный билет taken at an angle.
      */
-    public function test_a_document_is_not_handed_to_whoever_may_not_read_the_block()
+    public function test_only_a_pdf_of_the_right_size_is_taken()
     {
         Storage::fake('documents');
-        $employee = $this->employee();
-        $this->attach($employee, 'Военный билет.pdf');
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
 
-        $this->actingAs($this->colleague())
-            ->get("/employees/{$employee->id}/military/document")
-            ->assertForbidden();
+        foreach ([
+            UploadedFile::fake()->create('билет.jpg', 120, 'image/jpeg'),
+            UploadedFile::fake()->create('билет.png', 120, 'image/png'),
+            UploadedFile::fake()->create('учёт.xlsx', 10, 'application/vnd.ms-excel'),
+            UploadedFile::fake()->create('Военный билет.pdf', 11 * 1024, 'application/pdf'),
+        ] as $refused) {
+            $this->actingAs($admin)
+                ->post("/employees/{$employee->id}/military_records", $this->payload(['document' => $refused]))
+                ->assertSessionHasErrors('document');
+        }
+
+        $this->assertCount(0, $employee->refresh()->militaryRecords);
+        $this->assertCount(0, Storage::disk('documents')->allFiles());
+    }
+
+    /**
+     * A record that goes takes its paper with it, and one corrected leaves no
+     * copy of the document it used to carry.
+     *
+     * A file nothing points at any more is a военный билет lying on a disk for
+     * good, which nobody notices until a backup is restored somewhere it should
+     * not have been.
+     */
+    public function test_the_file_goes_when_the_record_goes_or_changes_its_paper()
+    {
+        Storage::fake('documents');
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->post("/employees/{$employee->id}/military_records", $this->payload([
+            'document' => $this->paper('Военный билет.pdf'),
+        ]))->assertSessionHasNoErrors();
+
+        $record = $employee->refresh()->militaryRecords->first();
+        $was = $record->document_path;
+
+        // Replaced: the new one is kept and the old one is not.
+        $this->actingAs($admin)->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload([
+            'name' => 'офицер запаса',
+            'document' => $this->paper('Приписное свидетельство.pdf'),
+        ]))->assertSessionHasNoErrors();
+
+        $record->refresh();
+        $this->assertNotSame($was, $record->document_path);
+        $this->assertSame('Приписное свидетельство.pdf', $record->document_name);
+        Storage::disk('documents')->assertMissing($was);
+        Storage::disk('documents')->assertExists($record->document_path);
+
+        // Nothing is left over: one record with one paper means one file.
+        $this->assertCount(1, Storage::disk('documents')->allFiles());
+
+        // A correction that says nothing about the document leaves it alone:
+        // not every save is about the paper, and absent is not «take it away».
+        $kept = $record->document_path;
+        $this->actingAs($admin)->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload([
+            'name' => 'снят с учёта по возрасту',
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertSame($kept, $record->refresh()->document_path);
+        Storage::disk('documents')->assertExists($kept);
+
+        // And deleted: the file goes with the row.
+        $this->actingAs($admin)->delete("/employees/{$employee->id}/military_records/{$record->id}")
+            ->assertSessionHasNoErrors();
+
+        Storage::disk('documents')->assertMissing($kept);
+    }
+
+    /**
+     * A record with no paper behind it, and a row that outlived its file:
+     * neither is there to be handed over.
+     */
+    public function test_a_paper_that_is_not_there_is_not_found()
+    {
+        Storage::fake('documents');
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        // The line is filled in and no paper was ever scanned for it.
+        $record = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
+
+        $this->actingAs($admin)->get("/employees/{$employee->id}/military_records/{$record->id}/document")->assertNotFound();
+
+        // The row names a file nobody can find: somebody removed it by hand,
+        // and the columns stayed behind.
+        $record->update([
+            'document_path' => "employees/{$employee->id}/gone.pdf",
+            'document_name' => 'Приписное свидетельство.pdf',
+        ]);
+
+        $this->actingAs($admin)->get("/employees/{$employee->id}/military_records/{$record->id}/document")->assertNotFound();
+    }
+
+    public function test_a_record_cannot_be_reached_through_another_employee()
+    {
+        $owner = $this->colleague();
+        $stranger = $this->colleague();
+        $record = $owner->militaryRecords()->create(['name' => 'офицер запаса']);
+
+        // The id is real, but it belongs to somebody else.
+        $this->actingAs($this->sysadmin())
+            ->put("/employees/{$stranger->id}/military_records/{$record->id}", $this->payload())
+            ->assertNotFound();
+
+        $this->actingAs($this->sysadmin())
+            ->delete("/employees/{$stranger->id}/military_records/{$record->id}")
+            ->assertNotFound();
+
+        $this->assertSame('офицер запаса', $record->fresh()->name);
+
+        // And the answer about the list is left where it was on both cards: a
+        // record removed is what sets it, so a removal that did not happen must
+        // not have said anything either.
+        $this->assertNull($owner->refresh()->details?->has_military_records);
+        $this->assertNull($stranger->refresh()->details?->has_military_records);
+    }
+
+    /**
+     * Twenty records is the most a list takes in one request.
+     *
+     * Not because twenty such records are too many to hold — nobody has twenty — but
+     * because the cap is what keeps a form from filing a thousand rows and a
+     * card from being a thing nothing can show.
+     */
+    public function test_no_more_than_twenty_records_are_filed_in_one_go()
+    {
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        $rows = fn (int $count) => array_map(
+            fn (int $i) => $this->payload(['name' => "запись {$i}"]),
+            range(1, $count),
+        );
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/military_records/many", ['records' => $rows(21)])
+            ->assertSessionHasErrors('records');
+
+        $this->assertCount(0, $employee->refresh()->militaryRecords);
+
+        $this->actingAs($admin)
+            ->post("/employees/{$employee->id}/military_records/many", ['records' => $rows(20)])
+            ->assertSessionHasNoErrors();
+
+        $this->assertCount(20, $employee->refresh()->militaryRecords);
     }
 
     /**
      * Reading the block is not changing it.
      *
-     * The line and its document are open to more people than may retype them —
-     * what a person owes the army is asked of them at the door of every office
-     * — so the read right alone opens the document and nothing else.
+     * The records and their papers are open to more people than may retype
+     * them — a standing with the army is read by more of the office than ever
+     * fills it in — so the read right alone opens a paper and nothing else.
+     * Changing a record is the block's own gate, which this position has not
+     * got.
      */
-    public function test_reading_the_block_is_not_changing_it()
+    public function test_reading_the_paper_is_not_changing_the_records()
     {
         Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный, старший лейтенант запаса');
-        $kept = $this->attach($employee, 'Военный билет.pdf');
+        $employee = $this->colleague();
+        $admin = $this->sysadmin();
+
+        $this->actingAs($admin)->post("/employees/{$employee->id}/military_records", $this->payload([
+            'name' => 'офицер запаса',
+            'document' => $this->paper('Приписное свидетельство.pdf'),
+        ]))->assertSessionHasNoErrors();
+
+        $record = $employee->refresh()->militaryRecords->first();
+        $kept = $record->document_path;
 
         $reader = $this->withRights('employees.field.military');
 
         $this->actingAs($reader)
-            ->get("/employees/{$employee->id}/military/document")
+            ->get("/employees/{$employee->id}/military_records/{$record->id}/document")
             ->assertOk();
 
         $this->actingAs($reader)
-            ->put("/employees/{$employee->id}/military", ['military' => 'Невоеннообязанный'])
+            ->post("/employees/{$employee->id}/military_records", $this->payload())
             ->assertForbidden();
 
         $this->actingAs($reader)
-            ->delete("/employees/{$employee->id}/military/document")
+            ->post("/employees/{$employee->id}/military_records/many", ['records' => [$this->payload()]])
             ->assertForbidden();
 
-        $details = $employee->details->fresh();
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-        $this->assertSame($kept, $details->military_document_path);
+        $this->actingAs($reader)
+            ->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload(['name' => 'снят с учёта по возрасту']))
+            ->assertForbidden();
+
+        $this->actingAs($reader)
+            ->delete("/employees/{$employee->id}/military_records/{$record->id}")
+            ->assertForbidden();
+
+        // The answer about the list is behind the same gate as the records it is
+        // about: «не состоит на воинском учёте» is a line of the card like the records.
+        $this->actingAs($reader)
+            ->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => false])
+            ->assertForbidden();
+
+        $this->assertSame('офицер запаса', $record->fresh()->name);
+        $this->assertTrue($employee->refresh()->details->has_military_records);
         Storage::disk('documents')->assertExists($kept);
     }
 
-    /**
-     * A card with nothing filed here, a column that outlived its file, and one
-     * person's address reaching for another person's document: none of the
-     * three is there to be found.
-     */
-    public function test_a_document_that_is_not_there_is_not_found()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный');
-        $admin = $this->sysadmin();
-
-        // The line is filled in and no paper was ever scanned for it.
-        $this->actingAs($admin)->get("/employees/{$employee->id}/military/document")->assertNotFound();
-        $this->actingAs($admin)->delete("/employees/{$employee->id}/military/document")->assertNotFound();
-
-        // The column names a file nobody can find: somebody removed it by hand,
-        // and the column stayed behind.
-        $employee->details->update([
-            'military_document_path' => "employees/{$employee->id}/gone.pdf",
-            'military_document_name' => 'Военный билет.pdf',
-        ]);
-
-        $this->actingAs($admin)->get("/employees/{$employee->id}/military/document")->assertNotFound();
-
-        // And one person's document is not read off another person's address:
-        // the block is a column of the card it belongs to, so there is nothing
-        // under the colleague who never filled it in.
-        $this->attach($employee, 'Приписное свидетельство.pdf');
-        $other = $this->employee();
-
-        $this->actingAs($admin)->get("/employees/{$other->id}/military/document")->assertNotFound();
-        $this->actingAs($admin)->delete("/employees/{$other->id}/military/document")->assertNotFound();
-
-        $this->assertNotNull($employee->details->fresh()->military_document_path);
-    }
-
-    /**
-     * The document taken off the card goes off the disk — and the line stays.
-     *
-     * A военный билет may be scanned badly or be the wrong page altogether, and
-     * losing the standing along with the scan would be losing the answer over
-     * the paperwork.
-     */
-    public function test_the_document_is_taken_off_the_disk_and_the_line_stays()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный, старший лейтенант запаса');
-        $was = $this->attach($employee, 'Военный билет.pdf');
-
-        $this->actingAs($this->sysadmin())
-            ->delete("/employees/{$employee->id}/military/document")
-            ->assertSessionHasNoErrors()
-            ->assertRedirect();
-
-        $details = $employee->details->fresh();
-
-        $this->assertNull($details->military_document_path);
-        $this->assertNull($details->military_document_name);
-        Storage::disk('documents')->assertMissing($was);
-
-        // The answer to the question the block asks is still on the card.
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-    }
-
     /** The block is HR's to fill in, so an ordinary colleague writes nothing in it. */
-    public function test_an_employee_cannot_touch_anyones_military_standing()
+    public function test_an_employee_cannot_touch_anyones_military_records()
     {
-        Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный, старший лейтенант запаса');
-        $kept = $this->attach($employee, 'Военный билет.pdf');
+        $employee = $this->colleague();
+        $record = $employee->militaryRecords()->create(['name' => 'офицер запаса']);
 
         // Not even on their own card.
         $this->actingAs($employee);
-        $this->put("/employees/{$employee->id}/military", ['military' => 'Невоеннообязанный'])->assertForbidden();
-        $this->delete("/employees/{$employee->id}/military/document")->assertForbidden();
+        $this->post("/employees/{$employee->id}/military_records", $this->payload())->assertForbidden();
+        $this->post("/employees/{$employee->id}/military_records/many", ['records' => [$this->payload()]])->assertForbidden();
+        $this->put("/employees/{$employee->id}/military_records/{$record->id}", $this->payload())->assertForbidden();
+        $this->delete("/employees/{$employee->id}/military_records/{$record->id}")->assertForbidden();
+        $this->put("/employees/{$employee->id}/military_records/answer", ['has_military_records' => false])->assertForbidden();
 
-        $details = $employee->details->fresh();
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-        $this->assertSame($kept, $details->military_document_path);
-    }
-
-    /**
-     * The block as the create page sends it: the line and its document travel
-     * with the rest of the card in one request.
-     *
-     * Only the document is weighed here — EmployeeCreateTest already covers the
-     * line among everything else the page carries.
-     */
-    public function test_the_whole_card_is_filed_with_the_line_and_its_document()
-    {
-        Storage::fake('documents');
-
-        $this->actingAs($this->sysadmin())->post('/employees', [
-            'surname' => 'Азимова',
-            'name' => 'Нилуфар',
-            'email' => 'nilufar@evolet.tj',
-            'role' => 'specialist',
-            'placements' => [],
-            // «Знание языков» asks for at least one row, so the card the page
-            // sends carries one — this test is about the document, not the list.
-            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document' => $this->paper('Военный билет.pdf'),
-        ])->assertSessionHasNoErrors()->assertRedirect();
-
-        $details = User::firstWhere('email', 'nilufar@evolet.tj')->details;
-
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-        $this->assertSame('Военный билет.pdf', $details->military_document_name);
-        Storage::disk('documents')->assertExists($details->military_document_path);
-        $this->assertCount(1, Storage::disk('documents')->allFiles());
-    }
-
-    /**
-     * The sheet takes the paper off when it is asked to, and this window takes
-     * no notice of the asking — the third of the same behaviour.
-     *
-     * Here a save replaces the page of the военный билет and a DELETE of its
-     * own takes it away; «Личный листок» writes nothing until «Сохранить», so a
-     * removal there waits with everything else and travels as an answer. The
-     * line stays either way: where somebody stands with the army is not changed
-     * by a photograph of a page coming out unreadable.
-     */
-    public function test_the_sheet_takes_the_paper_off_when_asked_and_this_window_does_not()
-    {
-        Storage::fake('documents');
-        $employee = $this->employee('Военнообязанный, старший лейтенант запаса');
-        $was = $this->attach($employee, 'Военный билет.pdf');
-        $admin = $this->sysadmin();
-
-        $this->actingAs($admin)->put("/employees/{$employee->id}/military", [
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document_remove' => true,
-        ])->assertSessionHasNoErrors();
-
-        $this->assertSame($was, $employee->details->fresh()->military_document_path);
-        Storage::disk('documents')->assertExists($was);
-
-        // The same asking on the sheet, where it is an answer the door takes.
-        // Only the lines this block's own form would show are sent with it: the
-        // sheet insists on a name and a language, and nothing else.
-        $this->actingAs($admin)->put("/employees/{$employee->id}/sheet", [
-            'surname' => $employee->surname,
-            'name' => $employee->name,
-            'languages' => [['name' => 'Русский', 'level' => 'intermediate']],
-            'military' => 'Военнообязанный, старший лейтенант запаса',
-            'military_document_remove' => true,
-        ])->assertSessionHasNoErrors();
-
-        $details = $employee->details->fresh();
-
-        $this->assertNull($details->military_document_path);
-        $this->assertNull($details->military_document_name);
-        $this->assertSame('Военнообязанный, старший лейтенант запаса', $details->military);
-        Storage::disk('documents')->assertMissing($was);
+        $this->assertSame('офицер запаса', $record->fresh()->name);
+        $this->assertNull($employee->refresh()->details?->has_military_records);
     }
 }

@@ -34,7 +34,9 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import AppLayout from '@/layouts/app-layout';
 import { useCan } from '@/lib/access';
 import {
@@ -52,6 +54,7 @@ import { TABLE_KEYS } from '@/lib/tables';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types';
 import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Portal as TooltipPortal } from '@radix-ui/react-tooltip';
 import { ChevronDown, Lock, Plus } from 'lucide-react';
 import { useMemo, useRef, type ReactNode } from 'react';
 
@@ -104,6 +107,26 @@ interface EmployeeRow {
     status_note: string | null;
     /** Null when the viewer may not see this person's private data. */
     private: PrivateDetails | null;
+    /**
+     * How far «Личный листок» has got, as a whole number of per cent — the very
+     * figure the card's own sheet shows over itself, counted over the lines
+     * this viewer may read.
+     *
+     * Null for a row whose private side is closed to them: the sheet is mostly
+     * private lines, and counting the four that never close would say «100%»
+     * about a card nobody has filled in.
+     */
+    sheet: number | null;
+    /**
+     * Where the card stands with the papers the company insists on. The four
+     * answers add up to the number asked for, because «не приложен» is not a
+     * status on a row but the absence of a row — whatever is left when the
+     * three that are written down have been counted.
+     *
+     * Null where the viewer may not read this person's documents, and where
+     * the company insists on no paper at all.
+     */
+    documents: ChecklistCount | null;
 }
 
 interface Filters {
@@ -137,6 +160,8 @@ type ColumnKey =
     | 'name'
     | 'role'
     | 'position'
+    | 'sheet'
+    | 'documents'
     | 'department'
     | 'unit'
     | 'languages'
@@ -432,6 +457,61 @@ function Children({ items }: { items: PrivateDetails['children'] }) {
 /* ---------------------------------------------------------------- columns */
 
 /** The field behind a column, where the two are not called the same. */
+/** How many of the papers asked for are in each of the four states. */
+interface ChecklistCount {
+    required: number;
+    approved: number;
+    pending: number;
+    rejected: number;
+    missing: number;
+}
+
+/**
+ * The four states a paper may be in, in the order the card's own checklist
+ * groups them, each with the colour it is read by there.
+ *
+ * One bar out of four pieces rather than four figures: the question a staff
+ * list answers about documents is «how far has this one got», and four numbers
+ * in a cell are read one at a time. The colours are the checklist's own, so
+ * that a green stripe here and a green tick there mean the same thing.
+ */
+const CHECKLIST_PARTS = [
+    { key: 'approved', label: 'Принято', tone: 'bg-brand-strong dark:bg-[#C5E27A]' },
+    { key: 'pending', label: 'На рассмотрении', tone: 'bg-[#3B82F6]' },
+    { key: 'rejected', label: 'Отклонено', tone: 'bg-destructive' },
+    { key: 'missing', label: 'Не приложено', tone: 'bg-[#F5A524]' },
+] as const;
+
+/**
+ * The lines «Личный листок» is counted over, as App\Support\PersonnelSheet
+ * names them — the private ones among them, which is what decides whether the
+ * count is worth a column here.
+ *
+ * The four that are never closed — the name and the sex — are left out on
+ * purpose: a viewer who may read those and nothing else would be offered a
+ * column of «100%» about cards nobody has filled in.
+ */
+const SHEET_LINES = [
+    'birth_date',
+    'birth_place',
+    'nationality',
+    'citizenship',
+    'educations',
+    'degree',
+    'work_experiences',
+    'award',
+    'marital_status',
+    'children',
+    'passport_number',
+    'passport_issued_at',
+    'passport_issued_by',
+    'tax_number',
+    'home_address',
+    'phone',
+    'sos_phone',
+    'military',
+];
+
 const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
     position: 'positions',
     department: 'departments',
@@ -439,6 +519,62 @@ const COLUMN_FIELDS: Partial<Record<ColumnKey, string>> = {
     // filed gets neither of them.
     unit: 'departments',
 };
+
+/**
+ * Where one card stands with the papers the company insists on, as one bar.
+ *
+ * The pieces are in the order the checklist groups them and are as wide as
+ * their share of what is asked for, so a row is read at a glance: mostly green
+ * is a card that is done with, a stripe of red is one somebody has to go back
+ * to. What each colour is and how many papers are in it is on the hint —
+ * colours alone say which question is being answered, not the answer.
+ */
+function Checklist({ count }: { count: ChecklistCount }) {
+    const bar = (
+        <span className="bg-muted flex h-1.5 w-[88px] shrink-0 overflow-hidden rounded-full" aria-hidden>
+            {CHECKLIST_PARTS.map((part) => {
+                const share = count[part.key];
+
+                return share === 0 ? null : (
+                    <span key={part.key} className={cn('h-full', part.tone)} style={{ width: `${(share / count.required) * 100}%` }} />
+                );
+            })}
+        </span>
+    );
+
+    return (
+        <TooltipProvider delayDuration={200}>
+            <Tooltip>
+                <TooltipTrigger asChild onFocus={(event) => event.preventDefault()}>
+                    {/* The figure beside the bar is the one the card prints over
+                        the block — accepted of asked for — so the two places
+                        say the same thing in the same words. */}
+                    <span className="flex items-center gap-2">
+                        {bar}
+                        <span className="text-sm tabular-nums">
+                            {count.approved} из {count.required}
+                        </span>
+                    </span>
+                </TooltipTrigger>
+
+                {/* Out of the table, whose scrolling box would clip it. */}
+                <TooltipPortal>
+                    <TooltipContent className="px-2.5 py-2 text-xs font-normal">
+                        <span className="flex flex-col gap-1">
+                            {CHECKLIST_PARTS.map((part) => (
+                                <span key={part.key} className="flex items-center gap-2">
+                                    <span className={cn('size-2 shrink-0 rounded-full', part.tone)} />
+                                    <span className="flex-1">{part.label}</span>
+                                    <span className="tabular-nums">{count[part.key]}</span>
+                                </span>
+                            ))}
+                        </span>
+                    </TooltipContent>
+                </TooltipPortal>
+            </Tooltip>
+        </TooltipProvider>
+    );
+}
 
 /**
  * A chip of a language or a country in a cell adds it to the filter, or takes
@@ -451,8 +587,11 @@ interface ChipFilter {
 
 function buildColumns(options: EmployeesProps['options'], visible: string[], chips: ChipFilter): ColumnDef[] {
     // The name stays whatever happens: a list of rows with no names on them
-    // would be no list at all.
-    const shows = (key: ColumnKey) => key === 'name' || visible.includes(COLUMN_FIELDS[key] ?? key);
+    // would be no list at all. The sheet is not one field but a count over
+    // many, so it is offered to whoever may read any of the lines it counts —
+    // see SHEET_LINES.
+    const shows = (key: ColumnKey) =>
+        key === 'name' || (key === 'sheet' ? visible.some((field) => SHEET_LINES.includes(field)) : visible.includes(COLUMN_FIELDS[key] ?? key));
 
     /* Every job title, each one once and in order: the same title is filed in
        several departments, and the funnel asks about the title itself. */
@@ -530,6 +669,18 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                     </div>
                 ),
             },
+            // The role stands before the job, as «Основное» asks them on a
+            // card: what somebody may do here is one of four answers and is
+            // read at a glance, while the jobs are as many as a person holds
+            // and a badge apiece. The column read at a glance goes first.
+            {
+                key: 'role',
+                label: 'Роль',
+                width: 240,
+                private: false,
+                filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
+                cell: (row) => (row.role ? <RoleBadge title={row.role} /> : <Empty />),
+            },
             {
                 key: 'position',
                 label: 'Должность',
@@ -543,12 +694,35 @@ function buildColumns(options: EmployeesProps['options'], visible: string[], chi
                 cell: (row) => (row.positions?.length ? <PositionBadges positions={row.positions} /> : <Empty />),
             },
             {
-                key: 'role',
-                label: 'Роль',
-                width: 240,
-                private: false,
-                filter: { type: 'multi', param: 'role', options: options.roles.map((r) => ({ value: r.name, label: r.title })) },
-                cell: (row) => (row.role ? <RoleBadge title={row.role} /> : <Empty />),
+                key: 'sheet',
+                label: 'Личный листок',
+                width: 200,
+                // The figure is read off the private lines of a card, so it is
+                // closed with them: a row this viewer may not read shows the
+                // lock the other private columns show.
+                private: true,
+                // The same bar and the same figure beside it as the card's own
+                // sheet carries over itself — two places saying how far one
+                // thing has got have no business looking like two different
+                // things. Narrower here, because a column is not a header.
+                cell: (row) =>
+                    row.sheet === null ? (
+                        <Empty />
+                    ) : (
+                        <span className="flex items-center gap-2">
+                            <Progress value={row.sheet} aria-label={`Заполнение: ${row.sheet}%`} className="h-1.5 w-[88px] shrink-0" />
+                            <span className="text-sm tabular-nums">{row.sheet}%</span>
+                        </span>
+                    ),
+            },
+            {
+                key: 'documents',
+                label: 'Документы (Чек-лист)',
+                width: 230,
+                // Read under the same right as the block on the card, and
+                // closed with the rest of a row's private side.
+                private: true,
+                cell: (row) => (row.documents === null ? <Empty /> : <Checklist count={row.documents} />),
             },
             {
                 key: 'languages',

@@ -33,19 +33,8 @@ export interface SheetValues {
     educations: EducationRow[];
 
     /* 04. Учёная степень, звание */
-    degree: string;
-    degree_document: File | null;
-    /**
-     * Whether the paper already on file has been asked to go — asked and not
-     * done, the way everything else on the sheet is answered and not done: the
-     * save writes it when it writes the rest, so «Отмена» puts it back.
-     *
-     * Kept apart from the file beside it because the two say different things.
-     * No file has always meant «leave the paper alone» on this card, which is
-     * what makes an ordinary save of an unchanged sheet safe; so taking one off
-     * cannot be inferred from an absence and has to be asked for outright.
-     */
-    degree_document_remove: boolean;
+    has_degrees: Said;
+    degrees: PaperRow[];
 
     /* 05. Знание языков */
     languages: SpokenRow[];
@@ -55,10 +44,8 @@ export interface SheetValues {
     experiences: JobRow[];
 
     /* 07. Государственные награды, поощрения */
-    award: string;
-    award_document: File | null;
-    /** The paper of this line asked to go, on the degree's terms. */
-    award_document_remove: boolean;
+    has_awards: Said;
+    awards: PaperRow[];
 
     /* 08. Семейное положение и состав семьи */
     marital_status: string;
@@ -84,10 +71,8 @@ export interface SheetValues {
     sos_contact: string;
 
     /* 11. Отношение к воинской обязанности */
-    military: string;
-    military_document: File | null;
-    /** And the same for the page of the military book. */
-    military_document_remove: boolean;
+    has_military_records: Said;
+    military_records: PaperRow[];
 }
 
 /**
@@ -108,14 +93,14 @@ export const SHEET_PART_FIELDS: Record<SheetPart, string[]> = {
     name: ['surname', 'name', 'patronymic'],
     general: ['sex', 'birth_date', 'birth_place', 'nationality', 'citizenship'],
     educations: ['has_educations', 'educations'],
-    degree: ['degree', 'degree_document'],
+    degree: ['has_degrees', 'degrees'],
     languages: ['languages'],
     experience: ['has_experience', 'experiences'],
-    award: ['award', 'award_document'],
+    award: ['has_awards', 'awards'],
     family: ['marital_status', 'spouse_name', 'spouse_birth_date', 'spouse_occupation', 'has_children', 'children', 'relatives'],
     passport: ['passport_series', 'passport_number', 'passport_issued_at', 'passport_issued_by', 'tax_number'],
     contacts: ['home_address', 'phone', 'sos_phone', 'sos_contact'],
-    military: ['military', 'military_document'],
+    military: ['has_military_records', 'military_records'],
 };
 
 /** The eleven parts, named rather than numbered: the paper's figures are the card's own. */
@@ -159,8 +144,13 @@ export type EducationRow = {
     qualification: string;
     started_year: string;
     graduated_year: string;
+    /**
+     * The diploma about to be attached, under the name it will be filed with.
+     * No name is asked for beside it: a paper on this card is a PDF, and the
+     * name of the file is the name of the paper — the box the file is chosen in
+     * is where it is renamed, so nothing but the file itself travels.
+     */
     document: File | null;
-    document_name: string;
     /**
      * The name of the diploma already on file, where the record has one.
      * Nothing but a label: it says what is attached, so that an empty file box
@@ -174,6 +164,29 @@ export type EducationRow = {
      * travel. Absent on a record somebody has just added, as the id is and for
      * the same reason: a row with nothing on file has no paper to take off.
      */
+    document_remove?: boolean;
+};
+
+/**
+ * One record of the three parts that are a line of text and a paper apiece —
+ * a degree or title, a state award, a line of the military book.
+ *
+ * All three are the same two answers, so all three are held in one shape: a
+ * card may name two degrees as easily as it names two universities, and three
+ * row types that differed only in the word «name» would be three places to fix
+ * the next time a paper changes how it travels.
+ *
+ * The fields mean what they mean on a place of study, down to why: the id is
+ * what says this record is already on file and keeps the paper clipped to it,
+ * `attached` is a label and travels nowhere, and `document_remove` is the only
+ * way of asking for a paper to go — an empty file box has always meant «leave
+ * it alone».
+ */
+export type PaperRow = {
+    id?: number;
+    name: string;
+    document: File | null;
+    attached?: string;
     document_remove?: boolean;
 };
 
@@ -214,8 +227,19 @@ export const blankEducation: EducationRow = {
     started_year: '',
     graduated_year: '',
     document: null,
-    document_name: '',
 };
+
+/** A record of one of the three paper lists nobody has answered yet. */
+export const blankPaper: PaperRow = { name: '', document: null };
+
+/**
+ * A language nobody has named yet, at the level most of them are claimed at.
+ *
+ * Opened at «средний» rather than at nothing, because the level is always
+ * answered — there is no «не выбрано» among the four — and a row added to say
+ * what somebody speaks is about the language, not about the box beside it.
+ */
+export const blankSpoken: SpokenRow = { name: '', level: 'intermediate' };
 
 export const blankJob: JobRow = { organization: '', position: '', started_month: '', started_year: '', ended_month: '', ended_year: '', reason: '' };
 
@@ -247,13 +271,11 @@ export const blankSheet: SheetValues = {
     // been asked yet.
     has_educations: '',
     educations: [],
-    // One line and whatever paper there is for it; see EmployeeCard for why
-    // neither is asked for twice.
-    degree: '',
-    degree_document: null,
-    // Nobody has asked for the paper to go, which is what every sheet opens on:
-    // the asking is a thing somebody does, not a state a card is in.
-    degree_document_remove: false,
+    // Asked the same way, and for the same reason: a card may name two degrees
+    // as easily as two universities, and an empty list on its own cannot say
+    // whether there are none or whether nobody has been asked.
+    has_degrees: '',
+    degrees: [],
     // One row from the start, because one language is asked for: everybody
     // speaks something, and a part that opened empty would read as a part that
     // may be skipped.
@@ -261,10 +283,9 @@ export const blankSheet: SheetValues = {
     // The same question once more, about the jobs held before this one.
     has_experience: '',
     experiences: [],
-    // What a state has given them, kept on the terms the degree is kept on.
-    award: '',
-    award_document: null,
-    award_document_remove: false,
+    // What a state has given them, kept on the terms the degrees are kept on.
+    has_awards: '',
+    awards: [],
     marital_status: '',
     spouse_name: '',
     spouse_birth_date: '',
@@ -281,9 +302,9 @@ export const blankSheet: SheetValues = {
     phone: '',
     sos_phone: '',
     sos_contact: '',
-    military: '',
-    military_document: null,
-    military_document_remove: false,
+    // And how they stand with the army, asked as the two lists above are.
+    has_military_records: '',
+    military_records: [],
 };
 
 /** A flag the card keeps as three states, read into the three a list offers. */
@@ -301,11 +322,11 @@ export interface SheetOptions {
     languages: string[];
     /** The usual qualifications and the ones already on file. */
     qualifications: string[];
-    /** What the degree line says on the cards already filed. */
+    /** The degrees and titles the cards already filed have records of. */
     degrees: string[];
-    /** And what the awards line says. */
+    /** And the awards and commendations theirs name. */
     awards: string[];
-    /** And the military one. */
+    /** And what their military records say. */
     militaries: string[];
     /** Why jobs have ended before, offered the same way and no more binding. */
     reasons: string[];
@@ -338,6 +359,32 @@ export interface SheetOptions {
  */
 const askedToGo = (asked: boolean | undefined) => asked || undefined;
 
+/**
+ * One of the three paper lists on the way out: the records only under «Есть»,
+ * each of them its id where it has one, its line of text and its paper.
+ *
+ * Written once for the three because they are one list three times over, and a
+ * rule about what travels — the id yes, the name of the paper on file no — that
+ * held for the degrees and not for the awards would be a bug nobody could see
+ * from either call.
+ */
+const papersToSend = (said: Said, rows: PaperRow[]) =>
+    said === 'yes'
+        ? rows.map((row) => ({
+              // A row already on the card is corrected where it stands and
+              // keeps its paper; a row somebody has just added says nothing
+              // here, and the save writes it anew.
+              ...(row.id === undefined ? {} : { id: row.id }),
+              name: row.name,
+              document: row.document,
+              // And the paper on file asked to go, where somebody asked. What
+              // is on file is not sent back — `attached` was put there to be
+              // read beside an empty file box, and the card knows what it holds
+              // without being told.
+              document_remove: askedToGo(row.document_remove),
+          }))
+        : [];
+
 export const sheetToSend = (card: SheetValues) => ({
     languages: card.languages.filter((spoken) => spoken.name.trim() !== '').map((spoken) => ({ name: spoken.name.trim(), level: spoken.level })),
     // The three answers that open a list travel the same way: only «нет»
@@ -365,8 +412,10 @@ export const sheetToSend = (card: SheetValues) => ({
                   qualification: row.qualification,
                   started_year: row.started_year,
                   graduated_year: row.graduated_year,
+                  // The diploma itself and nothing beside it: the file's own
+                  // name is the name of the paper, so there is no second field
+                  // left to carry.
                   document: row.document,
-                  document_name: row.document_name,
                   // And the diploma on file asked to go, where somebody asked:
                   // the row keeps its id, so the save knows which paper is
                   // meant, and a row that is new has none to name.
@@ -380,13 +429,15 @@ export const sheetToSend = (card: SheetValues) => ({
     // Only «нет» carries meaning on its own; rows of their own say the rest.
     has_children: card.has_children === '' ? null : card.has_children === 'yes',
     children: card.has_children === 'yes' ? card.children.filter((child) => child.full_name.trim() !== '') : [],
-    // The three lines that keep a paper apiece, each with the asking for that
-    // paper to go. The form holds the asking either way round, because a
-    // control has to be able to say it has been taken back; the request carries
-    // it only where it still stands.
-    degree_document_remove: askedToGo(card.degree_document_remove),
-    award_document_remove: askedToGo(card.award_document_remove),
-    military_document_remove: askedToGo(card.military_document_remove),
+    // The three parts that keep a list of records with a paper apiece, each
+    // answered before its list is filled and each sending its rows only under
+    // «Есть» — the educations' own terms, for the educations' own reasons.
+    has_degrees: card.has_degrees === '' ? null : card.has_degrees === 'yes',
+    degrees: papersToSend(card.has_degrees, card.degrees),
+    has_awards: card.has_awards === '' ? null : card.has_awards === 'yes',
+    awards: papersToSend(card.has_awards, card.awards),
+    has_military_records: card.has_military_records === '' ? null : card.has_military_records === 'yes',
+    military_records: papersToSend(card.has_military_records, card.military_records),
 });
 
 /**
@@ -396,16 +447,16 @@ export const sheetToSend = (card: SheetValues) => ({
  * interchangeable. A file can only go as multipart, and a multipart body cannot
  * say that a list is empty: a form field is a name and a value, a list with no
  * values appends no field, and the name never reaches the server at all — while
- * the sheet edits all five of its lists whole and the save asks for every one
- * of them outright. So the sheet goes as plain JSON wherever it can, which is
+ * the sheet edits every one of its lists whole and the save asks for all of
+ * them outright. So the sheet goes as plain JSON wherever it can, which is
  * every save that attaches nothing, and as multipart only when there is a paper
  * that leaves it no choice.
  */
 export const carriesFile = (card: SheetValues): boolean =>
-    card.degree_document !== null ||
-    card.award_document !== null ||
-    card.military_document !== null ||
-    card.educations.some((row) => row.document !== null);
+    card.educations.some((row) => row.document !== null) ||
+    card.degrees.some((row) => row.document !== null) ||
+    card.awards.some((row) => row.document !== null) ||
+    card.military_records.some((row) => row.document !== null);
 
 /** Said at all: «Нет» says something, an empty box does not. */
 const said = (value: string) => value.trim() !== '';
@@ -421,11 +472,11 @@ const said = (value: string) => value.trim() !== '';
  * would have no way of telling which of the two was lying.
  *
  * A line is answered when it says something. «Нет» says something; an empty
- * line does not. The three the card keeps as flags are read the same way —
- * «Есть дети» and «Нет» are both answers, while a card nobody has asked holds
- * neither — and what is counted is that answer rather than the rows under it:
- * how many universities a person went to is not a measure of how far the sheet
- * has got, and whether anybody asked them is.
+ * line does not. Every part the card keeps as a flag over a list is read the
+ * same way — «Есть дети» and «Нет» are both answers, while a card nobody has
+ * asked holds neither — and what is counted is that answer rather than the rows
+ * under it: how many universities a person went to is not a measure of how far
+ * the sheet has got, and whether anybody asked them is.
  */
 const ANSWERED: Record<string, (card: SheetValues) => boolean> = {
     surname: (card) => said(card.surname),
@@ -438,9 +489,13 @@ const ANSWERED: Record<string, (card: SheetValues) => boolean> = {
     // Kept as a list of countries rather than as a line, but answered once like
     // a line: a person has a citizenship or has not said.
     citizenship: (card) => card.citizenship.length > 0,
-    degree: (card) => said(card.degree),
-    award: (card) => said(card.award),
-    military: (card) => said(card.military),
+    // The three lists that used to be a line apiece are counted by their
+    // answer now, as the educations below are: «Есть» and «Нет» are both
+    // answers, and how many degrees somebody holds is not a measure of how far
+    // the sheet has got.
+    degree: (card) => card.has_degrees !== '',
+    award: (card) => card.has_awards !== '',
+    military: (card) => card.has_military_records !== '',
     educations: (card) => card.has_educations !== '',
     work_experiences: (card) => card.has_experience !== '',
     marital_status: (card) => said(card.marital_status),
@@ -467,65 +522,74 @@ const ANSWERED: Record<string, (card: SheetValues) => boolean> = {
  */
 export const isAnswered = (line: string, card: SheetValues): boolean => ANSWERED[line]?.(card) ?? false;
 
-/** What the card writes on a line with nothing to say — AppSupportEmployeeCard::NONE. */
-export const NONE = 'Нет';
-
-/** The three lines of the sheet that keep one paper apiece. */
-export const PAPER_LINES = ['degree', 'award', 'military'] as const;
-
-export type PaperLine = (typeof PAPER_LINES)[number];
-
-/** Whether a line that may carry a paper says there is anything to prove. */
-const claims = (value: string) => said(value) && value.trim() !== NONE;
-
 /**
- * The lines still short of their paper, as the list beside the sheet reads them
- * while somebody is typing: AppSupportPersonnelSheet::papers() said in the
+ * The records still short of their paper, as the list beside the sheet reads
+ * them while somebody is typing: AppSupportPersonnelSheet::papers() said in the
  * browser, on the same rule and for the same reason isAnswered() is here — the
  * server counts while nothing is being changed, this counts while something is,
  * and the two have to agree or neither can be believed.
  *
- * Not part of what isAnswered() counts: a paper is not an answer. A line saying
- * what the degree is has been answered; whether the diploma has been handed in
- * is the other question.
+ * Not part of what isAnswered() counts: a paper is not an answer. A part naming
+ * two degrees has been answered; whether either diploma has been handed in is
+ * the other question.
  *
  * `title` says what the sheet calls a line, and says nothing for a line this
  * reader may not read — the server sends the titles of the lines it counted for
  * them, so a line that is not theirs to see is one this list cannot name and
  * therefore does not.
  *
- * `held` says which of the three lines has a paper on file already, which is
- * the card's business and not the form's: an untouched file box means «leave
- * the paper where it is», so what is on file cannot be read out of the boxes.
+ * Nothing is asked about what the card holds, which is what the old `held`
+ * argument was for: every paper now hangs off a record, and each record carries
+ * what is attached to it as `attached`. So the four lists answer for themselves,
+ * and the one reading of «has a paper» below is the same for all of them.
  */
-export const papersWanted = (card: SheetValues, held: Record<PaperLine, boolean>, title: (line: string) => string | undefined): string[] => {
+export const papersWanted = (card: SheetValues, title: (line: string) => string | undefined): string[] => {
     const wanted: string[] = [];
+
+    /**
+     * Whether a record has a paper behind it — one just chosen, or one on file
+     * that nobody has asked to take off. The asking counts because it is an
+     * answer already given: a sheet saved as it stands would leave that record
+     * with nothing, and a list that waited for the save to say so would be
+     * telling the reader what used to be true.
+     */
+    const has = (row: { document: File | null; attached?: string; document_remove?: boolean }) =>
+        row.document !== null || (row.attached !== undefined && row.document_remove !== true);
+
+    /**
+     * One list named record by record. Named by what the record says — a card
+     * may hold three degrees, and «Учёная степень, звание» three times over
+     * says how many papers are missing without saying which — and by the part
+     * alone where the record has not been filled in yet.
+     */
+    const over = (line: string, rows: { name: string; document: File | null; attached?: string; document_remove?: boolean }[]) => {
+        const name = title(line);
+
+        if (name === undefined) return;
+
+        for (const row of rows) {
+            if (!has(row)) wanted.push(said(row.name) ? `${name} — ${row.name.trim()}` : name);
+        }
+    };
+
     const schooling = title('educations');
 
     if (schooling !== undefined) {
         for (const record of card.educations) {
             // Asked for once the studying has ended: a diploma is what
             // finishing leaves behind, and somebody in their second year has
-            // nothing to hand in yet.
-            const has = record.document !== null || (record.attached !== undefined && record.document_remove !== true);
-
-            if (record.graduated_year !== '' && !has) {
-                // Named by the place of study: a card may name three of them,
-                // and «Образование» three times over says how many papers are
-                // missing without saying which.
+            // nothing to hand in yet. The three lists below have no such
+            // moment — a degree conferred or an award given is a paper already
+            // written — so every record of theirs wants one.
+            if (record.graduated_year !== '' && !has(record)) {
                 wanted.push(said(record.institution) ? `${schooling} — ${record.institution.trim()}` : schooling);
             }
         }
     }
 
-    for (const line of PAPER_LINES) {
-        const name = title(line);
-        const has = card[`${line}_document`] !== null || (held[line] && !card[`${line}_document_remove`]);
-
-        if (name !== undefined && claims(card[line]) && !has) {
-            wanted.push(name);
-        }
-    }
+    over('degree', card.degrees);
+    over('award', card.awards);
+    over('military', card.military_records);
 
     return wanted;
 };
