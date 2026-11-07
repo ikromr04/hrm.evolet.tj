@@ -4,6 +4,7 @@ import {
     SidebarGroup,
     SidebarGroupLabel,
     SidebarMenu,
+    SidebarMenuBadge,
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarMenuSub,
@@ -85,7 +86,23 @@ export function NavMain({ group, className }: { group: SidebarNavGroup; classNam
                                         <span>{item.title}</span>
                                     </Link>
                                 </SidebarMenuButton>
-                            ) : (
+                            ) : null}
+
+                            {/* The figure the entry is waiting on, after the
+                                button rather than inside it: the button is a
+                                link, and a number inside a link is a number one
+                                can press by mistake. It goes with the words
+                                when the menu is collapsed to icons — the bell
+                                in the bar carries the same count, and two marks
+                                over one figure in a strip 48px wide is a strip
+                                of marks. */}
+                            {item.url && item.badge !== undefined && item.badge > 0 && (
+                                <SidebarMenuBadge className="text-brand-strong dark:text-[#C5E27A]">
+                                    {item.badge > 99 ? '99+' : item.badge}
+                                </SidebarMenuBadge>
+                            )}
+
+                            {item.url ? null : (
                                 // A section that is not built yet: the entry keeps
                                 // its place in the order, greyed and unpressable, so
                                 // the menu says what is coming without promising it

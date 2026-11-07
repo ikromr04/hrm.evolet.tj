@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\SheetChangeRequest;
+use App\Notifications\Concerns\NamesTheSender;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -30,6 +31,8 @@ use Illuminate\Notifications\Notification;
  */
 class SheetChangeRequested extends Notification
 {
+    use NamesTheSender;
+
     public function __construct(public readonly SheetChangeRequest $request) {}
 
     /**
@@ -46,15 +49,19 @@ class SheetChangeRequested extends Notification
     public function toArray(object $notifiable): array
     {
         $employee = $this->request->user;
-        // The surname first, then the name and the patronymic, as a sheet is
-        // signed and as every list in this application reads a person.
-        $name = trim("{$employee->surname} {$employee->name} {$employee->patronymic}");
+        $name = $this->fullName($employee);
 
         return [
             'kind' => 'sheet_request',
             'title' => 'Личный листок на проверку',
-            'body' => "{$name} просит записать изменения в свой личный листок.",
+            // Without the name. The list this note is read in has a column for
+            // who it is from, and a sentence opening with the same name again
+            // spends the width it is given saying nothing new.
+            'body' => 'Сотрудник просит записать изменения в свой личный листок.',
             'url' => route('sheet_requests.show', $this->request),
+            // The one who asked. The office reads this list for whose sheet
+            // is waiting, and that is the same person either way.
+            'from' => $this->sender($employee),
             'employee' => ['id' => $employee->id, 'name' => $name],
             'request_id' => $this->request->id,
         ];

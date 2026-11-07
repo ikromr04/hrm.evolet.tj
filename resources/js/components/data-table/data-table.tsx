@@ -115,6 +115,23 @@ interface DataTableProps<Row> {
     rowSpan?: (column: ColumnDef, row: Row) => number;
 
     /**
+     * What a page wants said about a whole row rather than about a cell of it:
+     * a class for the row, and what a press on it means.
+     *
+     * The table knows what a row looks like and nothing about what one is. A
+     * list of notes has read rows and unread ones — which of them is which is
+     * the page's business, and reaching for it from here would be the table
+     * learning what a notification is.
+     *
+     * A row given a press takes the cursor and the keyboard with it, and
+     * anything inside it that answers a press of its own — a link, a button,
+     * the box that ticks it — is left to answer alone rather than doing two
+     * things at once.
+     */
+    rowClass?: (row: Row) => string | undefined;
+    onRowClick?: (row: Row) => void;
+
+    /**
      * What can be done to a row, floated over its right-hand end while the
      * cursor is on it.
      *
@@ -172,6 +189,8 @@ export function DataTable<Row>({
     lockedKey,
     gridlines,
     rowSpan,
+    rowClass,
+    onRowClick,
     actions,
     onRowDrop,
     empty,
@@ -600,7 +619,7 @@ export function DataTable<Row>({
                 // that the rows shift by the width of a bar when a page of them
                 // first runs past the window, which happens once and at the
                 // moment the bar itself appears to explain it.
-                className={cn('scroll-soft scroll-framed relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}
+                className={cn('scroll-framed relative overflow-auto md:min-h-0 md:flex-1', mobileRow && 'max-md:hidden')}
                 // This box is the one that scrolls, so this is where a cell inside
                 // it reads how far down the header reaches.
                 style={{ '--table-head': `${headHeight}px` } as CSSProperties}
@@ -698,7 +717,11 @@ export function DataTable<Row>({
                                                     />
                                                 </button>
                                             ) : (
-                                                <span className="truncate">{column.label}</span>
+                                                // A column that hands the header something of
+                                                // its own — the box that ticks the whole page —
+                                                // has that drawn where its name would stand; the
+                                                // name is still what every list of columns says.
+                                                (column.head ?? <span className="truncate">{column.label}</span>)
                                             )}
 
                                             <div data-head-controls className="ml-auto flex shrink-0 items-center gap-0.5">
@@ -953,8 +976,38 @@ export function DataTable<Row>({
                                           }
                                 }
                                 onDragEnd={onRowDrop === undefined ? undefined : clearRowDrag}
+                                // A press anywhere on the row, except on
+                                // something that answers presses itself, and the
+                                // same from a keyboard: a table row cannot be a
+                                // button, so both are written out.
+                                tabIndex={onRowClick === undefined ? undefined : 0}
+                                onClick={
+                                    onRowClick === undefined
+                                        ? undefined
+                                        : (event) => {
+                                              if ((event.target as HTMLElement).closest('a, button, input, label, [role="checkbox"]')) return;
+
+                                              onRowClick(row);
+                                          }
+                                }
+                                onKeyDown={
+                                    onRowClick === undefined
+                                        ? undefined
+                                        : (event) => {
+                                              if (event.target !== event.currentTarget) return;
+                                              if (event.key !== 'Enter' && event.key !== ' ') return;
+
+                                              // The space bar scrolls the page otherwise, out
+                                              // from under the row just pressed.
+                                              event.preventDefault();
+                                              onRowClick(row);
+                                          }
+                                }
                                 className={cn(
                                     'group/row border-t align-top transition-colors first:border-t-0 hover:bg-(--row-hover)',
+                                    onRowClick !== undefined &&
+                                        'focus-visible:ring-ring cursor-pointer focus-visible:ring-2 focus-visible:outline-hidden',
+                                    rowClass?.(row),
                                     // The row being carried fades, and the one it
                                     // would land against draws a line along the
                                     // edge it would land on: the list says where

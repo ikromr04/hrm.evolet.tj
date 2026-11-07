@@ -65,6 +65,13 @@ export const navGroups = (
      * application.
      */
     ownCardOnly = false,
+    /**
+     * How many notes are waiting unread. The menu carries the same figure the
+     * bell in the bar does — the two are read at different moments, and
+     * somebody whose eye is on the menu should not have to look up to find out
+     * that something is waiting.
+     */
+    unread = 0,
 ): SidebarNavGroup[] => [
     {
         title: 'Обзор',
@@ -74,7 +81,7 @@ export const navGroups = (
             // starts at their own card. No address for it: what a main page
             // should hold has not been decided, so it names itself and waits.
             everything ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
-            { title: 'Уведомления', url: '/notifications', icon: Bell },
+            { title: 'Уведомления', url: '/notifications', icon: Bell, badge: unread },
         ],
     },
     // Below this line is the company, which is not everybody's to read.
@@ -180,7 +187,7 @@ const SCROLL_KEY = 'evolet.sidebar.scroll';
 export function AppSidebar() {
     const can = useCan();
     const listHref = useListHref();
-    const { everything, ownCardOnly } = usePage<SharedData>().props.auth;
+    const { everything, ownCardOnly, notifications } = usePage<SharedData>().props.auth;
     const menu = useRef<HTMLDivElement>(null);
 
     /**
@@ -258,7 +265,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent ref={menu}>
-                {navGroups(can, everything, listHref, ownCardOnly)
+                {navGroups(can, everything, listHref, ownCardOnly, notifications)
                     .filter((group) => group.items.length > 0)
                     .map((group) => (
                         <NavMain key={group.title} group={group} />

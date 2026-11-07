@@ -197,6 +197,10 @@ Route::middleware(['auth'])->group(function () {
     // but a row the relation does not hold.
     Route::post('notifications/read', [NotificationController::class, 'read'])->name('notifications.read');
     Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read_all');
+    // And throwing them away, which the same sentence covers: a note is a
+    // pointer at something kept elsewhere, so what is deleted here is the
+    // pointer and not the thing.
+    Route::delete('notifications', [NotificationController::class, 'destroy'])->name('notifications.destroy');
 });
 
 // Putting a new colleague on the books.

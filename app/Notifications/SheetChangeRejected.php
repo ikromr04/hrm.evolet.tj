@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\SheetChangeRequest;
+use App\Notifications\Concerns\NamesTheSender;
 use Illuminate\Notifications\Notification;
 
 /**
@@ -29,6 +30,8 @@ use Illuminate\Notifications\Notification;
  */
 class SheetChangeRejected extends Notification
 {
+    use NamesTheSender;
+
     public function __construct(public readonly SheetChangeRequest $request) {}
 
     /**
@@ -45,9 +48,7 @@ class SheetChangeRejected extends Notification
     public function toArray(object $notifiable): array
     {
         $employee = $this->request->user;
-        // The surname first, then the name and the patronymic, as a sheet is
-        // signed and as every list in this application reads a person.
-        $name = trim("{$employee->surname} {$employee->name} {$employee->patronymic}");
+        $name = $this->fullName($employee);
         $comment = trim((string) $this->request->comment);
 
         return [
@@ -59,6 +60,11 @@ class SheetChangeRejected extends Notification
             // The card, where the refusal is shown again beside the sheet and
             // where the next request is sent from.
             'url' => route('profile'),
+            // The officer who answered, and not the person whose sheet it
+            // is: this note goes to that person, and a list telling them their
+            // own name would be telling them nothing. Null for a row answered
+            // before anybody was recorded as answering it.
+            'from' => $this->sender($this->request->reviewer),
             'employee' => ['id' => $employee->id, 'name' => $name],
             'request_id' => $this->request->id,
         ];

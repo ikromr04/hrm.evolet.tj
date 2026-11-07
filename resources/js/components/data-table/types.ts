@@ -26,6 +26,24 @@ export interface ColumnDef {
     key: string;
     label: string;
     /**
+     * What the header cell draws in place of the column's name.
+     *
+     * The name stays a string, and has to: the menu that shows and hides
+     * columns, the sheet a phone sorts and filters from, and the label a screen
+     * reader is given are all words, and a column whose name were a node could
+     * not be put in any of them. But not every column is headed by a word. A
+     * column of checkboxes is headed by the box that ticks the whole page —
+     * that box belongs over that column and nowhere else, and «Выбор» written
+     * above it would name the column twice. So the column keeps a name for the
+     * lists that are made of names, and hands the header cell this to draw
+     * instead.
+     *
+     * Only the drawing changes. Nothing of selection lives in the table: what
+     * the box is, what it knows and what it does are the page's, which is the
+     * only place that knows what a row of it means.
+     */
+    head?: ReactNode;
+    /**
      * How wide the column is drawn, in pixels, until a viewer drags its edge:
      * the page's own answer, and the one a reset and the column's menu come
      * back to.

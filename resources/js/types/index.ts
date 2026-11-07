@@ -70,6 +70,16 @@ export interface SidebarNavItem {
      * in the menu's first level.
      */
     items?: SidebarNavItem[];
+    /**
+     * A figure beside the name, for a section that is waiting on somebody —
+     * the unread notes, and nothing else so far.
+     *
+     * Only what is worth interrupting a reader over belongs here: a menu where
+     * three entries carry numbers is a menu of numbers, and the one that
+     * matters is lost among them. Nought is not a figure to show, so the entry
+     * leaves it out rather than drawing a nought.
+     */
+    badge?: number;
 }
 
 export interface SidebarNavGroup {

@@ -794,7 +794,10 @@ class SheetChangeRequestTest extends TestCase
 
             $this->assertSame('sheet_request', $note->data['kind']);
             $this->assertSame('Личный листок на проверку', $note->data['title']);
-            $this->assertStringContainsString('Рахимова Зарина', $note->data['body']);
+            // Who asked is the note's own field and the column the list reads
+            // it in; the sentence says what was asked and leaves the name to it.
+            $this->assertSame('Сотрудник просит записать изменения в свой личный листок.', $note->data['body']);
+            $this->assertStringContainsString('Рахимова Зарина', $note->data['from']['name']);
             $this->assertSame(route('sheet_requests.show', $filed), $note->data['url']);
             $this->assertSame($author->id, $note->data['employee']['id']);
             $this->assertSame($filed->id, $note->data['request_id']);
