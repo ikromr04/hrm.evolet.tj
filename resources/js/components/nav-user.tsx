@@ -29,7 +29,7 @@ export function NavUser() {
                         align="end"
                         side={isMobile ? 'bottom' : state === 'collapsed' ? 'left' : 'bottom'}
                     >
-                        <UserMenuContent user={user} />
+                        <UserMenuContent />
                     </DropdownMenuContent>
                 </DropdownMenu>
             </SidebarMenuItem>

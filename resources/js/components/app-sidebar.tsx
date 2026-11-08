@@ -11,7 +11,6 @@ import {
     Boxes,
     Briefcase,
     Building2,
-    CircleUser,
     FileText,
     Flag,
     Heart,
@@ -80,7 +79,11 @@ export const navGroups = (
             // as a whole, and it is nobody else's first stop: everybody else
             // starts at their own card. No address for it: what a main page
             // should hold has not been decided, so it names itself and waits.
-            everything ? { title: 'Главная', icon: LayoutGrid } : { title: 'Профиль', url: '/profile', icon: CircleUser },
+            // One's own card is reached from the menu under one's own name,
+            // where the settings and the way out are: it is about the person
+            // reading rather than about the company, and the sections below are
+            // all about the company.
+            ...(everything ? [{ title: 'Главная', icon: LayoutGrid }] : []),
             { title: 'Уведомления', url: '/notifications', icon: Bell, badge: unread },
         ],
     },
