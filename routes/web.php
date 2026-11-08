@@ -247,6 +247,12 @@ Route::middleware(['auth'])->prefix('employees/{employee}')->name('employees.')-
     // none of them.
     Route::put('sheet', [EmployeeSheetController::class, 'update'])->name('sheet');
 
+    // And asking the colleague to finish it themselves, which is the one thing
+    // to be done about a sheet nobody has filled in. Behind «auth» like the
+    // save above and for the same reason: who may ask whom is a question about
+    // the pair of them, and the controller asks it.
+    Route::post('sheet/ask', [EmployeeSheetController::class, 'ask'])->name('sheet.ask');
+
     // The papers the company asks everybody for, and what this person has
     // handed in against them. Behind «auth» alone, like the sheet above: each
     // of these asks its own question inside, and they are three different

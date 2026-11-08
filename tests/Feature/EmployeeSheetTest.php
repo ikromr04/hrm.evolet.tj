@@ -1662,4 +1662,64 @@ class EmployeeSheetTest extends TestCase
         $this->assertSame('7654321', $employee->details->passport_number);
         $this->assertSame('Рахимова', $employee->surname);
     }
+
+    /**
+     * The colleague asked to finish their own sheet.
+     *
+     * The note says who is asking and leads to the sheet, and that is all it
+     * has to say: what is missing is written on the sheet itself, in the two
+     * lists standing beside it, and a note carrying a copy of them would be a
+     * copy out of date the moment one line was answered.
+     */
+    public function test_a_colleague_is_asked_to_finish_their_sheet()
+    {
+        $employee = $this->blankCard();
+
+        $this->actingAs($office = $this->sysadmin())
+            ->post("/employees/{$employee->id}/sheet/ask")
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $note = $employee->notifications()->sole();
+
+        $this->assertSame('sheet_filling', $note->data['kind']);
+        $this->assertSame('Заполните личный листок', $note->data['title']);
+        $this->assertSame('Отдел кадров просит заполнить недостающие поля и приложить документы.', $note->data['body']);
+        $this->assertSame($office->id, $note->data['from']['id']);
+        // The sheet itself and not the card's first block: the note is about
+        // one tab of it, and the address says which.
+        $this->assertSame(route('profile').'#sheet', $note->data['url']);
+    }
+
+    /**
+     * Who may do the asking.
+     *
+     * Not the two roles shown their own card and nothing else: the only card
+     * they can reach is theirs, and a note asking oneself to fill in one's own
+     * sheet is a note from nobody. Not anybody about themselves, for the same
+     * reason — personnel have sheets of their own. And not a colleague who may
+     * not read the card at all, who would otherwise be asking about lines they
+     * have never seen.
+     */
+    public function test_the_asking_is_not_everybodys_to_do()
+    {
+        $employee = $this->blankCard();
+
+        foreach (['head', 'specialist'] as $role) {
+            $this->actingAs(User::factory()->create()->assignRole($role))
+                ->post("/employees/{$employee->id}/sheet/ask")
+                ->assertForbidden();
+        }
+
+        // Themselves, whoever they are.
+        $office = $this->sysadmin();
+        $this->actingAs($office)->post("/employees/{$office->id}/sheet/ask")->assertForbidden();
+
+        // And somebody whose position opens the staff list and nothing private.
+        $this->actingAs($this->position('employees.view'))
+            ->post("/employees/{$employee->id}/sheet/ask")
+            ->assertForbidden();
+
+        $this->assertSame(0, $employee->notifications()->count());
+    }
 }
