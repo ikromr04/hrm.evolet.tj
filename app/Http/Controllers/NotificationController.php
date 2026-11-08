@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\Access;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -152,6 +153,10 @@ class NotificationController extends Controller
 
         return Inertia::render('notifications', [
             'filter' => $filter,
+            // Whether this reader may throw a note away, which is one account
+            // in the building. The page asks before it draws the offer rather
+            // than finding out by being refused.
+            'canDelete' => $request->user()->hasRole(Access::SOLE_ROLE),
             // Counted over everything: over every note rather than over the
             // page in front of the reader, and over every note rather than over
             // what the search box and the funnels have left of it. A tab is read
@@ -451,15 +456,24 @@ class NotificationController extends Controller
     }
 
     /**
-     * Notes thrown away.
+     * Notes thrown away, by the one account that may throw anything away.
      *
-     * Nothing of consequence goes with them: a note is a pointer at something
-     * that happened, and the thing itself — the request, the card it was about
-     * — is a row in a table of its own. Which is why this asks nothing before
-     * doing it, unlike the places where the thing itself is being deleted.
+     * Nothing of consequence goes with them — a note is a pointer at something
+     * that happened, and the thing itself, the request or the card it was
+     * about, is a row in a table of its own. What goes is the record that
+     * anybody was told, and that is the part worth keeping: a list of notes is
+     * also the answer to «кого об этом известили», which nobody should be able
+     * to empty of themselves. Reading them is still everybody's, and so is
+     * marking them read — that is what a reader does with their own list.
+     *
+     * The system administrator alone, and not the office: personnel answer the
+     * requests these notes are about, so a list they could clear is a list of
+     * their own work.
      */
     public function destroy(Request $request): RedirectResponse
     {
+        abort_unless($request->user()->hasRole(Access::SOLE_ROLE), 403);
+
         $asked = $request->validate([
             'ids' => ['required', 'array', 'max:'.self::MOST],
             'ids.*' => ['string'],

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Notifications\SheetChangeAccepted;
 use App\Notifications\SheetChangeRejected;
 use App\Notifications\SheetChangeRequested;
+use App\Support\Access;
 use Carbon\CarbonInterface;
 use Database\Seeders\PositionSeeder;
 use Database\Seeders\RoleSeeder;
@@ -71,6 +72,18 @@ class NotificationTest extends TestCase
     private function viewer(): User
     {
         return User::factory()->create()->assignRole('specialist');
+    }
+
+    /**
+     * The one account that may throw a note away.
+     *
+     * Everybody else reads their bell and marks it read; the list is a record
+     * of what the office asked and answered, and a reader who disliked an
+     * answer could otherwise remove the only trace that it was given.
+     */
+    private function sysadmin(): User
+    {
+        return User::factory()->create()->assignRole(Access::SOLE_ROLE);
     }
 
     /**
@@ -507,16 +520,20 @@ class NotificationTest extends TestCase
      * Nothing of consequence goes with them — a note is a pointer at a request
      * that is a row of its own — but the list is somebody's, and a page that
      * deleted by id alone would let one account clear another's.
+     *
+     * Read by the one account that may do it at all, which is the next test's
+     * business; the rule being pinned here is that even that account reaches
+     * only its own bell.
      */
     public function test_notes_are_thrown_away_one_account_at_a_time()
     {
-        $viewer = $this->viewer();
+        $admin = $this->sysadmin();
         $other = $this->viewer();
-        $mine = $this->noted($viewer, 1);
-        $kept = $this->noted($viewer);
+        $mine = $this->noted($admin, 1);
+        $kept = $this->noted($admin);
         $theirs = $this->noted($other);
 
-        $this->actingAs($viewer)
+        $this->actingAs($admin)
             ->delete('/notifications', ['ids' => [$mine->id, $theirs->id]])
             ->assertRedirect();
 
@@ -524,8 +541,38 @@ class NotificationTest extends TestCase
         $this->assertNotNull(DatabaseNotification::query()->find($kept->id));
         // The stranger's id matched nothing at all, and their note is still there.
         $this->assertNotNull(DatabaseNotification::query()->find($theirs->id));
-        $this->assertSame(1, $viewer->notifications()->count());
+        $this->assertSame(1, $admin->notifications()->count());
         $this->assertSame(1, $other->notifications()->count());
+    }
+
+    /**
+     * Nobody but the system administrator throws a note away.
+     *
+     * The bell is a record: the office asked for a sheet, somebody answered,
+     * and the note is the trace of it on the account it concerned. Marking it
+     * read says it has been read, which is all a reader needs; removing it says
+     * nothing was ever sent. So the list is cleared by one account and the
+     * button is not even drawn for the rest — but the button is the page's, and
+     * the rule has to be the server's.
+     */
+    public function test_a_note_is_not_everybodys_to_throw_away()
+    {
+        $viewer = $this->viewer();
+        $note = $this->noted($viewer);
+
+        $this->actingAs($viewer)
+            ->delete('/notifications', ['ids' => [$note->id]])
+            ->assertForbidden();
+
+        $this->assertNotNull(DatabaseNotification::query()->find($note->id));
+        $this->assertSame(1, $viewer->notifications()->count());
+    }
+
+    /** And the page does not offer what the server would refuse. */
+    public function test_the_list_says_whether_its_reader_may_throw_a_note_away()
+    {
+        $this->assertFalse($this->prop($this->viewer(), 'canDelete'));
+        $this->assertTrue($this->prop($this->sysadmin(), 'canDelete'));
     }
 
     /**

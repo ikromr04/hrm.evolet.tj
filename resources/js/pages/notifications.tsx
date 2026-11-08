@@ -18,6 +18,7 @@ import { Hint } from '@/components/data-table/hint';
 import { PageContent } from '@/components/page-content';
 import { PageTitle } from '@/components/page-title';
 import { Pagination, type Paginated } from '@/components/pagination';
+import { RowActions } from '@/components/row-actions';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -35,7 +36,7 @@ import { formatDate } from '@/lib/employee';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, router, usePage } from '@inertiajs/react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Mail, MailOpen, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 const breadcrumbs: BreadcrumbItem[] = [{ title: 'Уведомления', href: '/notifications' }];
@@ -83,6 +84,15 @@ interface Filters {
 
 interface Props {
     filter: NotificationFilter;
+    /**
+     * Whether this reader may throw a note away.
+     *
+     * One account in the building, and the page asks before it draws the offer
+     * rather than finding out by being refused. Reading and marking read are
+     * everybody's — that is what a reader does with their own list — while what
+     * goes with a deleted note is the record that anybody was told at all.
+     */
+    canDelete: boolean;
     /**
      * How much is in each list.
      *
@@ -188,7 +198,7 @@ function buildColumns(options: Props['options']): ColumnDef[] {
         // on the column is what puts it there. Locked, so it cannot be hidden:
         // a list of rows with nothing to tick them with would still offer the
         // two actions and never let anything be chosen for them.
-        { key: 'pick', label: 'Выбор', width: 64 },
+        { key: 'pick', label: 'Выбор', width: 64, bare: true },
         { key: 'from', label: 'От кого', width: 200, filter: { type: 'multi', param: 'from', options: options.from } },
         { key: 'title', label: 'Тема', width: 300, filter: { type: 'multi', param: 'title', options: options.title } },
         // The column glad of whatever room the others leave: it is the sentence
@@ -224,7 +234,7 @@ function buildColumns(options: Props['options']): ColumnDef[] {
  * as props and go back into the address when they change, so a list can be sent
  * to somebody, kept in a bookmark and left by the arrow back.
  */
-export default function Notifications({ filter, counts, q, sort, sortable, filters, options, perPage, perPageOptions, notes }: Props) {
+export default function Notifications({ filter, canDelete, counts, q, sort, sortable, filters, options, perPage, perPageOptions, notes }: Props) {
     // The rows of the page in front of the reader. Everything on this page
     // works on those and not on the list behind them: a tick is a tick on
     // something drawn, and so is every action the strip offers.
@@ -558,29 +568,33 @@ export default function Notifications({ filter, counts, q, sort, sortable, filte
                         selection: a strip of two actions standing over a list
                         nothing is ticked in is two buttons that do nothing. */}
                     {chosen.length > 0 && (
-                        <div className="flex items-center gap-4 max-md:w-full">
+                        // Buttons, and the height of the one they stand beside:
+                        // they do something to everything that has been ticked,
+                        // which is not the weight of a line of text, and a row
+                        // of controls where one is a button and the next a piece
+                        // of writing reads as two different kinds of offer.
+                        <div className="flex items-center gap-2 max-md:w-full">
                             <Button
                                 type="button"
-                                variant="link"
+                                className="h-9"
                                 onClick={() =>
                                     mark(
                                         chosen.map((item) => item.id),
                                         marking,
                                     )
                                 }
-                                className="text-brand-strong h-auto p-0 text-xs font-normal dark:text-[#C5E27A]"
                             >
                                 {marking ? 'Отметить как прочитанное' : 'Отметить как непрочитанное'}
                             </Button>
 
-                            <Button
-                                type="button"
-                                variant="link"
-                                onClick={() => destroy(chosen.map((item) => item.id))}
-                                className="text-destructive hover:text-destructive h-auto p-0 text-xs font-normal dark:text-[#F7A19A]"
-                            >
-                                Удалить
-                            </Button>
+                            {/* The one of the two that cannot be taken back is
+                                drawn as the one that cannot be taken back — and
+                                offered to the one account that may do it. */}
+                            {canDelete && (
+                                <Button type="button" variant="destructive" className="h-9" onClick={() => destroy(chosen.map((item) => item.id))}>
+                                    Удалить
+                                </Button>
+                            )}
                         </div>
                     )}
 
@@ -644,6 +658,28 @@ export default function Notifications({ filter, counts, q, sort, sortable, filte
                     onReorder={reorder}
                     onHide={(key) => toggleHidden(key, true)}
                     lockedKey="pick"
+                    // The same two things the strip offers a selection, offered
+                    // to one row without ticking it first: they float over the
+                    // day the note arrived on while the cursor is on the row, as
+                    // the actions of every other table here do. Icons on a row
+                    // and words in the strip — a row has no space for a
+                    // sentence, and the strip has nothing else to say.
+                    actions={(item) => (
+                        <RowActions
+                            of={item.title}
+                            actions={[
+                                {
+                                    key: 'read',
+                                    label: item.read ? 'Отметить как непрочитанное' : 'Отметить как прочитанное',
+                                    Icon: item.read ? Mail : MailOpen,
+                                    onSelect: () => mark([item.id], !item.read),
+                                },
+                                ...(canDelete
+                                    ? [{ key: 'delete', label: 'Удалить', Icon: Trash2, danger: true, onSelect: () => destroy([item.id]) }]
+                                    : []),
+                            ]}
+                        />
+                    )}
                     rowClass={(item) => (item.read ? 'text-muted-foreground' : 'bg-sidebar text-foreground hover:bg-(--row-hover)')}
                     onRowClick={open}
                     empty={<span className="text-sm">{narrowed ? 'В этом списке пусто' : 'Уведомлений пока нет'}</span>}
