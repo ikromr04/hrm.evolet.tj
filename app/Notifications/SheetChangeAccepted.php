@@ -51,9 +51,13 @@ class SheetChangeAccepted extends Notification
             'kind' => 'sheet_request_accepted',
             'title' => 'Личный листок принят',
             'body' => 'Отдел кадров принял изменения — они записаны в вашу карточку.',
-            // The card itself, not the request: what was asked for is now what
-            // the card says, and the request is a page about the past.
-            'url' => route('profile'),
+            // The request itself, read the way a refusal is read: what was sent,
+            // line by line, who accepted it and when. The card now says the same
+            // words, but it says them as a card — without the sending, without
+            // the name of whoever agreed to it, and with nothing to tell this
+            // sheet from the one before it. The sheet is one press away from
+            // there, in «Решение».
+            'url' => route('sheet_requests.show', $this->request),
             // The officer who answered, and not the person whose sheet it
             // is: this note goes to that person, and a list telling them their
             // own name would be telling them nothing. Null for a row answered

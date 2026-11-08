@@ -16,9 +16,11 @@ use App\Support\SheetDiff;
 use App\Support\SheetWriter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -87,13 +89,24 @@ class SheetChangeRequestController extends Controller
      * corrections on it, and two of them would have the office accepting the
      * stale one on top of the fresh. Its papers go with it — nothing on the
      * card ever pointed at them, so there is nothing left to point at them once
-     * the row is gone.
+     * the row is gone. So do the notes the office was sent about it: a bell
+     * holding two lines about one person's listok is a bell that has to be
+     * worked out, and one of the two would open on a request that is no longer
+     * there.
      *
      * The row is written and the old one dropped inside one transaction, so
      * there is never a moment with two pending requests nor one with none. The
      * files of the dropped request are deleted afterwards, for the reason the
      * sheet's own save deletes afterwards: a file removed inside a transaction
      * is gone whether or not the rows come back.
+     *
+     * A sheet that asks for nothing is refused. The office would otherwise be
+     * handed a page of «без изменений» to read line by line and a decision to
+     * make about nothing, and the person who sent it would be waiting on an
+     * answer to a question they did not ask. It is refused here and not only
+     * greyed out in the page, because the page can only compare what it was
+     * given: the card may have been corrected by the office while this sheet
+     * was open, and then the one thing that was typed is already there.
      */
     public function store(SubmitSheetRequest $request): RedirectResponse
     {
@@ -103,10 +116,39 @@ class SheetChangeRequestController extends Controller
         $papers = [];
         $payload = $this->stored($author, $request->validated(), $papers);
 
+        // Read against the card as the office would read it, which is the only
+        // reading that answers «is anything being asked for». The papers are on
+        // disk by now — a document is a change, and a change cannot be seen
+        // before the file it is — so a refusal takes them off again.
+        if (collect(SheetDiff::between($author, $payload))->doesntContain('changed', true)) {
+            foreach ($papers as $path) {
+                DocumentStore::forget($path);
+            }
+
+            throw ValidationException::withMessages([
+                'sheet' => 'В листке ничего не изменилось — отправлять нечего.',
+            ]);
+        }
+
         $replaced = SheetChangeRequest::query()->where('user_id', $author->id)->pending()->get();
 
         $filed = DB::transaction(function () use ($author, $payload, $papers, $replaced) {
             if ($replaced->isNotEmpty()) {
+                // And the notes the office was sent about them. The request
+                // they point at is about to stop existing, so a bell left
+                // holding them offers two lines about one sheet — one of them
+                // opening on nothing — and the office has to work out which of
+                // the two is the sheet to read. The one that is still true is
+                // filed a moment later, below.
+                //
+                // Only the «пришёл листок» notes: a decision taken on an
+                // earlier request is a thing that happened, and the person it
+                // was sent to keeps it.
+                DatabaseNotification::query()
+                    ->where('type', SheetChangeRequested::class)
+                    ->whereIn('data->request_id', $replaced->modelKeys())
+                    ->delete();
+
                 $replaced->toQuery()->delete();
             }
 
@@ -149,7 +191,22 @@ class SheetChangeRequestController extends Controller
     {
         $this->mayRead($request, $sheetRequest);
 
+        // The note that led here is read, because this is the reading of it.
+        // The bell marks a row read when it is pressed, but that is only one of
+        // the ways in: the card carries a callout straight to a waiting sheet,
+        // the breadcrumb comes back to it, and an address can be kept. A line
+        // still bold in the bell after its page has been read is a list that
+        // counts work twice.
+        //
+        // This reader's own notes and no others, and all of them about this
+        // request — the office was sent one note apiece, and the author may
+        // hold both the refusal and the sheet that answered it.
+        $request->user()->unreadNotifications()
+            ->whereIn('data->request_id', [$sheetRequest->id])
+            ->update(['read_at' => now()]);
+
         $employee = $sheetRequest->user;
+        $reviewer = $sheetRequest->reviewer;
 
         return Inertia::render('sheet-requests/show', [
             'request' => [
@@ -168,8 +225,24 @@ class SheetChangeRequestController extends Controller
                     'name' => trim("{$employee->surname} {$employee->name} {$employee->patronymic}"),
                     'number' => $employee->employee_number,
                 ],
+                // Who answered it, for the author reading their own request:
+                // «Сотрудник — я сам» is a line that says nothing, and the one
+                // thing they want off this page is whose decision it was. Null
+                // while nobody has answered, and null on a row answered before
+                // the application started writing that down.
+                'reviewer' => $reviewer === null ? null : [
+                    'id' => $reviewer->id,
+                    'name' => trim("{$reviewer->surname} {$reviewer->name} {$reviewer->patronymic}"),
+                ],
             ],
-            'lines' => SheetDiff::between($employee, $sheetRequest->payload ?? []),
+            // The comparison kept at the decision where there is one, and the
+            // live one where there is not. A request still waiting is read
+            // against the card as it stands this second, because the question
+            // is whether anything is still being asked for; an answered one is
+            // read against the card as it stood when it was answered, because
+            // the question is what was decided — and after an acceptance the
+            // live comparison would answer «без изменений» to every line.
+            'lines' => $sheetRequest->lines ?? SheetDiff::between($employee, $sheetRequest->payload ?? []),
             // Each with the address to open it by and not the place it lies:
             // where a file is kept is the application's business, and a path on
             // a page is a folder somebody will try to walk.
@@ -181,6 +254,12 @@ class SheetChangeRequestController extends Controller
             // left to answer. A request already accepted or sent back is read
             // and not decided, by anybody.
             'canReview' => Access::everything($request->user()) && $sheetRequest->status === SheetChangeRequest::PENDING,
+            // Which of the two readers this is. The page is the same page for
+            // both — the whole sheet, the papers, the decision — but the facts
+            // over it are not: the office is told whose sheet it is, and the
+            // person whose sheet it is already knows that and is told who read
+            // it instead.
+            'isAuthor' => $request->user()->is($employee),
         ]);
     }
 
@@ -208,13 +287,21 @@ class SheetChangeRequestController extends Controller
 
         $employee = $sheetRequest->user;
 
-        $replaced = DB::transaction(function () use ($request, $sheetRequest, $employee) {
+        // Read before it is written, and kept. A second from now the card will
+        // say what the sheet says, and this same comparison would answer «без
+        // изменений» to every line of it — leaving whoever accepted the sheet,
+        // and the person who sent it, looking at a record of nothing. What was
+        // decided is what the card said at the moment of deciding.
+        $decided = SheetDiff::between($employee, $sheetRequest->payload ?? []);
+
+        $replaced = DB::transaction(function () use ($request, $sheetRequest, $employee, $decided) {
             $orphaned = SheetWriter::write($employee, $sheetRequest->payload ?? []);
 
             $sheetRequest->update([
                 'status' => SheetChangeRequest::ACCEPTED,
                 'reviewed_by' => $request->user()->id,
                 'reviewed_at' => now(),
+                'lines' => $decided,
                 // Nothing to say: the sheet is on the card, which is the answer.
                 'comment' => null,
             ]);
@@ -264,6 +351,13 @@ class SheetChangeRequestController extends Controller
             'comment' => $validated['comment'],
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now(),
+            // What was turned down, as it read when it was turned down. The
+            // card is left alone by a refusal, so this is the same comparison
+            // the page would make live today — but not the one it would make
+            // next month, after the office has corrected two of these lines
+            // themselves, and the refusal would then be a page about lines
+            // nobody ever asked to change.
+            'lines' => SheetDiff::between($sheetRequest->user, $sheetRequest->payload ?? []),
         ]);
 
         foreach ($sheetRequest->papers ?? [] as $path) {

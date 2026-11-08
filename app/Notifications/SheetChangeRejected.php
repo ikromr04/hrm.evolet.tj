@@ -57,9 +57,13 @@ class SheetChangeRejected extends Notification
             'body' => $comment === ''
                 ? 'Отдел кадров отклонил изменения в вашем личном листке.'
                 : "Отдел кадров отклонил изменения: {$comment}",
-            // The card, where the refusal is shown again beside the sheet and
-            // where the next request is sent from.
-            'url' => route('profile'),
+            // The request itself, where the refusal is read against what was
+            // asked for: the reason, who gave it, and every line of the sheet
+            // beside the card's own answer. The card says the same thing in one
+            // sentence over the sheet, and that is where the corrected listok is
+            // sent from — but somebody told «нет» is asking which line, and only
+            // this page answers that.
+            'url' => route('sheet_requests.show', $this->request),
             // The officer who answered, and not the person whose sheet it
             // is: this note goes to that person, and a list telling them their
             // own name would be telling them nothing. Null for a row answered

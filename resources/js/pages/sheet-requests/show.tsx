@@ -20,7 +20,7 @@ import { formatMoment } from '@/lib/equipment';
 import { plural } from '@/lib/plural';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import { Check, FileText, LoaderCircle, PencilLine, X } from 'lucide-react';
 import { useState, type FormEventHandler } from 'react';
 
@@ -35,6 +35,8 @@ interface SheetRequest {
     /** Why it was refused, where it was. */
     comment: string | null;
     employee: { id: number; name: string; number: string };
+    /** Who answered it, for the author's reading of the page. Null while nobody has. */
+    reviewer: { id: number; name: string } | null;
 }
 
 /**
@@ -115,8 +117,16 @@ const bodyCell = 'px-3 py-2.5 align-top break-words whitespace-pre-line';
  * page. «Было» over the left column would say the card has already changed, and
  * the office would be reading a record of something that has not happened.
  */
-const ON_FILE = 'Сейчас в карточке';
-const ASKED = 'Просят записать';
+const COLUMNS: Record<RequestStatus, { onFile: string; asked: string }> = {
+    pending: { onFile: 'Сейчас в карточке', asked: 'Просят записать' },
+    // And once it has been answered, the tense turns. The left column is no
+    // longer the card: it is the card as it stood when somebody decided, kept
+    // on the request because the card has moved since — an accepted sheet is
+    // written into it, line for line, and a page still saying «сейчас» over
+    // both columns would be showing the same words twice.
+    accepted: { onFile: 'Было в карточке', asked: 'Записано в карточку' },
+    rejected: { onFile: 'Было в карточке', asked: 'Просили записать' },
+};
 
 /**
  * The mark a differing line carries, in the first column before its title.
@@ -156,7 +166,9 @@ function Mark({ changed }: { changed: boolean }) {
  * tone per row cannot be faked from inside the cells: the padding between them
  * would stay untinted and the line would read as broken rather than as marked.
  */
-function Lines({ lines }: { lines: SheetLine[] }) {
+function Lines({ lines, status }: { lines: SheetLine[]; status: RequestStatus }) {
+    const { onFile, asked } = COLUMNS[status];
+
     return (
         <>
             {/* Columns as parts of the whole, so a long answer wraps inside its
@@ -174,8 +186,8 @@ function Lines({ lines }: { lines: SheetLine[] }) {
                     <TableHeader>
                         <TableRow className="bg-muted/40 hover:bg-muted/40">
                             <TableHead className={headCell}>Строка</TableHead>
-                            <TableHead className={headCell}>{ON_FILE}</TableHead>
-                            <TableHead className={headCell}>{ASKED}</TableHead>
+                            <TableHead className={headCell}>{onFile}</TableHead>
+                            <TableHead className={headCell}>{asked}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -220,11 +232,11 @@ function Lines({ lines }: { lines: SheetLine[] }) {
                             ) : (
                                 <dl className="mt-2 flex flex-col gap-2 pl-6">
                                     <div className="flex min-w-0 flex-col gap-0.5">
-                                        <dt className="text-muted-foreground text-xs">{ON_FILE}</dt>
+                                        <dt className="text-muted-foreground text-xs">{onFile}</dt>
                                         <dd className="text-muted-foreground text-sm break-words whitespace-pre-line">{line.was || '—'}</dd>
                                     </div>
                                     <div className="flex min-w-0 flex-col gap-0.5">
-                                        <dt className="text-muted-foreground text-xs">{ASKED}</dt>
+                                        <dt className="text-muted-foreground text-xs">{asked}</dt>
                                         <dd className="text-sm font-medium break-words whitespace-pre-line">{line.now || '—'}</dd>
                                     </div>
                                 </dl>
@@ -305,12 +317,15 @@ export default function SheetRequestShow({
     lines,
     papers,
     canReview,
+    isAuthor,
 }: {
     request: SheetRequest;
     lines: SheetLine[];
     papers: RequestPaper[];
     /** Whether this viewer is one of the people who answer these at all. */
     canReview: boolean;
+    /** Whether this is the reader's own sheet, which changes the facts over it. */
+    isAuthor: boolean;
 }) {
     const [refusing, setRefusing] = useState(false);
 
@@ -347,9 +362,7 @@ export default function SheetRequestShow({
             <Head title={`Личный листок · ${request.employee.name}`} />
 
             <PageContent>
-                <PageTitle subtitle="Отдел кадров отвечает за листок целиком: принять или отклонить можно только все строки разом.">
-                    Личный листок на проверку
-                </PageTitle>
+                <PageTitle>Личный листок на проверку</PageTitle>
 
                 <Panel
                     title="Заявка"
@@ -363,24 +376,52 @@ export default function SheetRequestShow({
                     {/* A label over its answer, in as many columns as fit — the
                         way every other block of a card writes its facts. */}
                     <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <div className="flex min-w-0 flex-col gap-1">
-                            <dt className="text-muted-foreground text-xs">Сотрудник</dt>
-                            <dd className="min-w-0 text-sm font-medium break-words">
-                                {/* Straight to the card the sheet would be
-                                    written into: the office reads the two beside
-                                    each other, and the name is the way across. */}
-                                <PersonLink id={request.employee.id} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
-                                    {request.employee.name}
-                                </PersonLink>
-                            </dd>
-                        </div>
+                        {/* Whose sheet it is, for whoever is not that person.
+                            The author arrives here from the bell to read what
+                            was said about their own listok: «Сотрудник — я» and
+                            their own works number are two facts they came in
+                            holding, and the name they came for is the other
+                            one. So the pair is swapped for the single line that
+                            answers them, and left out while nobody has answered
+                            — there is no one to name yet, and the badge over
+                            this block already says so. */}
+                        {isAuthor ? (
+                            request.reviewer !== null && (
+                                <div className="flex min-w-0 flex-col gap-1">
+                                    <dt className="text-muted-foreground text-xs">Разобрал</dt>
+                                    <dd className="min-w-0 text-sm font-medium break-words">
+                                        {/* A link only for whoever may open that
+                                            card — and this reader may not, so the
+                                            name stands as a name. PersonLink is
+                                            what knows the difference. */}
+                                        <PersonLink id={request.reviewer.id} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
+                                            {request.reviewer.name}
+                                        </PersonLink>
+                                    </dd>
+                                </div>
+                            )
+                        ) : (
+                            <>
+                                <div className="flex min-w-0 flex-col gap-1">
+                                    <dt className="text-muted-foreground text-xs">Сотрудник</dt>
+                                    <dd className="min-w-0 text-sm font-medium break-words">
+                                        {/* Straight to the card the sheet would be
+                                            written into: the office reads the two beside
+                                            each other, and the name is the way across. */}
+                                        <PersonLink id={request.employee.id} className="text-brand-strong hover:underline dark:text-[#C5E27A]">
+                                            {request.employee.name}
+                                        </PersonLink>
+                                    </dd>
+                                </div>
 
-                        <div className="flex min-w-0 flex-col gap-1">
-                            <dt className="text-muted-foreground text-xs">Табельный номер</dt>
-                            <dd className="min-w-0 text-sm font-medium break-words tabular-nums">
-                                {request.employee.number || <span className="text-muted-foreground font-normal">—</span>}
-                            </dd>
-                        </div>
+                                <div className="flex min-w-0 flex-col gap-1">
+                                    <dt className="text-muted-foreground text-xs">Табельный номер</dt>
+                                    <dd className="min-w-0 text-sm font-medium break-words tabular-nums">
+                                        {request.employee.number || <span className="text-muted-foreground font-normal">—</span>}
+                                    </dd>
+                                </div>
+                            </>
+                        )}
 
                         <div className="flex min-w-0 flex-col gap-1">
                             <dt className="text-muted-foreground text-xs">Отправлено</dt>
@@ -410,11 +451,13 @@ export default function SheetRequestShow({
                             // corrected everywhere except in the one line the
                             // office asked about. Better said than left for the
                             // reader to work out by reading forty rows.
-                            <span className="text-muted-foreground text-[13px]">Ни одна строка карточки не меняется</span>
+                            <span className="text-muted-foreground text-[13px]">
+                                {pending ? 'Ни одна строка карточки не меняется' : 'Ни одна строка карточки не изменилась'}
+                            </span>
                         )
                     }
                 >
-                    <Lines lines={lines} />
+                    <Lines lines={lines} status={request.status} />
                 </Panel>
 
                 {papers.length > 0 && (
@@ -469,6 +512,22 @@ export default function SheetRequestShow({
                             )}
                         </div>
                     )}
+
+                    {/* The way out of this page, which is the sheet itself.
+                        Whatever was decided, the next thing to do is on that
+                        tab: the author corrects what was sent back and sends it
+                        again, the office reads the card the sheet was written
+                        into. The tab rides in the hash, so the card opens on the
+                        listok rather than on «Профиль», and the address is the
+                        reader's own card or the employee's depending on which
+                        of the two is reading. */}
+                    <Link
+                        href={isAuthor ? `${route('profile')}#sheet` : `${route('employees.show', request.employee.id)}#sheet`}
+                        className="text-brand-strong mt-4 inline-flex items-center gap-1.5 text-sm underline-offset-4 hover:underline dark:text-[#C5E27A]"
+                    >
+                        <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+                        Открыть личный листок
+                    </Link>
                 </Panel>
             </PageContent>
 

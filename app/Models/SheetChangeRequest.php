@@ -25,6 +25,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * it arrives or it is lost. They are listed in «papers» as well as named inside
  * the payload: that list is what a refusal deletes, and deleting off a flat list
  * is work that cannot half-happen the way walking the payload could.
+ *
+ * «lines» is that reading, kept. While a request waits, the page works out what
+ * it asks for by comparing the payload with the card as it stands this second;
+ * once it has been answered that comparison is no longer available — accepting
+ * writes the sheet onto the card, and the card then agrees with the payload
+ * line for line. So the comparison is made at the decision and written down,
+ * and the page reads it where it is there. Null on a request still waiting, and
+ * on the rows answered before the column existed.
  */
 class SheetChangeRequest extends Model
 {
@@ -42,6 +50,7 @@ class SheetChangeRequest extends Model
         'status',
         'payload',
         'papers',
+        'lines',
         'comment',
         'reviewed_by',
         'reviewed_at',
@@ -52,6 +61,7 @@ class SheetChangeRequest extends Model
         return [
             'payload' => 'array',
             'papers' => 'array',
+            'lines' => 'array',
             'reviewed_at' => 'datetime',
         ];
     }

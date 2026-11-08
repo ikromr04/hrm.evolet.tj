@@ -102,12 +102,13 @@ import {
     Mail,
     Phone,
     Plus,
-    Send,
     Trash2,
+    TriangleAlert,
     Upload,
     type LucideIcon,
 } from 'lucide-react';
 import { createContext, useContext, useEffect, useRef, useState, type FormEventHandler, type ReactNode } from 'react';
+import { toast } from 'sonner';
 
 /** One line of the equipment journal, narrowed to this colleague's spells. */
 interface HistoryEvent {
@@ -1937,6 +1938,21 @@ function SheetTab({
     /** Whether there is anything on this sheet for this reader to answer at all. */
     const answerable = SHEET_FIELDS.some(answers);
 
+    /**
+     * A sheet with nothing typed on it cannot be sent.
+     *
+     * The office would otherwise be handed a page of «без изменений» to read
+     * line by line and a decision to make about nothing. The button says so by
+     * being spent rather than by refusing after the press — but the refusal is
+     * the server's all the same, because this can only compare the sheet with
+     * what the page was given, and the card may have been corrected by the
+     * office while this one was open.
+     */
+    const unchanged = submits && !form.isDirty;
+
+    /** Whether the one note this page sends is on its way, so it is not sent twice. */
+    const [asking, setAsking] = useState(false);
+
     return (
         <div className={paneGrid}>
             <div className={pane}>
@@ -1973,9 +1989,10 @@ function SheetTab({
                                     <Button
                                         type="button"
                                         variant="link"
-                                        disabled={form.processing}
+                                        disabled={form.processing || unchanged}
                                         onClick={save}
-                                        className="text-brand-strong h-auto gap-1.5 p-0 text-xs font-normal dark:text-[#C5E27A]"
+                                        title={unchanged ? 'В листке ничего не изменилось' : undefined}
+                                        className="text-brand-strong h-auto gap-1.5 p-0 text-xs font-normal disabled:opacity-50 dark:text-[#C5E27A]"
                                     >
                                         {form.processing && <LoaderCircle className="size-3.5 animate-spin" />}
                                         {/* What the button does, said in the word
@@ -2128,10 +2145,36 @@ function SheetTab({
                                                 {/* Asking the person to finish their own sheet, which is
                                                 the one thing to be done about a list of lines nobody
                                                 has answered — and the reason the list is here rather
-                                                than only in the parts themselves. */}
+                                                than only in the parts themselves.
+
+                                                What is missing is not sent with the press: the server
+                                                reads the card again, and reads it as the person being
+                                                asked would — this reader may be short of the right to
+                                                see half the lines they are asking about. */}
                                                 {!ownCardOnly && (
                                                     <Button
                                                         variant="link"
+                                                        disabled={asking}
+                                                        onClick={() =>
+                                                            router.post(
+                                                                route('employees.sheet.ask', employee.id),
+                                                                {},
+                                                                {
+                                                                    preserveScroll: true,
+                                                                    onStart: () => setAsking(true),
+                                                                    onFinish: () => setAsking(false),
+                                                                    // Nothing on the page changes when a note
+                                                                    // is sent — the lines are still short, the
+                                                                    // list still says so — so the press would
+                                                                    // otherwise look like nothing happened and
+                                                                    // be made a second and a third time.
+                                                                    onSuccess: () =>
+                                                                        toast.success('Запрос отправлен', {
+                                                                            description: `${employee.surname} ${employee.name} получит уведомление с просьбой заполнить личный листок.`,
+                                                                        }),
+                                                                },
+                                                            )
+                                                        }
                                                         className="text-brand-strong h-auto shrink-0 p-0 text-xs font-normal dark:text-[#C5E27A]"
                                                     >
                                                         Запросить
@@ -2247,8 +2290,16 @@ function SheetTab({
                                                 and the sheet they are filling in is going to
                                                 be read by a person. */}
                                                   {editing && (
+                                                      // In amber, and marked with the sign amber is
+                                                      // read by: somebody is about to type out forty
+                                                      // lines believing they are correcting their
+                                                      // card, and they are not — the card will not
+                                                      // move until a person in personnel says so.
+                                                      // That is the one thing on this page worth
+                                                      // stopping at, and a callout the colour of the
+                                                      // page is one that is read after the typing.
                                                       <Alert variant="warning">
-                                                          <Send />
+                                                          <TriangleAlert />
                                                           <AlertTitle>Изменения уходят на проверку</AlertTitle>
                                                           <AlertDescription>
                                                               Заполненный листок отправляется в отдел кадров. Карточка изменится только после того,
@@ -2297,25 +2348,37 @@ function SheetTab({
                                                   )}
                                               </div>
                                           )
-                                        : // And for whoever reads somebody else's card: one
-                                          // line. The request itself is a page of its own,
-                                          // where every line of the sheet is laid beside what
-                                          // the card says now and the two buttons that settle
-                                          // it are — none of which belongs in a block that
-                                          // exists to show the card as it stands.
+                                        : // And for whoever reads somebody else's card: a
+                                          // callout saying there is a sheet waiting, and the
+                                          // way to it. Said in amber because it is work with
+                                          // somebody at the other end of it — the card in
+                                          // front of them is not the card this person is
+                                          // asking for, and until the request is answered
+                                          // every line of it is a line that may be about to
+                                          // change. The request itself stays a page of its
+                                          // own: every line laid beside what the card says
+                                          // now, and the two buttons that settle it, none of
+                                          // which belongs in a block that shows the card as
+                                          // it stands.
                                           sheetRequest && (
-                                              <p className="text-muted-foreground text-[13px] print:hidden">
-                                                  {sheetRequest.status === 'pending'
-                                                      ? 'Сотрудник отправил изменения листка на проверку'
-                                                      : 'Изменения листка отклонены и ждут исправления'}
-                                                  {' — '}
-                                                  <Link
-                                                      href={route('sheet_requests.show', sheetRequest.id)}
-                                                      className="text-brand-strong hover:underline dark:text-[#C5E27A]"
-                                                  >
-                                                      открыть заявку
-                                                  </Link>
-                                              </p>
+                                              <Alert variant="warning" className="print:hidden">
+                                                  <TriangleAlert />
+                                                  <AlertTitle className="font-normal">
+                                                      {sheetRequest.status === 'pending'
+                                                          ? 'Сотрудник отправил изменения листка на проверку'
+                                                          : 'Изменения листка отклонены и ждут исправления'}
+                                                      {' — '}
+                                                      {/* In the callout's own colour: a green
+                                                          link on an amber ground reads as a
+                                                          piece of another page. */}
+                                                      <Link
+                                                          href={route('sheet_requests.show', sheetRequest.id)}
+                                                          className="font-medium underline underline-offset-4"
+                                                      >
+                                                          открыть заявку
+                                                      </Link>
+                                                  </AlertTitle>
+                                              </Alert>
                                           )}
 
                                     {drawn.map(draw)}
@@ -2341,7 +2404,11 @@ function SheetTab({
                                 nobody touched. */}
                             {form.hasErrors && (
                                 <p className="text-destructive min-w-0 flex-1 text-[13px]">
-                                    {submits ? 'Листок не отправлен' : 'Листок не сохранён'}: части, где нужен ответ, отмечены.
+                                    {/* The complaint about the sheet as a whole
+                                        says itself: «части отмечены» would be
+                                        pointing at marks nobody has made. */}
+                                    {(form.errors as Record<string, string | undefined>).sheet ??
+                                        `${submits ? 'Листок не отправлен' : 'Листок не сохранён'}: части, где нужен ответ, отмечены.`}
                                 </p>
                             )}
 
@@ -2355,7 +2422,13 @@ function SheetTab({
                                 >
                                     Отмена
                                 </Button>
-                                <Button type="button" className="max-md:h-11" disabled={form.processing} onClick={save}>
+                                <Button
+                                    type="button"
+                                    className="max-md:h-11"
+                                    disabled={form.processing || unchanged}
+                                    title={unchanged ? 'В листке ничего не изменилось' : undefined}
+                                    onClick={save}
+                                >
                                     {form.processing && <LoaderCircle className="animate-spin" />}
                                     {/* The same word as in the strip above: the two
                                         buttons are one button in two places, and

@@ -11,6 +11,7 @@ use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -273,6 +274,96 @@ class SheetChangeRequestTest extends TestCase
      * taking the form's word for what changed, and would leave the other
      * twenty-odd lines to be written weeks later from nowhere at all.
      */
+    /**
+     * A sheet that asks for nothing is not sent.
+     *
+     * The office would otherwise be handed a page of «без изменений» to read
+     * line by line and a decision to make about nothing, and the person who
+     * sent it would be waiting on an answer to a question they never asked.
+     *
+     * Refused here and not only greyed out in the page, because the page can
+     * only compare the sheet with what it was handed: the card may have been
+     * corrected by the office while this one was open, and then the one thing
+     * that was typed into it is already there.
+     */
+    public function test_a_sheet_that_changes_nothing_is_not_filed()
+    {
+        $author = $this->author();
+
+        // Accepted once, so the card now says exactly what this sheet says.
+        //
+        // Without the lists, which a form does not send twice the same way: the
+        // page is rebuilt from the card after a request is accepted, so a row
+        // that was written goes back carrying the id it was given, while this
+        // fixture names no ids at all. A sheet sent without them asks for those
+        // rows to be replaced, which is a change — and a real one, since the
+        // papers hanging off them would go with the rows.
+        $sheet = $this->sheet([
+            'has_educations' => false,
+            'educations' => [],
+            'has_experience' => false,
+            'experiences' => [],
+            'has_degrees' => false,
+            'degrees' => [],
+            'has_awards' => false,
+            'awards' => [],
+            'has_military_records' => false,
+            'military_records' => [],
+            'has_children' => false,
+            'children' => [],
+            'relatives' => [],
+        ]);
+
+        $this->actingAs($author)->post('/profile/sheet/request', $sheet)->assertSessionHasNoErrors();
+
+        $filed = SheetChangeRequest::query()->where('user_id', $author->id)->latest('id')->firstOrFail();
+
+        $this->actingAs($this->sysadmin())
+            ->post("/sheet-requests/{$filed->id}/accept")
+            ->assertSessionHasNoErrors();
+
+        // And sent again, unchanged.
+        //
+        // Signed in as the card as it now stands: `actingAs` holds on to the
+        // very model it is handed, and this one has been in memory since before
+        // the office wrote the sheet onto it. A real second visit reads the
+        // account from the database, which is what refreshing it here is.
+        $this->actingAs($author->fresh())
+            ->post('/profile/sheet/request', $sheet)
+            ->assertSessionHasErrors('sheet');
+
+        // Nothing was filed, and the request already answered is left as it was.
+        $this->assertSame(1, SheetChangeRequest::query()->where('user_id', $author->id)->count());
+        $this->assertSame(SheetChangeRequest::ACCEPTED, $filed->refresh()->status);
+        $this->assertSame(0, SheetChangeRequest::query()->pending()->count());
+    }
+
+    /**
+     * And a sheet that asks for one thing is, however small the thing.
+     *
+     * The guard above has to be the diff and not «did the form post anything»:
+     * one corrected telephone number is a request, and a refusal that caught it
+     * would be worse than no guard at all.
+     */
+    public function test_a_sheet_that_changes_one_line_is_filed()
+    {
+        $author = $this->author();
+
+        $filed = $this->sent($author);
+
+        $this->actingAs($this->sysadmin())
+            ->post("/sheet-requests/{$filed->id}/accept")
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($author)
+            ->post('/profile/sheet/request', $this->sheet(['birth_place' => 'г. Куляб']))
+            ->assertSessionHasNoErrors()
+            ->assertRedirect();
+
+        $again = SheetChangeRequest::query()->where('user_id', $author->id)->pending()->sole();
+        $this->assertSame('г. Куляб', $again->payload['birth_place']);
+    }
+
     public function test_a_sheet_sent_in_writes_nothing_to_the_card_and_is_filed_whole()
     {
         $author = $this->author();
@@ -396,6 +487,9 @@ class SheetChangeRequestTest extends TestCase
                 ->where('request.id', $filed->id)
                 ->where('request.status', SheetChangeRequest::PENDING)
                 ->where('canReview', false)
+                // Their own page, and nobody has answered it yet.
+                ->where('isAuthor', true)
+                ->where('request.reviewer', null)
             );
 
         $this->actingAs($author)->post("/sheet-requests/{$filed->id}/accept")->assertForbidden();
@@ -412,6 +506,7 @@ class SheetChangeRequestTest extends TestCase
                 ->assertInertia(fn (AssertableInertia $page) => $page
                     ->component('sheet-requests/show')
                     ->where('canReview', true)
+                    ->where('isAuthor', false)
                     ->where('request.employee.id', $author->id)
                 );
         }
@@ -420,6 +515,147 @@ class SheetChangeRequestTest extends TestCase
         $this->assertSame(SheetChangeRequest::PENDING, $filed->refresh()->status);
         $this->assertNull($filed->reviewed_by);
         $this->assertSame('Рахимова', $author->refresh()->surname);
+    }
+
+    /**
+     * Opening a request reads the note that is about it.
+     *
+     * The bell marks a row read when it is pressed, and that is one way in out
+     * of several: the card carries a callout straight to a waiting sheet, the
+     * breadcrumb comes back here, an address can be kept. A note still bold
+     * after its own page has been read is a list counting the same work twice.
+     *
+     * Each reader's own, which is the half worth pinning: two people in the
+     * office are sent the same sheet, and one of them opening it does not
+     * answer it for the other.
+     */
+    public function test_opening_a_request_reads_the_note_about_it()
+    {
+        $author = $this->author();
+        $officer = $this->personnel();
+        $second = $this->sysadmin();
+        $filed = $this->sent($author);
+
+        $this->assertSame(1, $officer->unreadNotifications()->count());
+        $this->assertSame(1, $second->unreadNotifications()->count());
+
+        $this->actingAs($officer)->get("/sheet-requests/{$filed->id}")->assertOk();
+
+        $this->assertSame(0, $officer->unreadNotifications()->count());
+        // The other half of the office still has it waiting: reading is not
+        // answering, and the sheet is as unanswered as it was.
+        $this->assertSame(1, $second->unreadNotifications()->count());
+
+        // And the author's own note about the answer, the same way.
+        $this->actingAs($second)
+            ->post("/sheet-requests/{$filed->id}/reject", ['comment' => 'ИНН из девяти цифр, проверьте.'])
+            ->assertRedirect();
+
+        $this->assertSame(1, $author->unreadNotifications()->count());
+
+        $this->actingAs($author)->get("/sheet-requests/{$filed->id}")->assertOk();
+
+        $this->assertSame(0, $author->unreadNotifications()->count());
+    }
+
+    /**
+     * An accepted request still says what it changed.
+     *
+     * The page works the differences out by comparing the sheet with the card,
+     * and accepting puts the sheet onto the card — so a second later that
+     * comparison answers «без изменений» to every line, and whoever accepted it
+     * is looking at a record of nothing. The comparison is therefore made at
+     * the decision and kept on the row, and the page reads what was kept.
+     *
+     * Pinned from both ends: the row holds the changed line with the card's old
+     * answer beside the new one, and the page hands the office the same thing
+     * after the card has moved underneath it.
+     */
+    public function test_an_accepted_request_remembers_what_it_changed()
+    {
+        $author = $this->author();
+        $officer = $this->sysadmin();
+        $filed = $this->sent($author, ['home_address' => 'г. Худжанд, ул. Ленина 1']);
+
+        $was = $author->details?->home_address;
+        $this->assertNotSame('г. Худжанд, ул. Ленина 1', $was);
+
+        $this->actingAs($officer)->post("/sheet-requests/{$filed->id}/accept")->assertRedirect();
+
+        // The card has moved: the live comparison would now say nothing changed.
+        $this->assertSame('г. Худжанд, ул. Ленина 1', $author->refresh()->details->home_address);
+        $this->assertTrue(
+            collect(SheetDiff::between($author->fresh(), $filed->fresh()->payload))->doesntContain('changed', true),
+        );
+
+        $line = collect($filed->fresh()->lines)->firstWhere('key', 'home_address');
+
+        $this->assertTrue($line['changed']);
+        // A dash and not an empty string: the card had no address, and that is
+        // how SheetDiff writes a line nobody has answered.
+        $this->assertSame('—', $line['was']);
+        $this->assertSame('г. Худжанд, ул. Ленина 1', $line['now']);
+
+        // And the page says the same, reading what was kept rather than the
+        // card as it stands now.
+        $this->actingAs($officer)
+            ->get("/sheet-requests/{$filed->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('sheet-requests/show')
+                ->where('request.status', SheetChangeRequest::ACCEPTED)
+                ->where(
+                    'lines',
+                    fn (Collection $lines) => $lines->firstWhere('key', 'home_address')['now'] === 'г. Худжанд, ул. Ленина 1'
+                        && $lines->firstWhere('key', 'home_address')['changed'] === true,
+                )
+            );
+    }
+
+    /**
+     * One page, two readings: the office is told whose sheet it is, the author
+     * is told who read it.
+     *
+     * The author comes here from the bell, having been told «нет». «Сотрудник —
+     * Рахимова Мадина Акбаровна» over their own listok is a fact they arrived
+     * holding, and the one they came for is the name of whoever decided. So the
+     * page hands over both and says which reader this is; the facts over the
+     * sheet are chosen in the browser, because the sheet under them, the papers
+     * and the decision are the same for the pair of them and a second page
+     * would be the copy that stops matching.
+     */
+    public function test_the_author_is_told_who_answered_and_the_office_whose_sheet_it_is()
+    {
+        $author = $this->author();
+        $officer = $this->personnel();
+        $filed = $this->sent($author);
+
+        $this->actingAs($officer)
+            ->post("/sheet-requests/{$filed->id}/reject", ['comment' => 'ИНН из девяти цифр, проверьте.'])
+            ->assertRedirect();
+
+        $this->actingAs($author)
+            ->get("/sheet-requests/{$filed->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('sheet-requests/show')
+                ->where('isAuthor', true)
+                ->where('request.reviewer.id', $officer->id)
+                // In full, the way the sheet names anybody it is signed off by.
+                ->where('request.reviewer.name', trim("{$officer->surname} {$officer->name} {$officer->patronymic}"))
+                // And the whole of it is still here to be read against the
+                // refusal: the reason, and every line it was given about.
+                ->where('request.comment', 'ИНН из девяти цифр, проверьте.')
+            );
+
+        $this->actingAs($officer)
+            ->get("/sheet-requests/{$filed->id}")
+            ->assertOk()
+            ->assertInertia(fn (AssertableInertia $page) => $page
+                ->component('sheet-requests/show')
+                ->where('isAuthor', false)
+                ->where('request.employee.id', $author->id)
+            );
     }
 
     /**
@@ -708,6 +944,51 @@ class SheetChangeRequestTest extends TestCase
     }
 
     /**
+     * And it takes the note about the first one out of the office's bell.
+     *
+     * The row and its papers were already going; the note was not, and a note
+     * is how this whole thing is read. Two lines about one person's listok, one
+     * of them opening on a request that is no longer there, is a bell the
+     * office has to work out before it can do the work — and the only sheet
+     * worth opening is the one that is still waiting.
+     *
+     * A decision already taken is left where it is. The note saying a sheet was
+     * sent back is not a pointer at work to be done but a record of something
+     * that happened, and the person it was sent to keeps it however many sheets
+     * are sent afterwards.
+     */
+    public function test_a_second_sending_takes_the_first_note_out_of_the_bell()
+    {
+        $author = $this->author();
+        $officer = $this->personnel();
+
+        $first = $this->sent($author);
+
+        $this->assertSame($first->id, $officer->notifications()->sole()->data['request_id']);
+
+        $second = $this->sent($author, ['home_address' => 'г. Худжанд, ул. Ленина 1']);
+
+        // One line in the bell, and it is the sheet that is actually waiting.
+        $note = $officer->notifications()->sole();
+        $this->assertSame($second->id, $note->data['request_id']);
+        $this->assertSame('sheet_request', $note->data['kind']);
+
+        // Now answer it, and send a third. The office's own bell is cleared of
+        // the request that went, and the author keeps the answer they were
+        // given about the one before it.
+        $this->actingAs($officer)
+            ->post("/sheet-requests/{$second->id}/reject", ['comment' => 'ИНН из девяти цифр, проверьте.'])
+            ->assertRedirect();
+
+        $refusal = $author->notifications()->sole();
+
+        $this->sent($author, ['home_address' => 'г. Худжанд, ул. Ленина 2']);
+
+        $this->assertNotNull($refusal->fresh());
+        $this->assertSame($second->id, $author->notifications()->sole()->data['request_id']);
+    }
+
+    /**
      * A request that has been answered is not answered a second time.
      *
      * Two people in the office open the same sheet, and the second presses
@@ -815,7 +1096,9 @@ class SheetChangeRequestTest extends TestCase
         $note = $author->notifications()->sole();
         $this->assertSame('sheet_request_accepted', $note->data['kind']);
         $this->assertSame('Личный листок принят', $note->data['title']);
-        $this->assertSame(route('profile'), $note->data['url']);
+        // The request itself, as a refusal's note leads to it: the sheet that
+        // was sent, beside the name of whoever agreed to it.
+        $this->assertSame(route('sheet_requests.show', $filed), $note->data['url']);
         $this->assertSame($filed->id, $note->data['request_id']);
 
         // The office is told nothing about its own decision.
@@ -838,6 +1121,9 @@ class SheetChangeRequestTest extends TestCase
         $this->assertSame('sheet_request_rejected', $note->data['kind']);
         $this->assertSame('Личный листок отклонён', $note->data['title']);
         $this->assertStringContainsString('ИНН из девяти цифр, проверьте.', $note->data['body']);
+        // The request itself, which the author may read: the reason beside the
+        // lines it is about, rather than the one sentence their card carries.
+        $this->assertSame(route('sheet_requests.show', $refused), $note->data['url']);
         $this->assertSame($refused->id, $note->data['request_id']);
         $this->assertSame(2, $author->notifications()->count());
     }
