@@ -724,10 +724,11 @@ export function DataTable<Row>({
                                                 (column.head ?? <span className="truncate">{column.label}</span>)
                                             )}
 
-                                            <div data-head-controls className="ml-auto flex shrink-0 items-center gap-0.5">
-                                                {reorderable && (
-                                                    <Hint label="Перетащите, чтобы изменить порядок">
-                                                        {/* A grip of its own, rather than the whole header: the
+                                            {!column.bare && (
+                                                <div data-head-controls className="ml-auto flex shrink-0 items-center gap-0.5">
+                                                    {reorderable && (
+                                                        <Hint label="Перетащите, чтобы изменить порядок">
+                                                            {/* A grip of its own, rather than the whole header: the
                                                             label beside it is the button that sorts, and a press
                                                             that might turn into a drag would make every sort and
                                                             every menu a gamble. It is draggable from the moment it
@@ -735,163 +736,169 @@ export function DataTable<Row>({
                                                             a drag as the press happens and would already have said
                                                             no. Nothing here for a keyboard or a screen reader —
                                                             the menu beside it moves a column in words. */}
-                                                        <span
-                                                            draggable
-                                                            onDragStart={(event) => {
-                                                                // Firefox begins no drag at all with an empty clipboard.
-                                                                event.dataTransfer.setData('text/plain', column.key);
-                                                                event.dataTransfer.effectAllowed = 'move';
-                                                                const cell = cells.current.get(column.key);
-                                                                // The whole header travels with the cursor, not the grip alone.
-                                                                if (cell) event.dataTransfer.setDragImage(cell, 24, 16);
-                                                                setDragged(column.key);
-                                                            }}
-                                                            onDragEnd={clearDrag}
-                                                            aria-hidden="true"
-                                                            className="hover:bg-accent hover:text-foreground cursor-grab rounded p-1 opacity-0 group-hover/header:opacity-50 hover:opacity-100 active:cursor-grabbing"
-                                                        >
-                                                            <GripVertical className="size-3.5" />
-                                                        </span>
-                                                    </Hint>
-                                                )}
-
-                                                {column.filter && canFilter(column) && (
-                                                    <ColumnFilter column={column} filters={filters} onApply={onFilter} wide={wideFilter?.(column)} />
-                                                )}
-
-                                                <DropdownMenu>
-                                                    <Hint label={canSort ? 'Сортировка и вид колонки' : 'Вид колонки'}>
-                                                        <DropdownMenuTrigger asChild>
-                                                            <button
-                                                                type="button"
-                                                                aria-label={`Действия с колонкой: ${column.label}`}
-                                                                className={cn(
-                                                                    'hover:bg-accent hover:text-foreground rounded p-1 transition-opacity',
-                                                                    'opacity-0 group-hover/header:opacity-50 hover:opacity-100',
-                                                                    // Open, it stays: the menu itself is
-                                                                    // drawn elsewhere on the page, so the
-                                                                    // heading is no longer under the
-                                                                    // cursor while it is being read.
-                                                                    'focus-visible:opacity-100 data-[state=open]:opacity-100',
-                                                                )}
+                                                            <span
+                                                                draggable
+                                                                onDragStart={(event) => {
+                                                                    // Firefox begins no drag at all with an empty clipboard.
+                                                                    event.dataTransfer.setData('text/plain', column.key);
+                                                                    event.dataTransfer.effectAllowed = 'move';
+                                                                    const cell = cells.current.get(column.key);
+                                                                    // The whole header travels with the cursor, not the grip alone.
+                                                                    if (cell) event.dataTransfer.setDragImage(cell, 24, 16);
+                                                                    setDragged(column.key);
+                                                                }}
+                                                                onDragEnd={clearDrag}
+                                                                aria-hidden="true"
+                                                                className="hover:bg-accent hover:text-foreground cursor-grab rounded p-1 opacity-0 group-hover/header:opacity-50 hover:opacity-100 active:cursor-grabbing"
                                                             >
-                                                                <EllipsisVertical className="size-3.5" />
-                                                            </button>
-                                                        </DropdownMenuTrigger>
-                                                    </Hint>
-                                                    <DropdownMenuContent align="end" className="w-52">
-                                                        {canSort && (
-                                                            <>
-                                                                <DropdownMenuItem onSelect={() => onSort(column.key, 'asc')}>
-                                                                    <ArrowUp />
-                                                                    По возрастанию
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem onSelect={() => onSort(column.key, 'desc')}>
-                                                                    <ArrowDown />
-                                                                    По убыванию
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuSeparator />
-                                                            </>
-                                                        )}
+                                                                <GripVertical className="size-3.5" />
+                                                            </span>
+                                                        </Hint>
+                                                    )}
 
-                                                        {/* The grip's move in words: the way a keyboard and a
+                                                    {column.filter && canFilter(column) && (
+                                                        <ColumnFilter
+                                                            column={column}
+                                                            filters={filters}
+                                                            onApply={onFilter}
+                                                            wide={wideFilter?.(column)}
+                                                        />
+                                                    )}
+
+                                                    <DropdownMenu>
+                                                        <Hint label={canSort ? 'Сортировка и вид колонки' : 'Вид колонки'}>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <button
+                                                                    type="button"
+                                                                    aria-label={`Действия с колонкой: ${column.label}`}
+                                                                    className={cn(
+                                                                        'hover:bg-accent hover:text-foreground rounded p-1 transition-opacity',
+                                                                        'opacity-0 group-hover/header:opacity-50 hover:opacity-100',
+                                                                        // Open, it stays: the menu itself is
+                                                                        // drawn elsewhere on the page, so the
+                                                                        // heading is no longer under the
+                                                                        // cursor while it is being read.
+                                                                        'focus-visible:opacity-100 data-[state=open]:opacity-100',
+                                                                    )}
+                                                                >
+                                                                    <EllipsisVertical className="size-3.5" />
+                                                                </button>
+                                                            </DropdownMenuTrigger>
+                                                        </Hint>
+                                                        <DropdownMenuContent align="end" className="w-52">
+                                                            {canSort && (
+                                                                <>
+                                                                    <DropdownMenuItem onSelect={() => onSort(column.key, 'asc')}>
+                                                                        <ArrowUp />
+                                                                        По возрастанию
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem onSelect={() => onSort(column.key, 'desc')}>
+                                                                        <ArrowDown />
+                                                                        По убыванию
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuSeparator />
+                                                                </>
+                                                            )}
+
+                                                            {/* The grip's move in words: the way a keyboard and a
                                                             screen reader have of putting a column elsewhere,
                                                             kept beside the pins because it is the same kind of
                                                             question about where a column stands. */}
-                                                        {reorderable && (
-                                                            <>
-                                                                {([-1, 1] as const).map((by) => {
-                                                                    const beside = neighbour(column, by);
+                                                            {reorderable && (
+                                                                <>
+                                                                    {([-1, 1] as const).map((by) => {
+                                                                        const beside = neighbour(column, by);
 
-                                                                    return (
-                                                                        <DropdownMenuItem
-                                                                            key={by}
-                                                                            disabled={!beside}
-                                                                            onSelect={() =>
-                                                                                beside &&
-                                                                                onReorder?.(column.key, beside.key, by < 0 ? 'before' : 'after')
-                                                                            }
-                                                                        >
-                                                                            {by < 0 ? <ArrowLeft /> : <ArrowRight />}
-                                                                            {by < 0 ? 'Переместить влево' : 'Переместить вправо'}
-                                                                        </DropdownMenuItem>
-                                                                    );
-                                                                })}
-                                                                <DropdownMenuSeparator />
-                                                            </>
-                                                        )}
+                                                                        return (
+                                                                            <DropdownMenuItem
+                                                                                key={by}
+                                                                                disabled={!beside}
+                                                                                onSelect={() =>
+                                                                                    beside &&
+                                                                                    onReorder?.(column.key, beside.key, by < 0 ? 'before' : 'after')
+                                                                                }
+                                                                            >
+                                                                                {by < 0 ? <ArrowLeft /> : <ArrowRight />}
+                                                                                {by < 0 ? 'Переместить влево' : 'Переместить вправо'}
+                                                                            </DropdownMenuItem>
+                                                                        );
+                                                                    })}
+                                                                    <DropdownMenuSeparator />
+                                                                </>
+                                                            )}
 
-                                                        {/* The drag of an edge in words, for anyone
+                                                            {/* The drag of an edge in words, for anyone
                                                             not dragging a mouse — and the way back
                                                             for a column dragged too far. The menu
                                                             is held open on a press, because a width
                                                             is arrived at by stepping: closing it
                                                             would make every further step a matter
                                                             of finding the menu again. */}
-                                                        {view.resize && (
-                                                            <>
-                                                                <DropdownMenuItem
-                                                                    disabled={drawnWidth(column) >= MAX_COLUMN_WIDTH}
-                                                                    onSelect={(event) => {
-                                                                        event.preventDefault();
-                                                                        view.resize?.(column.key, drawnWidth(column) + WIDTH_STEP);
-                                                                    }}
-                                                                >
-                                                                    <ChevronsLeftRight />
-                                                                    Шире
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem
-                                                                    disabled={drawnWidth(column) <= MIN_COLUMN_WIDTH}
-                                                                    onSelect={(event) => {
-                                                                        event.preventDefault();
-                                                                        view.resize?.(column.key, drawnWidth(column) - WIDTH_STEP);
-                                                                    }}
-                                                                >
-                                                                    <ChevronsRightLeft />
-                                                                    Уже
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem
-                                                                    disabled={!isResized(column)}
-                                                                    onSelect={() => view.resize?.(column.key, null)}
-                                                                >
-                                                                    <RotateCcw />
-                                                                    Ширина по умолчанию
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuSeparator />
-                                                            </>
-                                                        )}
+                                                            {view.resize && (
+                                                                <>
+                                                                    <DropdownMenuItem
+                                                                        disabled={drawnWidth(column) >= MAX_COLUMN_WIDTH}
+                                                                        onSelect={(event) => {
+                                                                            event.preventDefault();
+                                                                            view.resize?.(column.key, drawnWidth(column) + WIDTH_STEP);
+                                                                        }}
+                                                                    >
+                                                                        <ChevronsLeftRight />
+                                                                        Шире
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem
+                                                                        disabled={drawnWidth(column) <= MIN_COLUMN_WIDTH}
+                                                                        onSelect={(event) => {
+                                                                            event.preventDefault();
+                                                                            view.resize?.(column.key, drawnWidth(column) - WIDTH_STEP);
+                                                                        }}
+                                                                    >
+                                                                        <ChevronsRightLeft />
+                                                                        Уже
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem
+                                                                        disabled={!isResized(column)}
+                                                                        onSelect={() => view.resize?.(column.key, null)}
+                                                                    >
+                                                                        <RotateCcw />
+                                                                        Ширина по умолчанию
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuSeparator />
+                                                                </>
+                                                            )}
 
-                                                        <DropdownMenuRadioGroup
-                                                            value={side ?? 'none'}
-                                                            onValueChange={(value) =>
-                                                                onPin(column.key, value === 'none' ? null : (value as 'left' | 'right'))
-                                                            }
-                                                        >
-                                                            <DropdownMenuRadioItem value="left">
-                                                                <Pin className="size-4 -rotate-45" />
-                                                                Закрепить слева
-                                                            </DropdownMenuRadioItem>
-                                                            <DropdownMenuRadioItem value="right">
-                                                                <Pin className="size-4 rotate-45" />
-                                                                Закрепить справа
-                                                            </DropdownMenuRadioItem>
-                                                            <DropdownMenuRadioItem value="none">
-                                                                <PinOff className="size-4" />
-                                                                Не закреплять
-                                                            </DropdownMenuRadioItem>
-                                                        </DropdownMenuRadioGroup>
-                                                        {onHide && column.key !== lockedKey && (
-                                                            <>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuItem onSelect={() => onHide(column.key)}>
-                                                                    <EyeOff />
-                                                                    Скрыть колонку
-                                                                </DropdownMenuItem>
-                                                            </>
-                                                        )}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </div>
+                                                            <DropdownMenuRadioGroup
+                                                                value={side ?? 'none'}
+                                                                onValueChange={(value) =>
+                                                                    onPin(column.key, value === 'none' ? null : (value as 'left' | 'right'))
+                                                                }
+                                                            >
+                                                                <DropdownMenuRadioItem value="left">
+                                                                    <Pin className="size-4 -rotate-45" />
+                                                                    Закрепить слева
+                                                                </DropdownMenuRadioItem>
+                                                                <DropdownMenuRadioItem value="right">
+                                                                    <Pin className="size-4 rotate-45" />
+                                                                    Закрепить справа
+                                                                </DropdownMenuRadioItem>
+                                                                <DropdownMenuRadioItem value="none">
+                                                                    <PinOff className="size-4" />
+                                                                    Не закреплять
+                                                                </DropdownMenuRadioItem>
+                                                            </DropdownMenuRadioGroup>
+                                                            {onHide && column.key !== lockedKey && (
+                                                                <>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem onSelect={() => onHide(column.key)}>
+                                                                        <EyeOff />
+                                                                        Скрыть колонку
+                                                                    </DropdownMenuItem>
+                                                                </>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* The width, dragged. The handle is the column's own

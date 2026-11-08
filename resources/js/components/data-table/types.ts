@@ -44,6 +44,16 @@ export interface ColumnDef {
      */
     head?: ReactNode;
     /**
+     * Whether the head carries no controls at all — no grip, no funnel, no menu.
+     *
+     * For a column that has nothing to offer them: the box that ticks a row is
+     * not sorted, not filtered, not hidden and not worth moving, and four signs
+     * appearing over it on hover are four offers that lead nowhere. Every other
+     * column is better off with them, which is why this is said one column at a
+     * time rather than worked out from the column being locked.
+     */
+    bare?: boolean;
+    /**
      * How wide the column is drawn, in pixels, until a viewer drags its edge:
      * the page's own answer, and the one a reset and the column's menu come
      * back to.
